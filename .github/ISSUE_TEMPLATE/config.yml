@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: PiKVM
+    url: https://pikvm.org
+    about: Issues related to PiKVM hardware or firmware should be reported there.
