@@ -22,7 +22,7 @@ from aiopikvm.models.streamer import (
 )
 from aiopikvm.models.switch import EDID, SwitchPort, SwitchState
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "EDID",
