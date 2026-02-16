@@ -24,6 +24,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/kudato/aiopikvm"
 Repository = "https://github.com/kudato/aiopikvm"
+Documentation = "https://kudato.github.io/aiopikvm"
 
 [build-system]
 requires = ["hatchling"]
@@ -33,6 +34,11 @@ build-backend = "hatchling.build"
 packages = ["src/aiopikvm"]
 
 [dependency-groups]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.27",
+]
 dev = [
     "mypy>=1.15",
     "pytest>=8.3",

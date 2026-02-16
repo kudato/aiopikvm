@@ -1,0 +1,90 @@
+site_name: aiopikvm
+site_url: https://kudato.github.io/aiopikvm
+site_description: Async Python client for PiKVM API
+repo_name: kudato/aiopikvm
+repo_url: https://github.com/kudato/aiopikvm
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: deep purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            members_order: source
+            heading_level: 2
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+  - attr_list
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quickstart.md
+      - Configuration: getting-started/configuration.md
+  - User Guide:
+      - ATX Power Control: guide/atx.md
+      - HID Keyboard & Mouse: guide/hid.md
+      - Mass Storage (MSD): guide/msd.md
+      - GPIO Channels: guide/gpio.md
+      - Streamer & OCR: guide/streamer.md
+      - KVM Switch: guide/switch.md
+      - Redfish BMC: guide/redfish.md
+      - Prometheus Metrics: guide/prometheus.md
+      - WebSocket: guide/websocket.md
+      - Error Handling: guide/error-handling.md
+  - API Reference:
+      - PiKVM Client: reference/client.md
+      - WebSocket: reference/ws.md
+      - Models: reference/models.md
+      - Exceptions: reference/exceptions.md
+      - Resources:
+          - AuthResource: reference/resources/auth.md
+          - ATXResource: reference/resources/atx.md
+          - HIDResource: reference/resources/hid.md
+          - MSDResource: reference/resources/msd.md
+          - GPIOResource: reference/resources/gpio.md
+          - StreamerResource: reference/resources/streamer.md
+          - SwitchResource: reference/resources/switch.md
+          - RedfishResource: reference/resources/redfish.md
+          - PrometheusResource: reference/resources/prometheus.md
