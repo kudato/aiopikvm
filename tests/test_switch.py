@@ -166,9 +166,7 @@ async def test_reset(mock_api: respx.MockRouter, client: PiKVM) -> None:
     assert "bootloader" not in url
 
 
-async def test_reset_with_bootloader(
-    mock_api: respx.MockRouter, client: PiKVM
-) -> None:
+async def test_reset_with_bootloader(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/reset").mock(
         return_value=httpx.Response(200, json={"ok": True, "result": {}})
     )
