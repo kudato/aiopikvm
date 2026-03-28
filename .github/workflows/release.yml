@@ -9,27 +9,38 @@ permissions:
   id-token: write
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
     environment: release
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify tag matches package version
+      - name: Extract and validate version
         run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          PKG_VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "Tag version ($TAG_VERSION) does not match pyproject.toml version ($PKG_VERSION)"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PYPROJECT_VERSION=$(python3 -c "
+          import tomllib, pathlib
+          data = tomllib.loads(pathlib.Path('pyproject.toml').read_text())
+          print(data['project']['version'])
+          ")
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match pyproject.toml ($PYPROJECT_VERSION)"
             exit 1
           fi
+          echo "VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
 
       - uses: astral-sh/setup-uv@v4
-      - run: uv build
+
+      - name: Build
+        run: uv build
 
       - uses: pypa/gh-action-pypi-publish@release/v1
 
-      - name: Create GitHub Release
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
