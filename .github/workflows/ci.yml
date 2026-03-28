@@ -5,19 +5,35 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
 
 jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: astral-sh/setup-uv@v4
+
       - run: uv python install 3.13
+
       - run: uv sync --group dev
-      - run: uv run ruff check src/ tests/
-      - run: uv run ruff format --check src/ tests/
-      - run: uv run mypy src/
-      - run: uv run pytest --cov=aiopikvm --cov-report=term-missing --cov-report=xml
+
+      - name: Audit dependencies
+        run: uv audit --frozen --no-dev --no-group docs
+
+      - name: Lint
+        run: uv run ruff check src/ tests/
+
+      - name: Format check
+        run: uv run ruff format --check src/ tests/
+
+      - name: Type check
+        run: uv run mypy src/
+
+      - name: Tests
+        run: uv run pytest --cov=aiopikvm --cov-report=term-missing --cov-report=xml
+
       - uses: actions/upload-artifact@v4
         with:
           name: coverage
