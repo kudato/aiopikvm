@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Self
 
@@ -166,6 +168,46 @@ class PiKVM:
                 f"HTTP {response.status_code}: {response.text}",
                 status_code=response.status_code,
             )
+
+    @asynccontextmanager
+    async def stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> AsyncIterator[httpx.Response]:
+        """Open a streaming HTTP connection.
+
+        Args:
+            method: HTTP method.
+            path: URL path.
+            params: Query parameters.
+            headers: Extra HTTP headers.
+            timeout: Override request timeout.
+
+        Yields:
+            The *httpx.Response* with an unconsumed body.
+
+        Raises:
+            ConnectError: Connection to PiKVM failed.
+            ConnectionTimeoutError: Request timed out.
+            AuthError: Authentication failed (401/403).
+            APIError: Server returned an error status (>= 400).
+        """
+        client = self._ensure_client()
+        try:
+            async with client.stream(
+                method, path, params=params, headers=headers, timeout=timeout
+            ) as response:
+                self._raise_for_status(response)
+                yield response
+        except httpx.ConnectError as exc:
+            raise ConnectError(str(exc)) from exc
+        except httpx.TimeoutException as exc:
+            raise ConnectionTimeoutError(str(exc)) from exc
 
     # --- Resources (lazy) ----------------------------------------------
 

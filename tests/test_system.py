@@ -1,9 +1,10 @@
 """SystemResource tests."""
 
 import httpx
+import pytest
 import respx
 
-from aiopikvm import PiKVM
+from aiopikvm import AuthError, PiKVM
 
 INFO_RESPONSE = {
     "ok": True,
@@ -74,3 +75,42 @@ async def test_get_log_with_seek(mock_api: respx.MockRouter, client: PiKVM) -> N
     request = mock_api.calls[-1].request
     assert "seek=3600" in str(request.url)
     assert len(log) > 0
+
+
+STREAM_LOG_TEXT = "line1\nline2\nline3\n"
+
+
+async def test_stream_log(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/log").mock(
+        return_value=httpx.Response(200, text=STREAM_LOG_TEXT)
+    )
+    lines = [line async for line in client.system.stream_log()]
+    assert lines == ["line1", "line2", "line3"]
+
+
+async def test_stream_log_with_seek(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/log").mock(
+        return_value=httpx.Response(200, text=STREAM_LOG_TEXT)
+    )
+    lines = [line async for line in client.system.stream_log(seek=3600)]
+    request = mock_api.calls[-1].request
+    url = str(request.url)
+    assert "seek=3600" in url
+    assert "follow=1" in url
+    assert len(lines) == 3
+
+
+async def test_stream_log_follow_param(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/log").mock(return_value=httpx.Response(200, text="log entry\n"))
+    _ = [line async for line in client.system.stream_log()]
+    request = mock_api.calls[-1].request
+    assert "follow=1" in str(request.url)
+
+
+async def test_stream_log_auth_error(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/log").mock(return_value=httpx.Response(401))
+    with pytest.raises(AuthError):
+        async for _ in client.system.stream_log():
+            pass
