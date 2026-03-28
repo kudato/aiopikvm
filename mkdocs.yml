@@ -71,6 +71,7 @@ nav:
       - KVM Switch: guide/switch.md
       - Redfish BMC: guide/redfish.md
       - Prometheus Metrics: guide/prometheus.md
+      - System Info & Logs: guide/system.md
       - WebSocket: guide/websocket.md
       - Error Handling: guide/error-handling.md
   - API Reference:
@@ -88,3 +89,4 @@ nav:
           - SwitchResource: reference/resources/switch.md
           - RedfishResource: reference/resources/redfish.md
           - PrometheusResource: reference/resources/prometheus.md
+          - SystemResource: reference/resources/system.md

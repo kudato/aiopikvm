@@ -6,6 +6,7 @@
       members:
         - __init__
         - request
+        - stream
         - ws
         - aclose
         - auth
@@ -17,3 +18,4 @@
         - switch
         - redfish
         - prometheus
+        - system

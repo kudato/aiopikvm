@@ -5,6 +5,35 @@ The Redfish resource provides DMTF Redfish BMC compatibility for PiKVM.
 !!! warning
     Redfish endpoints do **not** use the standard PiKVM response format (`{"ok": true, "result": ...}`). They return plain JSON bodies.
 
+## Service root
+
+```python
+root = await kvm.redfish.get_root()
+print(root["RedfishVersion"])
+```
+
+## Systems
+
+```python
+# List all systems
+systems = await kvm.redfish.get_systems()
+print(f"Count: {systems['Members@odata.count']}")
+
+# Get system details
+system = await kvm.redfish.get_system()
+print(f"Power: {system['PowerState']}")
+
+# Get a specific system by ID
+system = await kvm.redfish.get_system(1)
+```
+
+## Update system
+
+```python
+result = await kvm.redfish.update_system(IndicatorLED="Lit")
+print(result["IndicatorLED"])
+```
+
 ## Reset
 
 Send a Redfish `ComputerSystem.Reset` action:

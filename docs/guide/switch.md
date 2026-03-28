@@ -50,6 +50,61 @@ await kvm.switch.change_edid("port1", "custom-1080p")
 await kvm.switch.remove_edid("custom-1080p")
 ```
 
+## Quick port switching
+
+```python
+# Switch to previous port
+await kvm.switch.set_active_prev()
+
+# Switch to next port
+await kvm.switch.set_active_next()
+```
+
+## Beacon indicators
+
+```python
+# Turn on beacon for port 3
+await kvm.switch.set_beacon(True, port=3)
+
+# Turn off all beacons
+await kvm.switch.set_beacon(False)
+
+# Set beacon colors (RRGGBB:brightness:interval)
+await kvm.switch.set_colors("FFA500:BF:0028")
+```
+
+## Port configuration
+
+```python
+await kvm.switch.set_port_params(
+    0,
+    name="Server1",
+    edid_id="custom-1080p",
+    dummy=True,
+    atx_click_power_delay=1.5,
+)
+```
+
+## ATX power control per port
+
+```python
+# Power actions: "on", "off", "off_hard", "reset_hard"
+await kvm.switch.atx_power(0, "on")
+
+# Button clicks: "power", "power_long", "reset"
+await kvm.switch.atx_click(0, "power")
+```
+
+## Reboot switch unit
+
+```python
+# Reboot unit 0
+await kvm.switch.reset(0)
+
+# Reboot into bootloader (reflashing mode)
+await kvm.switch.reset(1, bootloader=True)
+```
+
 ## Full example
 
 ```python
