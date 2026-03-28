@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from aiopikvm.resources.redfish import RedfishResource
     from aiopikvm.resources.streamer import StreamerResource
     from aiopikvm.resources.switch import SwitchResource
+    from aiopikvm.resources.system import SystemResource
 
 _RESOURCE_NAMES = (
     "auth",
@@ -40,6 +41,7 @@ _RESOURCE_NAMES = (
     "switch",
     "redfish",
     "prometheus",
+    "system",
 )
 
 
@@ -238,6 +240,14 @@ class PiKVM:
 
         self._ensure_client()
         return PrometheusResource(self)
+
+    @cached_property
+    def system(self) -> SystemResource:
+        """System information and logs resource."""
+        from aiopikvm.resources.system import SystemResource
+
+        self._ensure_client()
+        return SystemResource(self)
 
     # --- Context manager -----------------------------------------------
 
