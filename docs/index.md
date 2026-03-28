@@ -5,7 +5,7 @@ Async Python client for the [PiKVM](https://pikvm.org) API.
 ## Key features
 
 - **Full async/await API** built on [httpx](https://www.python-httpx.org/)
-- **9 API resources**: ATX, HID, MSD, GPIO, Streamer, Switch, Redfish, Prometheus, Auth
+- **10 API resources**: ATX, HID, MSD, GPIO, Streamer, Switch, Redfish, Prometheus, System, Auth
 - **WebSocket client** for realtime events and low-latency HID input
 - **Pydantic v2** response models with full type safety
 - **PEP 561** compatible — works with mypy strict mode
@@ -55,6 +55,7 @@ Detailed guides for each API resource:
 - [KVM Switch](guide/switch.md) — multi-port switching and EDID management
 - [Redfish BMC](guide/redfish.md) — DMTF Redfish compatibility
 - [Prometheus Metrics](guide/prometheus.md) — metrics export
+- [System Info & Logs](guide/system.md) — device info and log streaming
 - [WebSocket](guide/websocket.md) — realtime events and HID input
 - [Error Handling](guide/error-handling.md) — exception hierarchy and patterns
 

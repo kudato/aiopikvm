@@ -58,6 +58,7 @@ asyncio.run(main())
 | **Switch** | Multi-port KVM switching, EDID management |
 | **Redfish** | DMTF Redfish BMC compatibility interface |
 | **Prometheus** | Metrics export in Prometheus format |
+| **System** | Device info, service logs, realtime log streaming |
 | **WebSocket** | Realtime events, keyboard/mouse input via WebSocket |
 
 ### Highlights

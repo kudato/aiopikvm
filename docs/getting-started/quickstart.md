@@ -28,6 +28,7 @@ asyncio.run(main())
 | Switch | `kvm.switch` | Multi-port KVM switching |
 | Redfish | `kvm.redfish` | DMTF BMC interface |
 | Prometheus | `kvm.prometheus` | Metrics export |
+| System | `kvm.system` | Device info and logs |
 | Auth | `kvm.auth` | Session authentication |
 
 ## Examples by resource
