@@ -19,8 +19,14 @@ jobs:
 
       - run: uv sync --group dev
 
+      - name: Export runtime dependencies
+        run: uv export --no-dev --no-hashes --no-editable -o requirements-audit.txt
+
       - name: Audit dependencies
-        run: uv run pip-audit
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: requirements-audit.txt
+          no-deps: true
 
       - name: Lint
         run: uv run ruff check src/ tests/

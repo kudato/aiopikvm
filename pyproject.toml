@@ -41,7 +41,6 @@ docs = [
 ]
 dev = [
     "mypy>=1.15",
-    "pip-audit>=2.7",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",

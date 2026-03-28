@@ -104,10 +104,11 @@ git switch -c chore/bump-<VERSION>
 
 Edit `pyproject.toml`: change `version = "X.Y.Z"` to the new version.
 
-Stage only pyproject.toml:
+Regenerate the lock file and stage both files:
 
 ```bash
-git add pyproject.toml
+uv lock
+git add pyproject.toml uv.lock
 ```
 
 ### 1.6 Commit
