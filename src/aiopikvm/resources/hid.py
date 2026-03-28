@@ -58,16 +58,19 @@ class HIDResource(BaseResource):
         result: dict[str, Any] = await self._get("/api/hid/keymaps")
         return result
 
-    async def type_text(self, text: str, *, limit: int = 0) -> None:
+    async def type_text(self, text: str, *, limit: int = 0, slow: bool = False) -> None:
         """Type text via HID keyboard.
 
         Args:
             text: Text string to type.
             limit: Maximum characters per request (``0`` = unlimited).
+            slow: Enable server-side per-character delays for reliable input.
         """
         params: dict[str, int] = {}
         if limit > 0:
             params["limit"] = limit
+        if slow:
+            params["slow"] = 1
         await self._post(
             "/api/hid/print",
             content=text.encode(),

@@ -128,6 +128,15 @@ async def test_set_params_partial(mock_api: respx.MockRouter, client: PiKVM) -> 
     assert "mouse_output" not in str(request.url)
 
 
+async def test_type_text_with_slow(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.post("/api/hid/print").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+    )
+    await client.hid.type_text("hello", slow=True)
+    request = mock_api.calls[-1].request
+    assert "slow=1" in str(request.url)
+
+
 async def test_type_text_with_limit(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/hid/print").mock(
         return_value=httpx.Response(200, json={"ok": True, "result": {}})
