@@ -50,8 +50,9 @@ async def test_send_shortcut(mock_api: respx.MockRouter, client: PiKVM) -> None:
     await client.hid.send_shortcut("ControlLeft", "KeyC")
     request = mock_api.calls[-1].request
     url_params = str(request.url)
-    assert "key=ControlLeft" in url_params
-    assert "key=KeyC" in url_params
+    # PiKVM expects the plural `keys` query param.
+    assert "keys=ControlLeft" in url_params
+    assert "keys=KeyC" in url_params
 
 
 async def test_send_mouse_move(mock_api: respx.MockRouter, client: PiKVM) -> None:
