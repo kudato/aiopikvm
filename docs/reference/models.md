@@ -64,6 +64,10 @@ All response models inherit from a base class with `extra="allow"` for forward-c
     options:
       show_bases: false
 
+::: aiopikvm.Streamer
+    options:
+      show_bases: false
+
 ::: aiopikvm.StreamerSource
     options:
       show_bases: false
@@ -72,7 +76,11 @@ All response models inherit from a base class with `extra="allow"` for forward-c
     options:
       show_bases: false
 
-::: aiopikvm.OCRResult
+::: aiopikvm.OCRInfo
+    options:
+      show_bases: false
+
+::: aiopikvm.OCRLangs
     options:
       show_bases: false
 

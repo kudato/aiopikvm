@@ -36,7 +36,7 @@ src/aiopikvm/
 │   ├── hid.py               # HIDMouse, HIDKeyboard, HIDState, HIDKeymap
 │   ├── msd.py               # MSDDrive, MSDStorage, MSDState
 │   ├── gpio.py              # GPIOChannel, GPIOInput, GPIOState
-│   ├── streamer.py          # Resolution, StreamerSource, StreamerState, OCRResult
+│   ├── streamer.py          # StreamerState, Streamer (+ submodels), StreamerSource, Resolution, OCRInfo, OCRLangs
 │   └── switch.py            # SwitchPort, SwitchState, EDID
 └── resources/
     ├── __init__.py           # Module docstring only
