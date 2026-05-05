@@ -97,8 +97,13 @@ class BaseResource:
         *,
         params: dict[str, Any] | None = None,
         accept: str = "application/octet-stream",
+        timeout: float | httpx.Timeout | None = None,
     ) -> httpx.Response:
         """Send a GET request and return the raw *httpx.Response*."""
         return await self._client.request(
-            "GET", path, params=params, headers={"Accept": accept}
+            "GET",
+            path,
+            params=params,
+            headers={"Accept": accept},
+            timeout=timeout,
         )
