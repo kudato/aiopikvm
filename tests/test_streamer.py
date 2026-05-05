@@ -119,6 +119,21 @@ async def test_snapshot(mock_api: respx.MockRouter, client: PiKVM) -> None:
     )
     data = await client.streamer.snapshot()
     assert data == jpeg_data
+    assert "allow_offline" not in str(mock_api.calls[-1].request.url)
+
+
+async def test_snapshot_allow_offline(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    jpeg_data = b"\xff\xd8\xff\xe0placeholder"
+    mock_api.get("/api/streamer/snapshot").mock(
+        return_value=httpx.Response(
+            200, content=jpeg_data, headers={"Content-Type": "image/jpeg"}
+        )
+    )
+    data = await client.streamer.snapshot(allow_offline=True)
+    assert data == jpeg_data
+    assert "allow_offline=1" in str(mock_api.calls[-1].request.url)
 
 
 async def test_get_ocr_info(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -174,6 +189,21 @@ async def test_ocr_with_langs(mock_api: respx.MockRouter, client: PiKVM) -> None
     assert "ocr=1" in url
     # kvmd splits on comma; '+' would be sent as %2B and treated as one token
     assert "ocr_langs=eng%2Crus" in url or "ocr_langs=eng,rus" in url
+
+
+async def test_ocr_allow_offline(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/streamer/snapshot").mock(
+        return_value=httpx.Response(
+            200,
+            content=b"NO LIVE VIDEO",
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+        )
+    )
+    text = await client.streamer.ocr(allow_offline=True)
+    assert text == "NO LIVE VIDEO"
+    url = str(mock_api.calls[-1].request.url)
+    assert "ocr=1" in url
+    assert "allow_offline=1" in url
 
 
 async def test_delete_snapshot(mock_api: respx.MockRouter, client: PiKVM) -> None:
