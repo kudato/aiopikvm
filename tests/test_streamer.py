@@ -5,25 +5,109 @@ import respx
 
 from aiopikvm import PiKVM
 
-STREAMER_STATE = {
+STREAMER_STATE_RUNNING = {
     "ok": True,
     "result": {
-        "enabled": True,
-        "source": {"online": True, "resolution": {"width": 1920, "height": 1080}},
+        "features": {"h264": True, "quality": True, "resolution": False},
+        "limits": {
+            "desired_fps": {"max": 70, "min": 0},
+            "h264_bitrate": {"max": 20000, "min": 25},
+            "h264_gop": {"max": 60, "min": 0},
+        },
+        "params": {
+            "desired_fps": 40,
+            "h264_bitrate": 5000,
+            "h264_gop": 30,
+            "quality": 80,
+        },
+        "snapshot": {"saved": None},
+        "streamer": {
+            "encoder": {"quality": 80, "type": "M2M-IMAGE"},
+            "h264": {"bitrate": 5000, "fps": 28, "gop": 30, "online": True},
+            "instance_id": "",
+            "sinks": {
+                "h264": {"has_clients": True},
+                "jpeg": {"has_clients": False},
+            },
+            "source": {
+                "captured_fps": 56,
+                "desired_fps": 40,
+                "online": True,
+                "resolution": {"height": 1080, "width": 1920},
+            },
+            "stream": {"clients": 0, "clients_stat": {}, "queued_fps": 0},
+        },
+    },
+}
+
+STREAMER_STATE_OFF = {
+    "ok": True,
+    "result": {
+        "features": {"h264": True, "quality": True, "resolution": False},
+        "limits": {
+            "desired_fps": {"max": 70, "min": 0},
+            "h264_bitrate": {"max": 20000, "min": 25},
+            "h264_gop": {"max": 60, "min": 0},
+        },
+        "params": {
+            "desired_fps": 40,
+            "h264_bitrate": 5000,
+            "h264_gop": 30,
+            "quality": 80,
+        },
+        "snapshot": {"saved": None},
+        "streamer": None,
     },
 }
 
 
-async def test_get_state(mock_api: respx.MockRouter, client: PiKVM) -> None:
+async def test_get_state_running(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/api/streamer").mock(
-        return_value=httpx.Response(200, json=STREAMER_STATE)
+        return_value=httpx.Response(200, json=STREAMER_STATE_RUNNING)
     )
     state = await client.streamer.get_state()
-    assert state.enabled is True
-    assert state.source.online is True
-    assert state.source.resolution is not None
-    assert state.source.resolution.width == 1920
-    assert state.source.resolution.height == 1080
+    assert state.streamer is not None
+    assert state.streamer.source.online is True
+    assert state.streamer.source.resolution.width == 1920
+    assert state.streamer.source.resolution.height == 1080
+    assert state.streamer.h264.online is True
+    assert state.streamer.sinks.h264.has_clients is True
+    assert state.params.quality == 80
+    assert state.limits.desired_fps.max == 70
+
+
+async def test_get_state_off(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/streamer").mock(
+        return_value=httpx.Response(200, json=STREAMER_STATE_OFF)
+    )
+    state = await client.streamer.get_state()
+    assert state.streamer is None
+    assert state.params.quality == 80
+
+
+async def test_get_state_source_offline(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    payload = {
+        "ok": True,
+        "result": {
+            **STREAMER_STATE_RUNNING["result"],  # type: ignore[dict-item]
+            "streamer": {
+                **STREAMER_STATE_RUNNING["result"]["streamer"],  # type: ignore[dict-item]
+                "source": {
+                    "captured_fps": 0,
+                    "desired_fps": 40,
+                    "online": False,
+                    "resolution": {"height": 1080, "width": 1920},
+                },
+            },
+        },
+    }
+    mock_api.get("/api/streamer").mock(return_value=httpx.Response(200, json=payload))
+    state = await client.streamer.get_state()
+    assert state.streamer is not None
+    assert state.streamer.source.online is False
+    assert state.streamer.source.captured_fps == 0
 
 
 async def test_snapshot(mock_api: respx.MockRouter, client: PiKVM) -> None:
