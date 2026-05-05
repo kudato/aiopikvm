@@ -121,14 +121,59 @@ async def test_snapshot(mock_api: respx.MockRouter, client: PiKVM) -> None:
     assert data == jpeg_data
 
 
-async def test_ocr(mock_api: respx.MockRouter, client: PiKVM) -> None:
+async def test_get_ocr_info(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/api/streamer/ocr").mock(
         return_value=httpx.Response(
-            200, json={"ok": True, "result": {"ocr": "Hello World"}}
+            200,
+            json={
+                "ok": True,
+                "result": {
+                    "ocr": {
+                        "enabled": True,
+                        "langs": {
+                            "available": ["eng", "osd", "rus"],
+                            "default": ["eng"],
+                        },
+                    }
+                },
+            },
+        )
+    )
+    info = await client.streamer.get_ocr_info()
+    assert info.enabled is True
+    assert info.langs.available == ["eng", "osd", "rus"]
+    assert info.langs.default == ["eng"]
+
+
+async def test_ocr(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/streamer/snapshot").mock(
+        return_value=httpx.Response(
+            200,
+            content=b"Hello World",
+            headers={"Content-Type": "text/plain; charset=utf-8"},
         )
     )
     text = await client.streamer.ocr()
     assert text == "Hello World"
+    request = mock_api.calls[-1].request
+    assert "ocr=1" in str(request.url)
+    assert "ocr_langs" not in str(request.url)
+
+
+async def test_ocr_with_langs(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/streamer/snapshot").mock(
+        return_value=httpx.Response(
+            200,
+            content=b"Hello",
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+        )
+    )
+    await client.streamer.ocr(langs=["eng", "rus"])
+    request = mock_api.calls[-1].request
+    url = str(request.url)
+    assert "ocr=1" in url
+    # kvmd splits on comma; '+' would be sent as %2B and treated as one token
+    assert "ocr_langs=eng%2Crus" in url or "ocr_langs=eng,rus" in url
 
 
 async def test_delete_snapshot(mock_api: respx.MockRouter, client: PiKVM) -> None:

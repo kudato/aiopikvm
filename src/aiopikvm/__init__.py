@@ -15,7 +15,8 @@ from aiopikvm.models.gpio import GPIOChannel, GPIOInput, GPIOState
 from aiopikvm.models.hid import HIDKeyboard, HIDKeymap, HIDMouse, HIDState
 from aiopikvm.models.msd import MSDDrive, MSDState, MSDStorage
 from aiopikvm.models.streamer import (
-    OCRResult,
+    OCRInfo,
+    OCRLangs,
     Resolution,
     Streamer,
     StreamerEncoder,
@@ -53,7 +54,8 @@ __all__ = [
     "MSDDrive",
     "MSDState",
     "MSDStorage",
-    "OCRResult",
+    "OCRInfo",
+    "OCRLangs",
     "PiKVM",
     "PiKVMError",
     "PiKVMWebSocket",

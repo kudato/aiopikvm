@@ -127,7 +127,15 @@ class StreamerState(_Base):
     streamer: Streamer | None = None
 
 
-class OCRResult(_Base):
-    """OCR recognition result."""
+class OCRLangs(_Base):
+    """Available and default OCR languages."""
 
-    ocr: str
+    available: list[str]
+    default: list[str]
+
+
+class OCRInfo(_Base):
+    """OCR capability metadata returned by ``GET /api/streamer/ocr``."""
+
+    enabled: bool
+    langs: OCRLangs

@@ -108,6 +108,7 @@ class PiKVM:
         json: dict[str, Any] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
+        timeout: float | httpx.Timeout | None = None,
     ) -> httpx.Response:
         """Send an HTTP request and return the raw response.
 
@@ -118,6 +119,7 @@ class PiKVM:
             json: JSON body.
             content: Raw body bytes or async byte stream.
             headers: Extra HTTP headers.
+            timeout: Override the client-level timeout for this request.
 
         Returns:
             The *httpx.Response* object.
@@ -137,6 +139,7 @@ class PiKVM:
                 json=json,
                 content=content,
                 headers=headers,
+                timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
             )
         except httpx.ConnectError as exc:
             raise ConnectError(str(exc)) from exc
