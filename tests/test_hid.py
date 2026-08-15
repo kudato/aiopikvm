@@ -162,13 +162,12 @@ async def test_get_keymaps(mock_api: respx.MockRouter, client: PiKVM) -> None:
     assert "keymaps" in result
 
 
-async def test_send_shortcut_with_wait(
+async def test_send_shortcut_multiple_keys(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
     mock_api.post("/api/hid/events/send_shortcut").mock(
         return_value=httpx.Response(200, json={"ok": True, "result": {}})
     )
-    await client.hid.send_shortcut("KeyA", "KeyB", wait=100)
+    await client.hid.send_shortcut("ControlLeft", "AltLeft", "Delete")
     request = mock_api.calls[-1].request
-    assert "wait=100" in str(request.url)
-    assert request.url.params.get_list("keys") == ["KeyA,KeyB"]
+    assert request.url.params.get_list("keys") == ["ControlLeft,AltLeft,Delete"]

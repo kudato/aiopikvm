@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- `HIDResource.send_shortcut` was passing keys as a list, which httpx
+  serialises as repeated query params (`keys=A&keys=B`); kvmd reads only
+  the first value, so every chord was silently delivered as a single lone
+  key. Keys are now sent as one comma-separated value, and calling
+  `send_shortcut()` with no keys raises `ValueError` instead of becoming
+  a silent server-side no-op (#26).
+- `SystemResource.get_info` had the same serialisation bug for `fields`:
+  requesting several categories silently returned only the first one.
+  Fields are now comma-joined; omitting them still returns all
+  categories (#30).
+
+### Removed
+
+- **Breaking:** the `wait` parameter of `HIDResource.send_shortcut`.
+  kvmd never reads it — the inter-event delay is hardcoded server-side
+  (50 ms) — so the parameter never had any effect (#31).
+
 ## [0.2.1] — 2026-05-05
 
 ### Fixed
