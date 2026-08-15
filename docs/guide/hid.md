@@ -45,10 +45,10 @@ await kvm.hid.send_shortcut("ControlLeft", "KeyA")
 
 # Ctrl+Alt+Delete
 await kvm.hid.send_shortcut("ControlLeft", "AltLeft", "Delete")
-
-# With delay between key events (milliseconds)
-await kvm.hid.send_shortcut("ControlLeft", "KeyC", wait=50)
 ```
+
+The server presses the keys in order and releases them in reverse order,
+with a fixed 50 ms delay between events.
 
 ## Mouse control
 
