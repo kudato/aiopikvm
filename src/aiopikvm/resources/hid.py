@@ -97,16 +97,21 @@ class HIDResource(BaseResource):
         Args:
             *keys: Key names to press simultaneously.
             wait: Delay between key events in milliseconds.
+
+        Raises:
+            ValueError: If no keys are given.
         """
+        if not keys:
+            raise ValueError("send_shortcut() requires at least one key")
         params: dict[str, Any] = {}
         if wait > 0:
             params["wait"] = wait
-        # The PiKVM endpoint expects the multi-value param `keys`, not `key`;
-        # sending `key` returns ``HTTP 400 ValidatorError`` because the
-        # required `keys` argument is missing.
+        # The PiKVM endpoint reads `keys` as a single comma-separated value;
+        # passing a list makes httpx send repeated params (keys=A&keys=B) and
+        # the server keeps only the first key.
         await self._post(
             "/api/hid/events/send_shortcut",
-            params={**params, "keys": list(keys)},
+            params={**params, "keys": ",".join(keys)},
         )
 
     async def send_mouse_button(

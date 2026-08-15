@@ -1,6 +1,7 @@
 """HIDResource tests."""
 
 import httpx
+import pytest
 import respx
 
 from aiopikvm import PiKVM
@@ -49,10 +50,14 @@ async def test_send_shortcut(mock_api: respx.MockRouter, client: PiKVM) -> None:
     )
     await client.hid.send_shortcut("ControlLeft", "KeyC")
     request = mock_api.calls[-1].request
-    url_params = str(request.url)
-    # PiKVM expects the plural `keys` query param.
-    assert "keys=ControlLeft" in url_params
-    assert "keys=KeyC" in url_params
+    # PiKVM reads `keys` as a single comma-separated value; repeated
+    # params (keys=A&keys=B) would drop all keys except the first.
+    assert request.url.params.get_list("keys") == ["ControlLeft,KeyC"]
+
+
+async def test_send_shortcut_no_keys(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    with pytest.raises(ValueError, match="at least one key"):
+        await client.hid.send_shortcut()
 
 
 async def test_send_mouse_move(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -166,3 +171,4 @@ async def test_send_shortcut_with_wait(
     await client.hid.send_shortcut("KeyA", "KeyB", wait=100)
     request = mock_api.calls[-1].request
     assert "wait=100" in str(request.url)
+    assert request.url.params.get_list("keys") == ["KeyA,KeyB"]
