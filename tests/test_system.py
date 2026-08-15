@@ -36,6 +36,10 @@ LOG_TEXT = (
 async def test_get_info(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/api/info").mock(return_value=httpx.Response(200, json=INFO_RESPONSE))
     result = await client.system.get_info()
+    request = mock_api.calls[-1].request
+    # No fields given — the param must be omitted so the server returns
+    # all categories.
+    assert "fields" not in request.url.params
     assert "hw" in result
     assert "system" in result
     assert result["hw"]["platform"]["type"] == "rpi"
@@ -45,7 +49,7 @@ async def test_get_info_with_fields(mock_api: respx.MockRouter, client: PiKVM) -
     mock_api.get("/api/info").mock(return_value=httpx.Response(200, json=INFO_HW_ONLY))
     result = await client.system.get_info("hw")
     request = mock_api.calls[-1].request
-    assert "fields=hw" in str(request.url)
+    assert request.url.params.get_list("fields") == ["hw"]
     assert "hw" in result
 
 
@@ -55,9 +59,9 @@ async def test_get_info_multiple_fields(
     mock_api.get("/api/info").mock(return_value=httpx.Response(200, json=INFO_RESPONSE))
     result = await client.system.get_info("hw", "system")
     request = mock_api.calls[-1].request
-    url = str(request.url)
-    assert "fields=hw" in url
-    assert "fields=system" in url
+    # kvmd reads `fields` as a single comma-separated value; repeated
+    # params (fields=a&fields=b) would drop all fields except the first.
+    assert request.url.params.get_list("fields") == ["hw,system"]
     assert "hw" in result
     assert "system" in result
 

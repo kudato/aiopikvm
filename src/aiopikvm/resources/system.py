@@ -24,7 +24,10 @@ class SystemResource(BaseResource):
         """
         params: dict[str, Any] | None = None
         if fields:
-            params = {"fields": list(fields)}
+            # kvmd reads `fields` as a single comma-separated value; passing
+            # a list makes httpx send repeated params (fields=a&fields=b) and
+            # the server keeps only the first one.
+            params = {"fields": ",".join(fields)}
         result: dict[str, Any] = await self._get("/api/info", params=params)
         return result
 
