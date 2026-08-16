@@ -117,11 +117,25 @@
       "name": "logout",
       "method": "POST",
       "path": "/api/auth/logout",
-      "note": "drops the session server-side",
+      "note": "drops every session of the token's owner, not only this one",
       "status": 200,
       "body": {
         "ok": true,
         "result": {}
+      }
+    },
+    {
+      "name": "logout_refused",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "note": "the only way this endpoint refuses a call that carries a cookie: the auth chain stops at the first credential source present, so an unknown token with no headers, or valid-looking headers with a wrong password, both end here. 401 is unreachable once a cookie is sent; verified for every combination against kvmd 4.186",
+      "status": 403,
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ForbiddenError",
+          "error_msg": "Forbidden"
+        }
       }
     },
     {

@@ -190,7 +190,23 @@ class BaseResource:
         accept: str = "application/octet-stream",
         timeout: float | httpx.Timeout | None = None,
     ) -> httpx.Response:
-        """Send a GET request and return the raw *httpx.Response*."""
+        """Send a GET request and return the raw *httpx.Response*.
+
+        Args:
+            path: URL path relative to the PiKVM base URL.
+            params: Query parameters.
+            accept: Value of the ``Accept`` header.
+            timeout: Override the client-level timeout for this call.
+
+        Returns:
+            The *httpx.Response* object, body included.
+
+        Raises:
+            PiKVMError: Whatever :meth:`PiKVM.request` raises for a transport
+                failure or an error status. The response envelope is not
+                checked here, so an ``{"ok": false}`` body arriving with
+                HTTP 200 reaches the caller as-is.
+        """
         return await self._client.request(
             "GET",
             path,
@@ -218,7 +234,13 @@ class BaseResource:
             timeout: Override the client-level timeout for this call.
 
         Returns:
-            The *httpx.Response* object.
+            The *httpx.Response* object, headers and body included.
+
+        Raises:
+            PiKVMError: Whatever :meth:`PiKVM.request` raises for a transport
+                failure or an error status. The response envelope is not
+                checked here, so a caller that cares about it — rather than
+                only about the headers — has to look at the body itself.
         """
         return await self._client.request("POST", path, data=data, timeout=timeout)
 

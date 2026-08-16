@@ -60,7 +60,8 @@ async with httpx.AsyncClient(base_url="https://pikvm.local", verify=False) as ht
     http.cookies.set("auth_token", token)
 
     async with PiKVM("https://pikvm.local", http_client=http) as kvm:
-        await kvm.auth.check()   # authenticated by the token alone
+        await kvm.auth.check()    # authenticated by the token alone
+        await kvm.auth.logout()   # see the warning below before calling this
 ```
 
 !!! note

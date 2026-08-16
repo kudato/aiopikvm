@@ -14,7 +14,13 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import AuthError, ConfigurationError, ConnectError, PiKVM
+from aiopikvm import (
+    AuthError,
+    ConfigurationError,
+    ConnectError,
+    PiKVM,
+    ResponseError,
+)
 from tests.fixtures import load_json
 
 TOKEN = "f" * 64
@@ -131,6 +137,43 @@ async def test_login_returns_this_response_token_not_a_stale_one(
     client.cookies.set("auth_token", "a" * 64)
 
     assert await client.auth.login("admin", "secret") == ""
+
+
+async def test_login_keeps_a_restored_token_when_it_fails(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Refreshing a restored session must not destroy it on the way. The
+    token is the only handle on a session that is still alive server-side."""
+    mock_api.post("/api/auth/login").mock(return_value=replay("login_wrong_passwd"))
+    client.cookies.set("auth_token", TOKEN)
+
+    with pytest.raises(AuthError):
+        await client.auth.login("admin", "mistyped")
+    assert client.cookies.get("auth_token") == TOKEN
+
+
+async def test_login_keeps_a_restored_token_when_the_connection_fails(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.post("/api/auth/login").mock(side_effect=httpx.ConnectError("boom"))
+    client.cookies.set("auth_token", TOKEN)
+
+    with pytest.raises(ConnectError):
+        await client.auth.login("admin", "secret")
+    assert client.cookies.get("auth_token") == TOKEN
+
+
+async def test_login_rejects_a_200_that_is_not_kvmd(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """No cookie and no envelope means something else answered — a captive
+    portal, a misrouted proxy. Reporting that as "authentication is off"
+    would be worse than useless."""
+    mock_api.post("/api/auth/login").mock(
+        return_value=httpx.Response(200, html="<html>Sign in</html>")
+    )
+    with pytest.raises(ResponseError):
+        await client.auth.login("admin", "secret")
 
 
 async def test_login_rejects_an_expire_kvmd_cannot_read(client: PiKVM) -> None:
@@ -292,9 +335,7 @@ async def test_logout_keeps_the_cookie_when_kvmd_refuses_the_call(
     """A 403 here is about the X-KVMD headers, not the token: kvmd stops at
     the first credential source present and never reaches the cookie, so the
     session is still alive and the token still the only copy of it."""
-    mock_api.post("/api/auth/logout").mock(
-        return_value=replay("check_without_credentials")
-    )
+    mock_api.post("/api/auth/logout").mock(return_value=replay("logout_refused"))
     with pytest.raises(AuthError):
         await client.auth.logout(TOKEN)
     assert client.cookies.get("auth_token") == TOKEN

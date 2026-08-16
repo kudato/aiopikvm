@@ -15,13 +15,22 @@ credential headers of its own.
 import re
 
 from aiopikvm._base_resource import BaseResource
-from aiopikvm._exceptions import APIError, AuthError, ConfigurationError
+from aiopikvm._exceptions import (
+    APIError,
+    AuthError,
+    ConfigurationError,
+    ResponseError,
+)
 
 _COOKIE = "auth_token"
 """Name of the cookie kvmd stores its session token in."""
 
 _TOKEN = re.compile(r"[0-9a-f]{64}")
-"""What kvmd's ``valid_auth_token`` accepts; anything else is a 400."""
+"""The token body kvmd's ``valid_auth_token`` accepts.
+
+kvmd strips its input before matching, so a token is compared here with the
+surrounding whitespace removed too.
+"""
 
 _EXPIRE_DIGITS = 16
 """kvmd reads ``expire`` through a validator capped at 16 raw characters."""
@@ -87,10 +96,6 @@ class AuthResource(BaseResource):
                 f"what kvmd's validator reads, got {expire}"
             )
         password = passwd if totp is None else f"{passwd}{totp}"
-        # A token put here by hand is stored without a domain while kvmd's
-        # own Set-Cookie carries one, and the jar keys on the domain. Clearing
-        # first keeps the two from piling up under the same name.
-        self._client.cookies.delete(_COOKIE)
         try:
             response = await self._post_raw(
                 "/api/auth/login",
@@ -112,7 +117,31 @@ class AuthResource(BaseResource):
                     error_msg=exc.error_msg,
                 ) from exc
             raise
-        return response.cookies.get(_COOKIE) or ""
+
+        token = response.cookies.get(_COOKIE) or ""
+        if token:
+            # httpx has already filed kvmd's cookie under the response's
+            # domain, and a token restored by hand sits under none. The jar
+            # keys on the domain, so both would survive under one name and
+            # httpx's own lookup raises on that. Collapse them to this one.
+            self._client.cookies.delete(_COOKIE)
+            self._client.cookies.set(_COOKIE, token)
+            return token
+
+        # No cookie means kvmd is running without authentication — or that
+        # something which is not kvmd answered 200, and reporting that as
+        # "authentication is switched off" would be worse than useless.
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if not (isinstance(body, dict) and body.get("ok") is True):
+            raise ResponseError(
+                "/api/auth/login answered 200 with neither a session cookie "
+                f"nor a kvmd envelope: {response.text[:200]}",
+                response.status_code,
+            )
+        return ""
 
     async def check(self, *, timeout: float | None = None) -> None:
         """Verify that the current credentials are accepted.
@@ -148,31 +177,38 @@ class AuthResource(BaseResource):
         The cookie is dropped from :attr:`PiKVM.cookies` once kvmd confirms,
         and kept otherwise: a failure here leaves the session in an unknown
         state, and throwing the token away would be the one thing that
-        cannot be undone.
+        cannot be undone. Clear it by hand —
+        ``kvm.cookies.delete("auth_token")`` — for a token known to be dead.
 
         Args:
-            token: Session token to drop. Defaults to the one
-                :meth:`login` left in :attr:`PiKVM.cookies`.
+            token: Session token to drop, surrounding whitespace ignored.
+                Defaults to the one :meth:`login` left in
+                :attr:`PiKVM.cookies`.
             timeout: Per-call timeout in seconds.
 
         Raises:
             ConfigurationError: If no token was given and none is stored, or
                 the token is not the 64 hexadecimal characters kvmd accepts.
             AuthError: The credentials this client sends were refused
-                (HTTP 401/403). Note that for a client with a password this
-                is about the headers, not the token — kvmd never gets as far
-                as the cookie, and the session is left alone.
+                (HTTP 403). Since the call always carries a cookie, kvmd
+                answers from whichever source it checks first: for a client
+                with a password that is the headers, not the token, and the
+                session is left alone.
         """
-        token = token if token is not None else self._stored_token()
+        token = token.strip() if token is not None else self._stored_token()
         if not token:
             raise ConfigurationError(
                 "logout() needs a session token: pass one, or call login() "
                 "first so the client has one to drop."
             )
         if not _TOKEN.fullmatch(token):
+            detail = (
+                "is not hexadecimal"
+                if len(token) == 64
+                else f"is {len(token)} characters long"
+            )
             raise ConfigurationError(
-                "A kvmd session token is 64 hexadecimal characters; "
-                f"this one is {len(token)} characters long"
+                f"A kvmd session token is 64 hexadecimal characters; this one {detail}"
             )
         self._client.cookies.delete(_COOKIE)
         self._client.cookies.set(_COOKIE, token)
@@ -184,12 +220,15 @@ class AuthResource(BaseResource):
 
         Walks the jar rather than calling ``httpx.Cookies.get``, which raises
         ``CookieConflict`` — outside the :class:`PiKVMError` hierarchy — when
-        two cookies share a name under different domains.
+        two cookies share a name under different domains. Should the jar hold
+        more than one anyway, the most recently stored wins, so a token the
+        caller just put there is not shadowed by an older one.
 
         Returns:
             The stored token, or ``""`` when there is none.
         """
+        token = ""
         for cookie in self._client.cookies.jar:
             if cookie.name == _COOKIE:
-                return cookie.value or ""
-        return ""
+                token = cookie.value or ""
+        return token
