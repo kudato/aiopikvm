@@ -7,24 +7,82 @@ import pytest
 import respx
 
 from aiopikvm import AuthError, PiKVM, UnavailableError
-
-MSD_STATE = {
-    "ok": True,
-    "result": {
-        "enabled": True,
-        "online": True,
-        "busy": False,
-        "drive": {"image": None, "connected": False, "cdrom": False},
-        "storage": {"size": 1073741824, "free": 536870912, "images": {}},
-    },
-}
+from tests.fixtures import load_json
 
 
-async def test_get_state(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    mock_api.get("/api/msd").mock(return_value=httpx.Response(200, json=MSD_STATE))
+async def test_get_state_offline(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    # The MSD is disabled in the OTG profile: kvmd nulls both blocks, which is
+    # the shape the old model could not parse at all.
+    mock_api.get("/api/msd").mock(
+        return_value=httpx.Response(200, json=load_json("msd"))
+    )
     state = await client.msd.get_state()
     assert state.enabled is True
-    assert state.storage.size == 1073741824
+    assert state.online is False
+    assert state.drive is None
+    assert state.storage is None
+
+
+async def test_get_state_with_an_image_in_the_drive(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/msd").mock(
+        return_value=httpx.Response(200, json=load_json("msd_image"))
+    )
+    state = await client.msd.get_state()
+    assert state.online is True
+    assert state.drive is not None
+    assert state.drive.cdrom is True
+    assert state.drive.connected is False
+    assert state.drive.image is not None
+    assert state.drive.image.name == "test-1m.iso"
+    assert state.drive.image.in_storage is True
+    assert state.drive.image.size == 1048576
+    assert state.storage is not None
+    assert state.storage.images["test-1m.iso"].complete is True
+    # kvmd reports free space per partition; the root one is keyed by "".
+    assert state.storage.parts[""].writable is True
+    assert state.storage.parts[""].free > 0
+
+
+async def test_get_state_with_an_empty_drive(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/msd").mock(
+        return_value=httpx.Response(200, json=load_json("msd_online"))
+    )
+    state = await client.msd.get_state()
+    assert state.drive is not None
+    assert state.drive.image is None
+    assert state.storage is not None
+    assert state.storage.images
+
+
+async def test_get_state_while_uploading(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/msd").mock(
+        return_value=httpx.Response(200, json=load_json("msd_uploading"))
+    )
+    state = await client.msd.get_state()
+    assert state.storage is not None
+    assert state.storage.uploading is not None
+    assert state.storage.uploading.name == "test-slow.iso"
+    assert state.storage.uploading.written < state.storage.uploading.size
+    assert state.storage.images["test-slow.iso"].complete is False
+
+
+async def test_get_state_while_downloading(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/msd").mock(
+        return_value=httpx.Response(200, json=load_json("msd_downloading"))
+    )
+    state = await client.msd.get_state()
+    assert state.storage is not None
+    assert state.storage.downloading is not None
+    assert state.storage.downloading.name == "test-8m.iso"
+    assert state.storage.downloading.readed < state.storage.downloading.size
 
 
 async def test_upload_bytes(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -34,6 +92,17 @@ async def test_upload_bytes(mock_api: respx.MockRouter, client: PiKVM) -> None:
     await client.msd.upload("test.iso", b"fake-iso-data")
     request = mock_api.calls[-1].request
     assert "image=test.iso" in str(request.url)
+    assert request.headers["content-length"] == "13"
+
+
+async def test_upload_remove_incomplete(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.post("/api/msd/write").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+    )
+    await client.msd.upload("test.iso", b"data", remove_incomplete=True)
+    assert mock_api.calls[-1].request.url.params["remove_incomplete"] == "1"
 
 
 async def test_upload_remote(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -160,9 +229,21 @@ async def test_upload_streaming(mock_api: respx.MockRouter, client: PiKVM) -> No
         yield b"chunk1"
         yield b"chunk2"
 
-    await client.msd.upload("test.iso", data_gen())
+    await client.msd.upload("test.iso", data_gen(), size=12)
     request = mock_api.calls[-1].request
     assert "image=test.iso" in str(request.url)
+    # kvmd takes the image size from Content-Length; httpx would otherwise
+    # frame an iterator as Transfer-Encoding: chunked and kvmd answers 400.
+    assert request.headers["content-length"] == "12"
+    assert "transfer-encoding" not in request.headers
+
+
+async def test_upload_streaming_without_size(client: PiKVM) -> None:
+    async def data_gen() -> AsyncIterator[bytes]:
+        yield b"chunk1"  # pragma: no cover - never consumed
+
+    with pytest.raises(ValueError, match="size of a streamed image"):
+        await client.msd.upload("test.iso", data_gen())
 
 
 async def test_upload_remote_with_timeout(
@@ -185,4 +266,4 @@ async def test_upload_streaming_auth_error(
         yield b"chunk1"
 
     with pytest.raises(AuthError):
-        await client.msd.upload("test.iso", data_gen())
+        await client.msd.upload("test.iso", data_gen(), size=6)

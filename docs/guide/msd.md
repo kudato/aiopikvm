@@ -9,12 +9,21 @@ state = await kvm.msd.get_state()
 print(f"Enabled: {state.enabled}")
 print(f"Online: {state.online}")
 print(f"Busy: {state.busy}")
-print(f"Drive image: {state.drive.image}")
-print(f"Drive connected: {state.drive.connected}")
-print(f"CD-ROM mode: {state.drive.cdrom}")
-print(f"Storage size: {state.storage.size}")
-print(f"Storage free: {state.storage.free}")
+
+if state.drive is not None and state.storage is not None:
+    print(f"Drive connected: {state.drive.connected}")
+    print(f"CD-ROM mode: {state.drive.cdrom}")
+    print(f"Image in the drive: {state.drive.image.name if state.drive.image else None}")
+    print(f"Stored images: {', '.join(state.storage.images)}")
+    print(f"Free space: {state.storage.parts[''].free}")
 ```
+
+`drive` and `storage` are both `None` while the subsystem is offline — the
+MSD is disabled in the OTG profile, or kvmd has not finished setting it up.
+Neither is ever available without the other, so one `if` covers both.
+
+Free space is reported per partition rather than for the storage as a whole;
+the root partition is keyed by the empty string.
 
 ## Upload images
 
@@ -29,9 +38,13 @@ await kvm.msd.upload("image.iso", data)
 
 ### From async iterator
 
-For large files, use an async iterator to avoid loading the entire file into memory:
+For large files, use an async iterator to avoid loading the entire file into memory.
+kvmd takes the image size from `Content-Length`, so a streamed upload has to declare
+it up front — pass `size`:
 
 ```python
+import os
+
 import aiofiles
 
 async def read_chunks(path: str, chunk_size: int = 65536):
@@ -39,8 +52,18 @@ async def read_chunks(path: str, chunk_size: int = 65536):
         while chunk := await f.read(chunk_size):
             yield chunk
 
-await kvm.msd.upload("large-image.iso", read_chunks("/path/to/image.iso"))
+path = "/path/to/image.iso"
+await kvm.msd.upload(
+    "large-image.iso",
+    read_chunks(path),
+    size=os.path.getsize(path),
+    timeout=3600,
+)
 ```
+
+Pass `remove_incomplete=True` to have kvmd delete a partially written image if the
+connection breaks; otherwise the incomplete image stays in storage with
+`complete=False`.
 
 ### From remote URL
 
@@ -49,6 +72,32 @@ await kvm.msd.upload_remote("https://example.com/image.iso")
 
 # With custom timeout
 await kvm.msd.upload_remote("https://example.com/image.iso", timeout=300)
+```
+
+## Select or eject an image
+
+```python
+# Put a stored image into the drive
+await kvm.msd.set_params(image="boot.iso")
+
+# Eject it
+await kvm.msd.set_params(image="")
+```
+
+The name has to be one of `state.storage.images`. kvmd rebuilds that listing
+from the storage partition, so an image is not selectable for a moment right
+after it finishes uploading.
+
+## Download an image
+
+```python
+with open("copy.iso", "wb") as f:
+    async for chunk in kvm.msd.download("boot.iso"):
+        f.write(chunk)
+
+# Compressed on the fly; the response then has no Content-Length
+async for chunk in kvm.msd.download("boot.iso", compress="zstd"):
+    ...
 ```
 
 ## Drive parameters

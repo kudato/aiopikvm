@@ -26,7 +26,16 @@ from aiopikvm.models.hid import (
     HIDOutputs,
     HIDState,
 )
-from aiopikvm.models.msd import MSDDrive, MSDState, MSDStorage
+from aiopikvm.models.msd import (
+    MSDDownload,
+    MSDDrive,
+    MSDDriveImage,
+    MSDImage,
+    MSDPart,
+    MSDState,
+    MSDStorage,
+    MSDUpload,
+)
 from aiopikvm.models.streamer import (
     OCRInfo,
     OCRLangs,
@@ -69,9 +78,14 @@ __all__ = [
     "HIDMouse",
     "HIDOutputs",
     "HIDState",
+    "MSDDownload",
     "MSDDrive",
+    "MSDDriveImage",
+    "MSDImage",
+    "MSDPart",
     "MSDState",
     "MSDStorage",
+    "MSDUpload",
     "OCRInfo",
     "OCRLangs",
     "PiKVM",

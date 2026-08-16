@@ -59,6 +59,8 @@ class MSDResource(BaseResource):
         name: str,
         data: bytes | AsyncIterator[bytes],
         *,
+        size: int | None = None,
+        remove_incomplete: bool | None = None,
         timeout: float | None = None,
     ) -> None:
         """Upload a disk image.
@@ -66,15 +68,42 @@ class MSDResource(BaseResource):
         Args:
             name: Image file name.
             data: Image data as bytes or an async byte iterator.
+            size: Total image size in bytes. Required for an iterator and
+                ignored for bytes. kvmd reads the size from
+                ``Content-Length`` and rejects a chunked upload outright, so
+                a streamed image has to declare its length up front.
+            remove_incomplete: Whether kvmd deletes a partially written image
+                if the connection breaks. Leave unset for the kvmd default.
             timeout: Per-call timeout in seconds. Images are large and the
                 client default of 10 s is meant for state calls.
+
+        Raises:
+            ValueError: If *data* is an iterator and *size* is not given.
         """
-        content = data if isinstance(data, bytes) else _AsyncStream(data)
+        if isinstance(data, bytes):
+            length = len(data)
+            content: bytes | httpx.AsyncByteStream = data
+        else:
+            if size is None:
+                raise ValueError(
+                    "upload() needs the size of a streamed image: kvmd takes "
+                    "it from Content-Length and rejects a chunked body"
+                )
+            length = size
+            content = _AsyncStream(data)
+        params: dict[str, Any] = {"image": name}
+        if remove_incomplete is not None:
+            params["remove_incomplete"] = int(remove_incomplete)
         await self._post(
             "/api/msd/write",
-            params={"image": name},
+            params=params,
             content=content,
-            headers={"Content-Type": "application/octet-stream"},
+            headers={
+                "Content-Type": "application/octet-stream",
+                # httpx would frame an iterator as Transfer-Encoding: chunked,
+                # which leaves kvmd with content_length=None and a 400.
+                "Content-Length": str(length),
+            },
             timeout=timeout,
         )
 

@@ -67,10 +67,24 @@ its OCR variant return whatever is on the attached host's screen.
 listed in the file) rather than by the capture tool, which stays read-only —
 the sequence logs in and out and would invalidate a session.
 
+The four `msd_*` scenarios were recorded the same way, and needed the device
+reconfigured for the duration: `otg.devices.msd` is `enabled: false` on the
+capture device, so `/api/msd` reports `drive: null, storage: null` and shows
+nothing of the online shape. With `enabled` and `start` turned on and kvmd
+restarted, they cover a drive holding an image (`msd_image`), an empty drive
+with an image in storage (`msd_online`), and both transfer counters mid-flight
+(`msd_uploading`, `msd_downloading`, sampled while a temporary image was being
+written and read back). The temporary images were removed and the OTG profile
+restored afterwards. Reproducing them means changing somebody's device, so ask
+first — and note that toggling the MSD recreates the USB gadget, which briefly
+disconnects the keyboard, mouse and audio the target host sees.
+
 ## What these fixtures do and do not prove
 
 They pin one device in one configuration: ATX disabled, a single GPIO channel,
-no MSD image inserted, a switch with no ports attached. A response parsing
+the MSD disabled in the OTG profile (the `msd_*` scenarios above are the
+exception, recorded with it temporarily on), a switch with no ports attached.
+A response parsing
 correctly here does not prove it parses on a device with an MSD image or a
 populated switch — where a field is nullable or a collection is empty, the
 fixture shows the empty case only. Prefer asserting on the shape the fixture
