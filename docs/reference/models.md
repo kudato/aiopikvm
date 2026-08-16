@@ -22,11 +22,23 @@ All response models inherit from a base class with `extra="allow"` for forward-c
     options:
       show_bases: false
 
+::: aiopikvm.HIDKeyboardLeds
+    options:
+      show_bases: false
+
 ::: aiopikvm.HIDMouse
     options:
       show_bases: false
 
-::: aiopikvm.HIDKeymap
+::: aiopikvm.HIDOutputs
+    options:
+      show_bases: false
+
+::: aiopikvm.HIDJiggler
+    options:
+      show_bases: false
+
+::: aiopikvm.HIDKeymaps
     options:
       show_bases: false
 

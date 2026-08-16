@@ -25,9 +25,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `HIDResource.type_text()` (#66).
 - `follow_redirects` client option for setups where a proxy legitimately
   redirects (#67).
+- `HIDResource.get_inactivity()` for `GET /api/hid/inactivity` — seconds since
+  the last key or mouse event on the device, from any client (#47).
+- `jiggler` parameter on `HIDResource.set_params()`, which toggles kvmd's
+  anti-idle mouse mover. Its state is now typed as `HIDState.jiggler` (#48).
+- `keymap` and `delay` parameters on `HIDResource.type_text()`. `keymap`
+  selects the layout used to translate the text, which matters whenever the
+  device-wide default is not `en-us`; `delay` sets the inter-key sleep
+  (0 to 5 s) that `slow` could previously only pin to 0.02 s (#37).
+- `HIDKeyboardLeds`, `HIDOutputs` and `HIDJiggler` models for the parts of the
+  HID state that were previously reachable only as untyped extras (#36).
 
 ### Changed
 
+- **Breaking:** `HIDKeyboard` and `HIDMouse` replace `connected` with the
+  fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
+  `leds`. `HIDState` gains `enabled` and `jiggler`, and keeps the nullable
+  top-level `connected` (#36).
+- **Breaking:** `HIDResource.get_keymaps()` returns a typed `HIDKeymaps`
+  (`default`, `available`) instead of the raw envelope dict, so callers no
+  longer index `result["keymaps"]["available"]` themselves (#75).
 - **Breaking:** `PiKVMWebSocket` raises `ConfigurationError` instead of
   `ValueError` for a URL scheme other than `http`/`https`, so that scheme
   mistakes stay inside the `PiKVMError` hierarchy (#65).
@@ -40,9 +57,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Breaking:** the `wait` parameter of `HIDResource.send_shortcut`.
   kvmd never reads it — the inter-event delay is hardcoded server-side
   (50 ms) — so the parameter never had any effect (#31).
+- **Breaking:** the `HIDKeymap` model. Its single `name` field described
+  nothing kvmd emits, and no method ever returned it; `HIDKeymaps` replaces
+  it (#75).
 
 ### Fixed
 
+- `HIDResource.get_state()` raised `ResponseError` against every real device:
+  `HIDKeyboard.connected` and `HIDMouse.connected` were required, but no kvmd
+  HID backend nests `connected` under `keyboard` or `mouse` — it exists only
+  at the top level. The mocked test passed because its payload was
+  hand-written; the models now follow a capture from kvmd 4.186 (#36).
+- `HIDResource.type_text()` silently truncated at 1024 characters. `limit=0`
+  was documented as unlimited but omitted the query parameter, leaving kvmd's
+  own default of 1024 in force; `limit` is now always sent (#37).
 - `get_state()` let pydantic's `ValidationError` escape when a response did not
   match its model — outside the documented `PiKVMError` hierarchy, so
   `except PiKVMError` did not catch it. Model validation now raises
