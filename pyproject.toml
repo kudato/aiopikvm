@@ -50,6 +50,10 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "live: runs against a real PiKVM; needs --live and PIKVM_URL/PIKVM_PASSWD",
+]
 
 [tool.ruff]
 target-version = "py313"

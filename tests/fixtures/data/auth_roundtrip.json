@@ -1,0 +1,69 @@
+{
+  "description": "Session-cookie authentication round trip against kvmd 4.186, recorded by hand with httpx (see README). Credentials are placeholders.",
+  "steps": [
+    {
+      "name": "login_json_body",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "note": "kvmd's login handler reads form fields; a JSON body arrives as empty user/passwd",
+      "status": 400,
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ValidatorError",
+          "error_msg": "The argument '' is not a valid username characters"
+        }
+      },
+      "request_content_type": "application/json"
+    },
+    {
+      "name": "login_form_body",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "note": "sets the auth_token session cookie",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "result": {}
+      },
+      "request_content_type": "application/x-www-form-urlencoded",
+      "sets_cookie": "auth_token"
+    },
+    {
+      "name": "check_with_cookie",
+      "method": "GET",
+      "path": "/api/auth/check",
+      "note": "session cookie accepted",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "result": {}
+      }
+    },
+    {
+      "name": "logout",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "note": "drops the session server-side",
+      "status": 200,
+      "body": {
+        "ok": true,
+        "result": {}
+      }
+    },
+    {
+      "name": "check_after_logout",
+      "method": "GET",
+      "path": "/api/auth/check",
+      "note": "cookie no longer valid",
+      "status": 403,
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ForbiddenError",
+          "error_msg": "Forbidden"
+        }
+      }
+    }
+  ]
+}

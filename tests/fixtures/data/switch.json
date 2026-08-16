@@ -1,0 +1,110 @@
+{
+  "ok": true,
+  "result": {
+    "atx": {
+      "busy": [],
+      "leds": {
+        "hdd": [],
+        "power": []
+      }
+    },
+    "beacons": {
+      "downlinks": [],
+      "ports": [],
+      "uplinks": []
+    },
+    "colors": {
+      "active": {
+        "blink_ms": 0,
+        "blue": 0,
+        "brightness": 128,
+        "green": 255,
+        "red": 0
+      },
+      "beacon": {
+        "blink_ms": 250,
+        "blue": 156,
+        "brightness": 255,
+        "green": 44,
+        "red": 228
+      },
+      "bootloader": {
+        "blink_ms": 0,
+        "blue": 0,
+        "brightness": 128,
+        "green": 170,
+        "red": 255
+      },
+      "flashing": {
+        "blink_ms": 0,
+        "blue": 255,
+        "brightness": 128,
+        "green": 170,
+        "red": 0
+      },
+      "inactive": {
+        "blink_ms": 0,
+        "blue": 0,
+        "brightness": 64,
+        "green": 0,
+        "red": 255
+      }
+    },
+    "edids": {
+      "all": {
+        "default": {
+          "data": "00FFFFFFFFFFFF0010AC132045393639201E0103803C22782ACD25A3574B9F270D5054A54B00714F8180A9C0D1C00101010101010101023A801871382D40582C450056502100001E000000FF00335335475132330A2020202020000000FC0044454C4C204432373231480A20000000FD00384C1E5311000A202020202020018102031AB14F90050403020716010611121513141F65030C001000023A801871382D40582C450056502100001E011D8018711C1620582C250056502100009E011D007251D01E206E28550056502100001E8C0AD08A20E02D10103E960056502100001800000000000000000000000000000000000000000000000000000000004F",
+          "name": "Default",
+          "parsed": {
+            "audio": false,
+            "mfc_id": "DEL",
+            "monitor_name": "DELL D2721H",
+            "monitor_serial": "3S5GQ23",
+            "product_id": 8211,
+            "serial": 959854917
+          }
+        }
+      },
+      "used": []
+    },
+    "model": {
+      "firmware": {
+        "version": 9
+      },
+      "limits": {
+        "atx": {
+          "click_delays": {
+            "power": {
+              "default": 0.5,
+              "max": 10,
+              "min": 0
+            },
+            "power_long": {
+              "default": 5.5,
+              "max": 10,
+              "min": 0
+            },
+            "reset": {
+              "default": 0.5,
+              "max": 10,
+              "min": 0
+            }
+          }
+        }
+      },
+      "ports": [],
+      "units": []
+    },
+    "summary": {
+      "active_id": "",
+      "active_port": -1,
+      "synced": true
+    },
+    "usb": {
+      "links": []
+    },
+    "video": {
+      "links": []
+    }
+  }
+}

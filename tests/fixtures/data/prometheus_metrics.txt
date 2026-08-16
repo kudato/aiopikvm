@@ -1,0 +1,47 @@
+# TYPE pikvm_atx_enabled gauge
+pikvm_atx_enabled 0
+
+# TYPE pikvm_atx_power gauge
+pikvm_atx_power 0
+
+# TYPE pikvm_hw_cpu_percent gauge
+pikvm_hw_cpu_percent 47
+
+# TYPE pikvm_hw_mem_available gauge
+pikvm_hw_mem_available 3368333312
+
+# TYPE pikvm_hw_mem_percent gauge
+pikvm_hw_mem_percent 11.1
+
+# TYPE pikvm_hw_mem_total gauge
+pikvm_hw_mem_total 3788144640
+
+# TYPE pikvm_hw_temp_cpu gauge
+pikvm_hw_temp_cpu 38.459
+
+# TYPE pikvm_hw_throttling_ignore_past gauge
+pikvm_hw_throttling_ignore_past 0
+
+# TYPE pikvm_hw_throttling_freq_capped_now gauge
+pikvm_hw_throttling_freq_capped_now 0
+
+# TYPE pikvm_hw_throttling_freq_capped_past gauge
+pikvm_hw_throttling_freq_capped_past 0
+
+# TYPE pikvm_hw_throttling_throttled_now gauge
+pikvm_hw_throttling_throttled_now 0
+
+# TYPE pikvm_hw_throttling_throttled_past gauge
+pikvm_hw_throttling_throttled_past 0
+
+# TYPE pikvm_hw_throttling_undervoltage_now gauge
+pikvm_hw_throttling_undervoltage_now 0
+
+# TYPE pikvm_hw_throttling_undervoltage_past gauge
+pikvm_hw_throttling_undervoltage_past 0
+
+# TYPE pikvm_hw_throttling_raw_flags gauge
+pikvm_hw_throttling_raw_flags 0
+
+# TYPE pikvm_fan_monitored gauge
+pikvm_fan_monitored 0

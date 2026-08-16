@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "result": {
+    "ocr": {
+      "enabled": true,
+      "langs": {
+        "available": [
+          "eng",
+          "osd",
+          "rus"
+        ],
+        "default": [
+          "eng",
+          "rus"
+        ]
+      }
+    }
+  }
+}
