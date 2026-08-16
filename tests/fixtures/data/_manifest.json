@@ -198,6 +198,10 @@
       "file": "msd_uploading.json",
       "description": "GET /api/msd sampled while an image upload is in flight (storage.uploading is populated)."
     },
+    "redfish_actions": {
+      "file": "redfish_actions.json",
+      "description": "Every system id GET /api/redfish/v1/Systems/{sid} accepts and refuses, the empty 204s of the PATCH stub and ComputerSystem.Reset, the ResetType values kvmd rejects, and the advertised-but-missing SetDefaultBootOrder action."
+    },
     "ws_events": {
       "file": "ws_events.jsonl",
       "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=0, in arrival order."

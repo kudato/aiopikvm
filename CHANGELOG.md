@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `aiopikvm.resources.redfish.RESET_TYPES`, the six `ResetType` values kvmd
+  accepts. The DMTF schema defines more, and kvmd refuses every one of them
+  before taking any action (#78).
 - Typed exceptions for the failures kvmd actually distinguishes: `BusyError`
   (HTTP 409, kvmd's `IsBusyError` — ATX, MSD and GPIO all raise it while an
   earlier operation is still running), `UnavailableError` (HTTP 503, subsystem
@@ -101,6 +104,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** `RedfishResource.reset()` and `update_system()` return `None`.
+  kvmd answers both with HTTP 204 and an empty body, so the documented `dict`
+  was unreachable: `_redfish_request()` called `.json()` on nothing and every
+  call raised `APIError("Invalid JSON response")` instead of performing.
+  A reset is asynchronous besides — read the outcome from
+  `get_system()["PowerState"]` or from `atx.get_state()` (#44).
+- **Breaking:** Redfish system ids are strings. `system_id` is typed `str` and
+  defaults to `"0"`, and `reset()` takes it as a second parameter instead of
+  hardcoding `Systems/0`. kvmd validates the id as the literal `"0"` or
+  `"SwitchPort<N>"`, so the old `int` made every value but `0` a guaranteed
+  HTTP 400 and left switch-port power control unreachable (#57).
 - **Breaking:** `PiKVM.ws(stream=...)` and `PiKVMWebSocket(stream=...)` take a
   bool and default to `True`, kvmd's own default. kvmd reads the query
   parameter with its bool validator — it was never a stream index — and counts
@@ -211,6 +225,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `RedfishResource.update_system()` claimed to apply the attributes and return
+  the updated document. kvmd's handler is a stub that answers 204, ignores the
+  body and does not look at the system id; it exists so that BMC tooling which
+  PATCHes a system does not fail. Nothing it is given reaches the device (#44).
+- The Redfish guide advertised `ResetType` `GracefulRestart`, which kvmd
+  refuses with HTTP 400 — the documented example could never have worked. The
+  guide now lists the six values kvmd accepts, notes that they are matched
+  case-sensitively, warns that the default `ForceRestart` cuts the power, and
+  records that the `SetDefaultBootOrder` action every system document
+  advertises is answered by a plain-text 404 (#78).
+- The Prometheus guide showed `# HELP` lines the exporter does not emit, and
+  documented none of its limits: the export is cached server-side for 5 s, it
+  covers only ATX, GPIO, health and fan, it exports numbers only, and an
+  upstream kvmd bug fills `pikvm_gpio_*_online_*` from the channel `state`, so
+  that metric does not report online-ness at all (#78).
 - The WebSocket HID methods let `websockets`' own `ConnectionClosed` escape to
   the caller when the socket was already dead, outside the documented
   `PiKVMError` hierarchy. `__aenter__` could likewise let a bare `ValueError`

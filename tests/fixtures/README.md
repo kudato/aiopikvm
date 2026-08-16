@@ -92,6 +92,19 @@ getting one. Unlike the other scenarios it records HTTP responses rather than
 kvmd envelopes, since the upgrade is refused before the socket exists, so each
 step carries the `status`, `reason_phrase` and `content_type` a client sees.
 
+`redfish_actions.json` is hand-recorded for the same reason: the capture tool
+only records GETs that succeed, and everything interesting about the Redfish
+actions is either an empty 204 or a refusal. It holds every system id kvmd
+accepts and rejects, the bodiless answers of the `PATCH` stub and
+`ComputerSystem.Reset`, the `ResetType` values kvmd refuses, and the
+`SetDefaultBootOrder` action every system document advertises without
+implementing. The one accepted reset was provably a no-op: the capture device
+runs `atx.type = disabled`, whose plugin reports a hardcoded `enabled: false`
+and whose every action is a stub that raises, and kvmd dispatches the Redfish
+reset only when the ATX is enabled. The target machine's video stayed online
+across it. On a device with a working ATX the same step power-cycles somebody's
+host — do not re-record it without asking.
+
 ## What these fixtures do and do not prove
 
 They pin one device in one configuration: ATX disabled, a switch with no ports

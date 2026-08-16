@@ -1,0 +1,160 @@
+{
+  "description": "Everything GET /api/redfish/v1/Systems/{sid} accepts and refuses, and what the two actions answer, recorded by hand against kvmd 4.186 (see README). The capture tool only records GETs that succeed; these are the empty 204s and the refusals, which no capture had.",
+  "safety": "The device records with atx.type = disabled, whose plugin returns a hardcoded enabled=false and whose every action raises AtxDisabledError. kvmd dispatches the reset only when enabled, so the accepted reset below performed no power action; the target machine's video stayed online across it.",
+  "steps": [
+    {
+      "name": "system_zero",
+      "method": "GET",
+      "path": "/api/redfish/v1/Systems/0",
+      "note": "the only numeric id kvmd knows: a legacy name for the machine PiKVM is wired to, and a string in the document it returns",
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "body_file": "redfish_system_0.json"
+    },
+    {
+      "name": "system_one",
+      "method": "GET",
+      "path": "/api/redfish/v1/Systems/1",
+      "note": "the id aiopikvm's int-typed parameter made reachable; kvmd has never accepted it",
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "HttpError",
+          "error_msg": "Missing or invalid Server ID"
+        }
+      }
+    },
+    {
+      "name": "system_zero_padded",
+      "method": "GET",
+      "path": "/api/redfish/v1/Systems/00",
+      "note": "compared as a string, so 00 is not 0",
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "HttpError",
+          "error_msg": "Missing or invalid Server ID"
+        }
+      }
+    },
+    {
+      "name": "system_unknown",
+      "method": "GET",
+      "path": "/api/redfish/v1/Systems/bogus",
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "HttpError",
+          "error_msg": "Missing or invalid Server ID"
+        }
+      }
+    },
+    {
+      "name": "switch_port_absent",
+      "method": "GET",
+      "path": "/api/redfish/v1/Systems/SwitchPort0",
+      "note": "a well-formed switch port id on a device with no switch attached; the message differs from an unknown id, so the form itself was accepted",
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "HttpError",
+          "error_msg": "Non-existent Switch Port ID"
+        }
+      }
+    },
+    {
+      "name": "patch_system",
+      "method": "PATCH",
+      "path": "/api/redfish/v1/Systems/0",
+      "note": "a stub: 204, no body, the request body ignored, the id not even validated. A GET straight after returned the document unchanged",
+      "request_body": {
+        "IndicatorLED": "Lit",
+        "HostName": "should-be-ignored"
+      },
+      "status": 204,
+      "content_type": null,
+      "body": null
+    },
+    {
+      "name": "reset_accepted",
+      "method": "POST",
+      "path": "/api/redfish/v1/Systems/0/Actions/ComputerSystem.Reset",
+      "request_body": {
+        "ResetType": "On"
+      },
+      "status": 204,
+      "content_type": null,
+      "body": null
+    },
+    {
+      "name": "reset_type_from_the_dmtf_schema",
+      "method": "POST",
+      "path": "/api/redfish/v1/Systems/0/Actions/ComputerSystem.Reset",
+      "note": "GracefulRestart is valid Redfish and not one of the six kvmd implements; aiopikvm's own docs used to advertise it",
+      "request_body": {
+        "ResetType": "GracefulRestart"
+      },
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "HttpError",
+          "error_msg": "Missing or invalid ResetType"
+        }
+      }
+    },
+    {
+      "name": "reset_type_wrong_case",
+      "method": "POST",
+      "path": "/api/redfish/v1/Systems/0/Actions/ComputerSystem.Reset",
+      "note": "kvmd checks the list with lower=False",
+      "request_body": {
+        "ResetType": "forceoff"
+      },
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "HttpError",
+          "error_msg": "Missing or invalid ResetType"
+        }
+      }
+    },
+    {
+      "name": "reset_type_missing",
+      "method": "POST",
+      "path": "/api/redfish/v1/Systems/0/Actions/ComputerSystem.Reset",
+      "note": "an empty body and a body with no ResetType are refused identically, before any action is dispatched",
+      "request_body": {},
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "HttpError",
+          "error_msg": "Missing or invalid ResetType"
+        }
+      }
+    },
+    {
+      "name": "set_default_boot_order",
+      "method": "POST",
+      "path": "/api/redfish/v1/Systems/0/Actions/ComputerSystem.SetDefaultBootOrder",
+      "note": "advertised in every system document's Actions block, and not implemented; the 404 is aiohttp's, so it is plain text rather than a kvmd envelope",
+      "request_body": {},
+      "status": 404,
+      "content_type": "text/plain; charset=utf-8",
+      "text": "404: Not Found"
+    }
+  ]
+}
