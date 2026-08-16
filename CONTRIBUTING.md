@@ -32,6 +32,40 @@ uv run pytest tests/test_atx.py -v
 
 All checks must pass before submitting a pull request. Ruff handles both linting and auto-formatting.
 
+## Tests
+
+The suite runs offline: HTTP is mocked with `respx`, and the payloads come from
+`tests/fixtures/data` — responses captured from a real PiKVM (kvmd 4.186)
+rather than hand-written dictionaries, because hand-written ones are how the
+library ended up with models that no real response could satisfy. Use them in
+new tests:
+
+```python
+from tests.fixtures import load_json, load_result
+
+mock_api.get("/api/atx").mock(return_value=httpx.Response(200, json=load_json("atx")))
+```
+
+`tests/test_contract.py` validates every captured response against the model
+that claims to describe it. A gap the library has not closed yet is marked
+`xfail(strict=True)` with its issue number, so fixing the model without
+removing the marker fails the suite instead of leaving stale bookkeeping.
+
+See [`tests/fixtures/README.md`](tests/fixtures/README.md) for what the
+captures cover, what is redacted from them, and how to refresh them from your
+own device.
+
+### Running against a real device
+
+```bash
+PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret uv run pytest --live tests/live
+```
+
+`tests/live` is skipped without `--live` and skipped again if the environment
+does not point at a device, so CI never touches hardware. Those tests are
+strictly read-only — the device under test is somebody's working KVM, where an
+ATX call power-cycles a real host. Keep it that way when adding to them.
+
 ## Making changes
 
 1. Fork the repository

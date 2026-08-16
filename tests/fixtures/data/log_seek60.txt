@@ -1,0 +1,9 @@
+[2026-08-15 22:57:12 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-15 22:57:12 kvmd.service] --- kvmd.apps.kvmd.server             INFO --- Registered new client session: WsSession(id=281472776004304, {'stream': False}); clients now: 2
+[2026-08-15 22:57:25 kvmd.service] --- kvmd.apps.kvmd.server             INFO --- Removed client socket: WsSession(id=281472776004304, {'stream': False}); clients now: 1
+[2026-08-15 22:57:25 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /ws?stream=0 HTTP/1.1' => 101; size=0 --- referer='-'; user_agent='Python/3.14 websockets/16.0'
+[2026-08-15 22:57:35 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-15 22:57:35 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /info HTTP/1.1' => 200; size=4031 --- referer='-'; user_agent='python-httpx/0.28.1'
+[2026-08-15 22:57:35 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-15 22:57:35 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /info?fields=hw%2Csystem HTTP/1.1' => 200; size=2336 --- referer='-'; user_agent='python-httpx/0.28.1'
+[2026-08-15 22:57:35 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'

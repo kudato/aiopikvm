@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Managers/BMC",
+  "@odata.type": "#Manager.v1_15_0.Manager",
+  "Description": "PiKVM Baseboard Management Controller",
+  "Id": "BMC",
+  "ManagerType": "BMC",
+  "Name": "PiKVM Manager",
+  "VirtualMedia": {
+    "@odata.id": "/redfish/v1/Managers/BMC/VirtualMedia"
+  }
+}
