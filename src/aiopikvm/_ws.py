@@ -80,11 +80,20 @@ class _Connector(websockets.asyncio.client.connect):
 
         Returns:
             The URI to follow when redirects are allowed and this is one,
-            otherwise the exception, which makes *websockets* raise it.
+            otherwise the exception, which makes *websockets* raise it — and
+            which :meth:`PiKVMWebSocket.__aenter__` turns into a
+            :class:`PiKVMError`.
         """
-        if self._follow_redirects:
+        if not self._follow_redirects:
+            return exc
+        try:
             return super().process_redirect(exc)
-        return exc
+        except LookupError:
+            # websockets reads the Location header with Headers.__getitem__,
+            # which raises MultipleValuesError — a LookupError, so nothing
+            # up the stack absorbs it — when the header arrives twice. A
+            # redirect nobody can resolve is one to report.
+            return exc
 
 
 class PiKVMWebSocket:

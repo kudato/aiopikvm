@@ -29,7 +29,7 @@ All exceptions inherit from `PiKVMError`, so you can catch all aiopikvm errors w
 | `AuthError` | Authentication failed (HTTP 401 or 403) |
 | `BusyError` | PiKVM is busy with another operation (HTTP 409); the same call usually succeeds once it finishes |
 | `UnavailableError` | The subsystem is disabled in the kvmd config or offline (HTTP 503) |
-| `RedirectError` | PiKVM answered with a redirect (3xx) and the client was not created with `follow_redirects=True` |
+| `RedirectError` | PiKVM answered with a redirect (3xx) and the client was not created with `follow_redirects=True` — or it was, and the redirects formed a loop, the one case where `status_code` is `0` |
 | `ResponseError` | The response was not the documented JSON envelope, or did not match the model for that endpoint |
 | `ConfigurationError` | The URL has no usable scheme, or the credentials cannot be sent in HTTP headers |
 | `ConnectError` | Failed to connect to PiKVM, or the connection broke mid-request |
@@ -57,7 +57,9 @@ except APIError as exc:
 error block — for example when a reverse proxy answered instead of kvmd.
 
 !!! note
-    When `APIError` is raised from the JSON body (`"ok": false`), `status_code` is `0`.
+    `status_code` is `0` when there was no single status to report: an error
+    kvmd put in the body of an HTTP 200 (`"ok": false`), or a redirect loop
+    the client gave up on.
 
 ## Retrying a busy device
 

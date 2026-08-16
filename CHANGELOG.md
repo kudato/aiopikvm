@@ -216,10 +216,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `PiKVMError` hierarchy. `__aenter__` could likewise let a bare `ValueError`
   through for a URI `websockets` rejects itself. Both now raise
   `WebSocketError` (#59).
-- `PiKVM.request()` let `httpx.TooManyRedirects` escape when the client was
-  created with `follow_redirects=True`. httpx derives it from `RequestError`
-  rather than `TransportError`, so none of the clauses caught it; it now
-  arrives as `RedirectError`.
+- `PiKVM.request()` and `PiKVM.stream()` let `httpx.TooManyRedirects` escape
+  when the client was created with `follow_redirects=True`. httpx derives it
+  from `RequestError` rather than `TransportError`, so none of the clauses
+  caught it; it now arrives as `RedirectError` with `status_code` `0`, since
+  the client gave up across several responses rather than refusing one (#59).
 - The WebSocket guide described a handshake that does not happen. kvmd does
   not send "a full state bundle" first: `loop` carries the protocol version,
   then each subsystem sends its state in no guaranteed order, and later

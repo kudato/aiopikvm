@@ -281,6 +281,32 @@ async def test_error_status_while_streaming(
             pass  # pragma: no cover - the request fails before yielding
 
 
+async def test_redirect_while_streaming(mock_api: respx.MockRouter) -> None:
+    """The unread body must not be touched to report a redirect."""
+    mock_api.get("/api/log").mock(
+        return_value=httpx.Response(
+            302, headers={"Location": "https://pikvm.local/api/log/"}
+        )
+    )
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(RedirectError, match="api/log/"):
+            async for _ in kvm.system.stream_log():
+                pass  # pragma: no cover - the request fails before yielding
+
+
+async def test_redirect_loop_while_streaming(mock_api: respx.MockRouter) -> None:
+    """The same httpx.TooManyRedirects gap exists on the streaming path."""
+    mock_api.get("/api/log").mock(
+        return_value=httpx.Response(
+            302, headers={"Location": "https://pikvm.local/api/log"}
+        )
+    )
+    async with PiKVM("https://pikvm.local", follow_redirects=True) as kvm:
+        with pytest.raises(RedirectError, match="edirect"):
+            async for _ in kvm.system.stream_log():
+                pass  # pragma: no cover - the request fails before yielding
+
+
 async def test_per_call_timeout_override(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:

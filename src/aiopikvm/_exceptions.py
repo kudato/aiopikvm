@@ -27,7 +27,9 @@ class APIError(PiKVMError):
     """PiKVM refused the request or answered with something unusable.
 
     Attributes:
-        status_code: HTTP status code (``0`` when parsed from the JSON body).
+        status_code: HTTP status code. ``0`` when there was no single status
+            to report: an error kvmd put in the body of an HTTP 200, or a
+            redirect loop the client gave up on.
         error: kvmd's exception class name, e.g. ``"AtxIsBusyError"``. Empty
             when the response carried no kvmd error block.
         error_msg: kvmd's human-readable message, e.g. ``"Performing another
@@ -74,12 +76,18 @@ class UnavailableError(APIError):
 
 
 class RedirectError(APIError):
-    """PiKVM answered with a redirect (HTTP 3xx).
+    """A redirect the client would not or could not follow.
 
     kvmd redirects doubled and trailing slashes, and PiKVM's nginx redirects
     ``http://`` to ``https://``. Following those silently would resend the
     credentials to wherever the redirect points, so the client reports them
-    instead unless it was created with ``follow_redirects=True``.
+    instead unless it was created with ``follow_redirects=True``, over both
+    HTTP and the WebSocket.
+
+    With following turned on this also reports a redirect *loop*, which no
+    setting can resolve. That is the one case where ``status_code`` is ``0``
+    rather than the 3xx: the client gave up across several responses instead
+    of refusing one.
     """
 
 

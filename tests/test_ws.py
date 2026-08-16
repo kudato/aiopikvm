@@ -14,6 +14,7 @@ import websockets.asyncio.server
 import websockets.exceptions
 import websockets.http11
 from websockets.datastructures import Headers
+from websockets.uri import parse_uri
 
 from aiopikvm import (
     APIError,
@@ -25,6 +26,7 @@ from aiopikvm import (
     UnavailableError,
     WebSocketError,
 )
+from aiopikvm._ws import _Connector
 from tests.fixtures import load_json
 
 
@@ -216,6 +218,24 @@ async def test_aenter_http() -> None:
     ws._connection = None
 
 
+async def test_connector_forwards_what_it_was_given() -> None:
+    """The three tests above patch _Connector away; this pins what it passes on."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    connector = _Connector(
+        "wss://pikvm.local/api/ws?stream=1",
+        additional_headers={"X-KVMD-User": "admin"},
+        ssl_context=context,
+        open_timeout=7.0,
+        close_timeout=3.0,
+    )
+    assert connector.open_timeout == 7.0
+    assert connector.connection_kwargs["ssl"] is context
+    assert connector.additional_headers == {"X-KVMD-User": "admin"}
+    # close_timeout only reaches the connection websockets builds per attempt.
+    built = connector.protocol_factory(parse_uri(connector.uri))
+    assert built.close_timeout == 3.0
+
+
 async def test_aenter_oserror() -> None:
     with pytest.raises(WebSocketError, match="Failed to connect"):
         await connect_failing(socket(), OSError("Connection refused"))
@@ -354,8 +374,13 @@ async def test_redirect_is_followed_when_asked() -> None:
     assert len(target_seen) == 1
 
 
-async def test_redirect_repeated_header_stays_in_the_hierarchy() -> None:
-    """websockets' own lookup raises a LookupError that is not a KeyError."""
+@pytest.mark.parametrize("follow", [False, True])
+async def test_redirect_repeated_header_stays_in_the_hierarchy(follow: bool) -> None:
+    """websockets' own lookup raises a LookupError that is not a KeyError.
+
+    Both halves have to be covered: reading the header to report the
+    redirect, and reading it to follow one.
+    """
     headers = Headers()
     headers["Location"] = "ws://one.invalid/api/ws"
     headers["Location"] = "ws://two.invalid/api/ws"
@@ -363,20 +388,36 @@ async def test_redirect_repeated_header_stays_in_the_hierarchy() -> None:
     duplicated = websockets.http11.Response(302, "Found", headers, b"")
     async with serving(duplicated) as (url, _):
         with pytest.raises(RedirectError) as caught:
-            async with socket(url):
+            async with socket(url, follow_redirects=follow):
                 pass
     assert "one.invalid" in str(caught.value)
 
 
-async def test_a_server_that_ignores_the_upgrade_is_not_a_redirect() -> None:
+@pytest.mark.parametrize(
+    ("status", "redirect"),
+    [(200, False), (299, False), (300, True), (399, True), (400, False)],
+)
+async def test_only_3xx_is_a_redirect(status: int, redirect: bool) -> None:
     """Anything but 101 arrives here, and a 200 page is not a redirect."""
-    body = b"<html>captive portal</html>"
-    async with serving(response(200, "OK", body)) as (url, _):
+    async with serving(response(status, "Whatever", b"<html>portal</html>")) as (
+        url,
+        _,
+    ):
         with pytest.raises(APIError) as caught:
             async with socket(url):
                 pass
-    assert not isinstance(caught.value, RedirectError)
-    assert caught.value.status_code == 200
+    assert isinstance(caught.value, RedirectError) is redirect
+    assert caught.value.status_code == status
+
+
+async def test_refusal_with_a_body_that_is_not_utf8() -> None:
+    """A binary body must not become a UnicodeDecodeError at the caller."""
+    async with serving(response(500, "Oops", b"\xff\xfe\x00garbage")) as (url, _):
+        with pytest.raises(APIError) as caught:
+            async with socket(url):
+                pass
+    assert caught.value.status_code == 500
+    assert caught.value.error == ""
 
 
 # --- Events --------------------------------------------------------------

@@ -214,7 +214,8 @@ class PiKVM:
             BusyError: PiKVM is busy with another operation (409).
             UnavailableError: The subsystem is disabled or offline (503).
             RedirectError: PiKVM answered with a redirect (3xx) and the
-                client was not created with ``follow_redirects=True``.
+                client was not created with ``follow_redirects=True`` — or it
+                was, and the redirects formed a loop.
             APIError: Server returned any other error status (>= 400).
         """
         client = self._ensure_client()
@@ -270,8 +271,9 @@ class PiKVM:
             return
 
         if status < 400:
-            # A redirect is reported from its Location alone: with stream()
-            # the body has not been read, and touching it here would raise.
+            # A redirect is reported from its Location alone; inside stream()
+            # the body has not been read, and none of it would say anything a
+            # caller could act on anyway.
             raise _status_error(status, location=response.headers.get("location", ""))
 
         error, error_msg = cls._error_fields(response)
@@ -336,7 +338,8 @@ class PiKVM:
             BusyError: PiKVM is busy with another operation (409).
             UnavailableError: The subsystem is disabled or offline (503).
             RedirectError: PiKVM answered with a redirect (3xx) and the
-                client was not created with ``follow_redirects=True``.
+                client was not created with ``follow_redirects=True`` — or it
+                was, and the redirects formed a loop.
             APIError: Server returned any other error status (>= 400).
         """
         client = self._ensure_client()
