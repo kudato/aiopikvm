@@ -21,6 +21,11 @@ uv run mkdocs build                    # build static docs
 - A new resource also goes into `_RESOURCE_NAMES`, or `aclose()` leaves it
   cached on the client
 - Response models inherit `_Base` (`extra="allow"`), one file per subsystem
+- Validate payloads through `BaseResource._get_model()` / `_validate()`, never
+  `Model.model_validate()` in a resource — a bare pydantic `ValidationError`
+  escapes the documented hierarchy
+- Nothing outside `PiKVMError` may reach a caller: httpx and pydantic failures
+  are wrapped in `PiKVM.request()` / `stream()` and in `BaseResource`
 - Google-style docstrings with `Args:`, `Returns:` and `Raises:` sections on
   every module, public class and method
 - Redfish endpoints do not use the `{"ok": ..., "result": ...}` envelope:
