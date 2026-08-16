@@ -28,9 +28,9 @@ async def main():
         await kvm.hid.type_text("Hello from aiopikvm!")
 
         # Take a screenshot
-        snapshot = await kvm.streamer.snapshot()
+        screen = await kvm.streamer.snapshot()
         with open("screen.jpeg", "wb") as f:
-            f.write(snapshot)
+            f.write(screen.data)
 
 asyncio.run(main())
 ```
