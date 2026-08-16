@@ -81,12 +81,17 @@ disconnects the keyboard, mouse and audio the target host sees.
 
 ## What these fixtures do and do not prove
 
-They pin one device in one configuration: ATX disabled, a single GPIO channel,
-a switch with no ports attached, and the MSD disabled in the OTG profile — the
-`msd_*` scenarios above are the exception, recorded with it temporarily on, and
-they cover only a single-partition storage. A response parsing correctly here
-does not prove it parses on a populated switch, on a multi-partition MSD, or on
-a HID backend other than OTG — where a field is nullable or a collection is
-empty, the fixture usually shows the empty case only. Prefer asserting on the
-shape the fixture does contain, and use the live harness (`tests/live/`)
-against a differently configured device when the difference matters.
+They pin one device in one configuration: ATX disabled, a switch with no ports
+attached, one GPIO output channel and no input ones, and the MSD disabled in
+the OTG profile — the `msd_*` scenarios above are the exception, recorded with
+it temporarily on, and they cover only a single-partition storage.
+
+So a response parsing correctly here does not prove it parses on a populated
+switch, on a multi-partition MSD, or on a HID backend other than OTG. Where a
+field is nullable or a collection is empty, the fixture usually shows the empty
+case only, and a few models rest on kvmd's source rather than on a captured
+response — `GPIOInputScheme` and `GPIOInput` have no input channel to be
+captured from, and the `GPIOView` table items have no populated table. Prefer
+asserting on the shape the fixture does contain, and use the live harness
+(`tests/live/`) against a differently configured device when the difference
+matters.

@@ -25,7 +25,12 @@ class GPIOPulse(_Base):
 
 
 class GPIOInputScheme(_Base):
-    """Configuration of an input channel."""
+    """Configuration of an input channel.
+
+    No capture covers this: the fixture device has no input channels. The
+    shape comes from kvmd's ``ugpio.py``, which builds it two lines away from
+    the output scheme below.
+    """
 
     hw: GPIOHardware
 
@@ -54,10 +59,12 @@ class GPIOViewHeader(_Base):
 class GPIOView(_Base):
     """Layout hints for the GPIO widget in the PiKVM web UI.
 
-    The items are left untyped: kvmd emits three different shapes here
-    (``label``, ``input`` and ``output``, told apart by ``type``) and the
-    captured device has an empty table, so there is nothing to model them
-    against. A ``None`` row is a separator.
+    The items are deliberately left as dictionaries. kvmd emits three shapes
+    here — ``label``, ``input`` and ``output``, told apart by ``type`` — and
+    the captured device has an empty table, so a typed union would rest on
+    kvmd's source alone and no test could hold it honest. This is layout
+    metadata for the web UI; nothing in this client reads it. A ``None`` row
+    is a separator.
     """
 
     header: GPIOViewHeader
@@ -101,9 +108,11 @@ class GPIOState(_Base):
     """GPIO subsystem state.
 
     Mirrors ``GET /api/gpio``: ``model`` describes the channels and the web
-    UI layout, ``state`` holds their readings. :attr:`inputs` and
-    :attr:`outputs` are shortcuts to the readings, which is what callers
-    almost always want.
+    UI layout, ``state`` holds their readings. ``inputs`` and ``outputs`` are
+    shortcuts to the readings, which is what callers almost always want.
+
+    This is the shape of the REST response. The ``gpio`` WebSocket events
+    carry partial updates and do not validate against it.
     """
 
     model: GPIOModel

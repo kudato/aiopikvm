@@ -1,6 +1,7 @@
 """GPIOResource tests."""
 
 import httpx
+import pytest
 import respx
 
 from aiopikvm import PiKVM
@@ -63,15 +64,24 @@ async def test_switch(mock_api: respx.MockRouter, client: PiKVM) -> None:
     request = mock_api.calls[-1].request
     assert "channel=relay0" in str(request.url)
     assert "state=1" in str(request.url)
-    assert "wait" not in request.url.params
 
 
-async def test_switch_wait(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    # Without wait, kvmd answers before the switch happens and a failure is
-    # only logged server-side.
+@pytest.mark.parametrize("wait", [True, False])
+async def test_switch_wait(
+    mock_api: respx.MockRouter, client: PiKVM, wait: bool
+) -> None:
+    # Without wait, kvmd answers as soon as the switch starts and anything
+    # that fails afterwards only reaches its log.
     mock_api.post("/api/gpio/switch").mock(return_value=httpx.Response(200, json=OK))
-    await client.gpio.switch("relay0", True, wait=True)
-    assert mock_api.calls[-1].request.url.params["wait"] == "1"
+    await client.gpio.switch("relay0", True, wait=wait)
+    params = mock_api.calls[-1].request.url.params
+    assert params.get("wait") == ("1" if wait else None)
+
+
+async def test_switch_timeout(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.post("/api/gpio/switch").mock(return_value=httpx.Response(200, json=OK))
+    await client.gpio.switch("relay0", True, wait=True, timeout=45.0)
+    assert mock_api.calls[-1].request.extensions["timeout"]["read"] == 45.0
 
 
 async def test_pulse(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -88,6 +98,7 @@ async def test_pulse_no_delay(mock_api: respx.MockRouter, client: PiKVM) -> None
     request = mock_api.calls[-1].request
     assert "channel=relay0" in str(request.url)
     assert "delay" not in str(request.url)
+    assert "wait" not in request.url.params
 
 
 async def test_pulse_wait_and_timeout(

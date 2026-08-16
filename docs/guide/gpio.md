@@ -50,19 +50,25 @@ await kvm.gpio.switch("relay1", True)
 await kvm.gpio.switch("relay1", False)
 ```
 
-By default kvmd answers before the switch has actually happened, and a failure
-is only written to its log. Pass `wait=True` to have the request block until
-the channel has switched, so problems come back as errors — `BusyError`
-(HTTP 409) if another action is still running on that channel:
+By default kvmd answers as soon as the switch starts. A busy channel is
+reported either way — `BusyError` (HTTP 409) — but anything that goes wrong
+*after* the action begins, an offline driver above all, is written to kvmd's
+log and never reaches the caller. Pass `wait=True` to have the request block
+until the channel has actually switched, so those failures surface too:
 
 ```python
-from aiopikvm import BusyError
+from aiopikvm import APIError, BusyError
 
 try:
     await kvm.gpio.switch("relay1", True, wait=True)
 except BusyError:
     print("The channel is busy with another action")
+except APIError as exc:
+    print(f"The switch itself failed: {exc.error}")
 ```
+
+Unlike the ATX calls, which wait by default, `wait` here defaults to `False`
+to match kvmd's own default.
 
 ## Pulse
 
@@ -79,7 +85,14 @@ await kvm.gpio.pulse("relay1", delay=0.5)
 await kvm.gpio.pulse("relay1", delay=30.0, wait=True, timeout=60.0)
 ```
 
-kvmd clamps `delay` to the channel's `min_delay`/`max_delay` from the scheme.
+kvmd clamps `delay` to the channel's `min_delay`/`max_delay` from the scheme;
+`0` means the channel default, same as omitting it.
+
+!!! note
+
+    `GPIOState` describes the full `GET /api/gpio` response. The `gpio` events
+    on the WebSocket carry partial updates — often just the channels that
+    changed, without the `model` block — so they do not validate against it.
 
 ## Full example
 

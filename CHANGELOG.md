@@ -47,14 +47,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `MSDImage`, `MSDDriveImage`, `MSDPart`, `MSDUpload` and `MSDDownload` models
   for the parts of the MSD state that had no types at all (#38).
 - `wait` parameter on `GPIOResource.switch()` and `pulse()`. Without it kvmd
-  answers before the action has happened and reports a failure only in its own
-  log; with it the call blocks and raises, e.g. `BusyError` when the channel is
-  busy. Both also take a per-call `timeout`, since a waited pulse can outlast
-  the client default (#51).
+  answers as soon as the action starts and writes whatever goes wrong after
+  that — an offline driver above all — to its own log only; with it the call
+  blocks until the action finishes and those failures reach the caller. A busy
+  channel raises `BusyError` either way. Both calls also take a per-call
+  `timeout`, since a waited pulse can outlast the client default (#51).
 - `GPIOModel`, `GPIOScheme`, `GPIOOutputScheme`, `GPIOInputScheme`,
-  `GPIOPulse`, `GPIOHardware`, `GPIOView` and `GPIOViewHeader` models. The
-  scheme is where a channel's driver, pin and pulse limits live — none of it
-  was reachable before (#41).
+  `GPIOPulse`, `GPIOHardware`, `GPIOView`, `GPIOViewHeader` and `GPIOIOState`
+  models. The scheme is where a channel's driver, pin and pulse limits live —
+  none of it was reachable before (#41).
 
 ### Changed
 
