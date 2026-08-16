@@ -56,6 +56,26 @@ All response models inherit from a base class with `extra="allow"` for forward-c
     options:
       show_bases: false
 
+::: aiopikvm.MSDImage
+    options:
+      show_bases: false
+
+::: aiopikvm.MSDDriveImage
+    options:
+      show_bases: false
+
+::: aiopikvm.MSDPart
+    options:
+      show_bases: false
+
+::: aiopikvm.MSDUpload
+    options:
+      show_bases: false
+
+::: aiopikvm.MSDDownload
+    options:
+      show_bases: false
+
 ## GPIO
 
 ::: aiopikvm.GPIOState

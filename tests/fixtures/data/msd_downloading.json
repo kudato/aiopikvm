@@ -1,0 +1,53 @@
+{
+  "ok": true,
+  "result": {
+    "busy": true,
+    "drive": {
+      "cdrom": true,
+      "connected": false,
+      "image": {
+        "complete": true,
+        "in_storage": true,
+        "mod_ts": 1786869863.9247806,
+        "name": "test-1m.iso",
+        "removable": true,
+        "size": 1048576,
+        "writable": false
+      },
+      "rw": false
+    },
+    "enabled": true,
+    "online": true,
+    "storage": {
+      "downloading": {
+        "name": "test-8m.iso",
+        "readed": 2424832,
+        "size": 8388608
+      },
+      "images": {
+        "test-1m.iso": {
+          "complete": true,
+          "mod_ts": 1786869863.9247806,
+          "removable": true,
+          "size": 1048576,
+          "writable": false
+        },
+        "test-8m.iso": {
+          "complete": true,
+          "mod_ts": 1786870260.3622167,
+          "removable": true,
+          "size": 8388608,
+          "writable": false
+        }
+      },
+      "parts": {
+        "": {
+          "free": 8385859584,
+          "size": 8414195712,
+          "writable": true
+        }
+      },
+      "uploading": null
+    }
+  }
+}

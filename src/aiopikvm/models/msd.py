@@ -1,31 +1,88 @@
 """MSD models."""
 
-from typing import Any
-
 from aiopikvm.models._base import _Base
 
 
-class MSDDrive(_Base):
-    """MSD virtual drive state."""
+class MSDImage(_Base):
+    """An image stored in MSD storage.
 
-    image: str | None = None
-    connected: bool
-    cdrom: bool
+    ``complete`` is ``False`` for an image whose upload was interrupted; kvmd
+    keeps it in the listing so it can be resumed or removed.
+    """
+
+    complete: bool
+    mod_ts: float
+    removable: bool
+    size: int
+    writable: bool
+
+
+class MSDDriveImage(MSDImage):
+    """The image currently in the virtual drive.
+
+    kvmd reports two fields here that the storage listing leaves out, because
+    the drive can also hold an image that is not in storage at all.
+    """
+
+    name: str
+    in_storage: bool
+
+
+class MSDPart(_Base):
+    """A partition of the MSD storage. The root one is keyed by ``""``."""
+
+    free: int
+    size: int
+    writable: bool
+
+
+class MSDUpload(_Base):
+    """Progress of an image being written to storage."""
+
+    name: str
+    size: int
+    written: int
+
+
+class MSDDownload(_Base):
+    """Progress of a stored image being read back.
+
+    ``readed`` is spelled the way kvmd spells it on the wire.
+    """
+
+    name: str
+    size: int
+    readed: int
 
 
 class MSDStorage(_Base):
-    """MSD storage information."""
+    """MSD storage: what is on it and what is moving in or out of it."""
 
-    size: int
-    free: int
-    images: dict[str, Any]
+    images: dict[str, MSDImage]
+    parts: dict[str, MSDPart]
+    downloading: MSDDownload | None = None
+    uploading: MSDUpload | None = None
+
+
+class MSDDrive(_Base):
+    """The virtual drive presented to the target host."""
+
+    cdrom: bool
+    connected: bool
+    rw: bool
+    image: MSDDriveImage | None = None
 
 
 class MSDState(_Base):
-    """MSD subsystem state."""
+    """MSD subsystem state.
+
+    ``drive`` and ``storage`` are both ``None`` while the subsystem is
+    offline — the MSD is disabled in the OTG profile, or kvmd has not
+    finished setting it up. Neither is available without the other.
+    """
 
     enabled: bool
     online: bool
     busy: bool
-    drive: MSDDrive
-    storage: MSDStorage
+    drive: MSDDrive | None = None
+    storage: MSDStorage | None = None

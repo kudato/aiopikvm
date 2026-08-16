@@ -35,6 +35,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (0 to 5 s) that `slow` could previously only pin to 0.02 s (#37).
 - `HIDKeyboardLeds`, `HIDOutputs` and `HIDJiggler` models for the parts of the
   HID state that were previously reachable only as untyped extras (#36).
+- `image` parameter on `MSDResource.set_params()`: a stored name puts the image
+  into the drive, `""` ejects it, a URL points at a remote one. Without it an
+  uploaded image could not be selected at all (#49).
+- `MSDResource.download()` streams a stored image back from `GET /msd/read`,
+  optionally compressed with lzma or zstd. Its read timeout is disabled by
+  default — an image transfer outlives the client default many times over (#50).
+- `remove_incomplete` and `prefix` parameters on `MSDResource.upload()`: the
+  first tells kvmd to delete a partially written image when the connection
+  breaks, the second writes into a subdirectory of the storage (#39).
+- `MSDImage`, `MSDDriveImage`, `MSDPart`, `MSDUpload` and `MSDDownload` models
+  for the parts of the MSD state that had no types at all (#38).
 
 ### Changed
 
@@ -42,6 +53,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
   `leds`. `HIDState` gains `enabled` and `jiggler`, and keeps the nullable
   top-level `connected` (#36).
+- **Breaking:** `MSDState.drive` and `MSDState.storage` are now optional, and
+  both blocks follow what kvmd sends: `MSDStorage` carries `images`, `parts`,
+  `downloading` and `uploading` instead of the invented `size`/`free`, and
+  `MSDDrive.image` is a nested object rather than a string. Free space lives
+  per partition, in `storage.parts[""]` for the root one (#38).
 - **Breaking:** `HIDResource.get_keymaps()` returns a typed `HIDKeymaps`
   (`default`, `available`) instead of the raw envelope dict, so callers no
   longer index `result["keymaps"]["available"]` themselves (#75).
@@ -68,6 +84,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   HID backend nests `connected` under `keyboard` or `mouse` — it exists only
   at the top level. The mocked test passed because its payload was
   hand-written; the models now follow a capture from kvmd 4.186 (#36).
+- `MSDResource.get_state()` failed against every real device. `drive` and
+  `storage` were required but kvmd nulls both while the MSD is offline;
+  `MSDStorage` demanded `size` and `free`, which kvmd does not send; and
+  `MSDDrive.image` was typed as a string where kvmd sends an object. All three
+  are fixed against captures from a device with the MSD switched on (#38).
+- **Breaking:** `MSDResource.upload()` never worked with an async iterator:
+  httpx framed the body as `Transfer-Encoding: chunked`, kvmd reads the image
+  size from `Content-Length` and answered `HTTP 400: None argument is not a
+  valid int`. A streamed upload now has to pass `size`, and raises
+  `ConfigurationError` when it is missing or disagrees with the data — an
+  undercount would otherwise leave a truncated image on the device marked
+  `complete`, and surface as h11's `LocalProtocolError` from outside the
+  `PiKVMError` hierarchy. The mocked test could not catch any of this: respx
+  does not care how a body is framed (#39).
 - `HIDResource.type_text()` silently truncated at 1024 characters. `limit=0`
   was documented as unlimited but omitted the query parameter, leaving kvmd's
   own default of 1024 in force; `limit` is now always sent. kvmd answers only

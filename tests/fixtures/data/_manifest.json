@@ -178,13 +178,29 @@
     }
   },
   "scenarios": {
-    "ws_events": {
-      "file": "ws_events.jsonl",
-      "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=0, in arrival order."
-    },
     "auth_roundtrip": {
       "file": "auth_roundtrip.json",
       "description": "POST /api/auth/login with a JSON body vs a form body, then check/logout/check with the session cookie."
+    },
+    "msd_downloading": {
+      "file": "msd_downloading.json",
+      "description": "GET /api/msd sampled while a stored image is being read back via GET /api/msd/read (storage.downloading is populated)."
+    },
+    "msd_image": {
+      "file": "msd_image.json",
+      "description": "GET /api/msd with the MSD enabled in the OTG profile, one image stored and selected in the drive, drive not connected to the host."
+    },
+    "msd_online": {
+      "file": "msd_online.json",
+      "description": "GET /api/msd with the MSD enabled in the OTG profile and an image in storage, but the drive empty (drive.image is null)."
+    },
+    "msd_uploading": {
+      "file": "msd_uploading.json",
+      "description": "GET /api/msd sampled while an image upload is in flight (storage.uploading is populated)."
+    },
+    "ws_events": {
+      "file": "ws_events.jsonl",
+      "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=0, in arrival order."
     }
   }
 }
