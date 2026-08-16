@@ -241,10 +241,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   case-sensitively, and spells out what each one does: they press the front
   panel's power or reset switch, and all but `PushPowerButton` are conditional
   on the host's current power state, so the default `ForceRestart` is a reset
-  click that does nothing at all against a host that is already off. It also
-  records that the `SetDefaultBootOrder` action every system document
-  advertises is answered by a plain-text 404, and that `Members` holds
-  `{"@odata.id": ...}` links rather than bare ids (#78).
+  click that does nothing at all against a host kvmd believes to be off — a
+  state it reads from the power LED. It also warns that the `enabled` check
+  which makes a reset harmless on a device with `atx.type = disabled` guards
+  the `"0"` branch only, so a `"SwitchPort<N>"` reset acts on the port
+  regardless, records that the `SetDefaultBootOrder` action every system
+  document advertises is answered by a plain-text 404, and documents that
+  `Members` holds `{"@odata.id": ...}` links rather than bare ids (#78).
 - The Prometheus guide showed `# HELP` lines the exporter does not emit, and
   documented none of its limits: the export is cached server-side for 5 s, it
   covers only ATX, GPIO, health and fan, it exports numbers only, and an

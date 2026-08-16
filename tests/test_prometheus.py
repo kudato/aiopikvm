@@ -38,7 +38,9 @@ def test_exporter_scope_is_narrow() -> None:
 
     The capture device has one GPIO channel and it is `__`-prefixed, which
     kvmd hides, so three of the four prefixes appear here. An exact match
-    catches a re-capture that grows an MSD, streamer or HID metric.
+    catches a re-capture that grows an MSD, streamer or HID metric — but a
+    re-capture from a device with a *visible* GPIO channel legitimately adds
+    `gpio`, so widen it to that and no further.
     """
     prefixes = {
         line.split("_")[1]

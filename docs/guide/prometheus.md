@@ -37,7 +37,7 @@ The exporter reads four subsystems and nothing else:
 | Prefix | Source | Metrics |
 | --- | --- | --- |
 | `pikvm_atx_*` | ATX | exactly two: `pikvm_atx_enabled` and `pikvm_atx_power`, the latter from the power LED |
-| `pikvm_gpio_*` | GPIO | two per channel, per direction |
+| `pikvm_gpio_*` | GPIO | two per visible channel |
 | `pikvm_hw_*` | health | CPU, memory, temperatures, throttling flags |
 | `pikvm_fan_*` | fan | `pikvm_fan_monitored`, plus the fan readings when one is fitted |
 

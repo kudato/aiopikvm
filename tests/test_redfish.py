@@ -102,13 +102,17 @@ async def test_get_system(mock_api: respx.MockRouter, client: PiKVM) -> None:
 def test_collection_members_are_links_not_ids() -> None:
     """``Members`` holds ``{"@odata.id": ...}`` objects, as the guide says.
 
-    The captured Systems collection is empty — the device has ATX disabled
-    and no switch — so the shape is pinned from its sibling collection, which
-    kvmd builds with the same comprehension.
+    This does not prove it for ``Systems``: that capture is empty — the
+    device has ATX disabled and no switch — and kvmd builds the two
+    collections in separate files, the Managers one from a hardcoded literal.
+    What it pins is the idiom the guide's "take the tail of the path" recipe
+    relies on, against the only non-empty Redfish collection captured here.
     """
     members = load_json("redfish_managers")["Members"]
-    assert members == [{"@odata.id": "/redfish/v1/Managers/BMC"}]
     assert [member["@odata.id"].rsplit("/", 1)[1] for member in members] == ["BMC"]
+    assert load_json("redfish_vm")["Members"] == [
+        {"@odata.id": "/redfish/v1/Managers/BMC/VirtualMedia/MSD"}
+    ]
 
 
 async def test_get_system_switch_port(

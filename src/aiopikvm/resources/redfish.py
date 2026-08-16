@@ -175,8 +175,8 @@ class RedfishResource(BaseResource):
 
         - ``"On"`` and ``"ForceOn"``: a short power click, only if the host
           is off. The two are the same call.
-        - ``"ForceOff"``: the power switch held for 5.5 s, only if the host
-          is on.
+        - ``"ForceOff"``: the power switch held down — 5.5 s by default, and
+          configurable — only if the host is on.
         - ``"GracefulShutdown"``: a short power click, only if the host is
           on — the OS decides what to do with it.
         - ``"ForceRestart"``: a click on the *reset* switch, only if the host
@@ -185,17 +185,22 @@ class RedfishResource(BaseResource):
 
         The default ``"ForceRestart"`` gives the host no chance to shut down
         cleanly. Everything but ``"PushPowerButton"`` is conditional on the
-        current power state, so a ``"ForceRestart"`` sent to a host that is
-        already off does nothing and still answers 204.
+        power state kvmd reads from the host's power LED — the same source as
+        ``PowerState`` — so a ``"ForceRestart"`` does nothing at all against a
+        host kvmd believes to be off, and still answers 204. On an install
+        where the power-LED wire was never connected, that is every host.
 
         Returns nothing — kvmd answers HTTP 204 with an empty body, and the
         action is asynchronous besides. Read the outcome from
         :meth:`get_system`'s ``PowerState``, or from
         :meth:`ATXResource.get_state`.
 
-        With the ATX subsystem disabled in the kvmd config this still answers
-        204 and does nothing at all, so there is no error to catch. Check
-        ``ATXState.enabled`` first where that matters.
+        With the ATX subsystem disabled in the kvmd config, ``system_id="0"``
+        still answers 204 and does nothing at all, so there is no error to
+        catch — check ``ATXState.enabled`` first where that matters. A switch
+        port is **not** covered by that: kvmd checks ``enabled`` only on the
+        ``"0"`` branch, and a ``"SwitchPort<N>"`` reset acts on the port
+        whatever the ATX plugin is set to.
 
         Args:
             reset_type: One of :data:`RESET_TYPES`, matched case-sensitively.
