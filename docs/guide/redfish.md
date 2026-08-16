@@ -33,11 +33,14 @@ print(system["PowerState"])  # "On" / "Off"
 ```python
 {"Members": [{"@odata.id": "/redfish/v1/Systems/0"},
              {"@odata.id": "/redfish/v1/Systems/SwitchPort0"},
-             {"@odata.id": "/redfish/v1/Systems/SwitchPort1"}]}
+             {"@odata.id": "/redfish/v1/Systems/SwitchPort1"},
+             {"@odata.id": "/redfish/v1/Systems/SwitchPort2"},
+             {"@odata.id": "/redfish/v1/Systems/SwitchPort3"}]}
 ```
 
 There is one for `"0"` when the ATX subsystem is enabled, and one per port of
-an attached PiKVM Switch. To feed them back to `get_system()`, take the tail of
+an attached PiKVM Switch — four per switch unit, so the count goes 4, 8, 12 and
+not 1, 2, 3. To feed them back to `get_system()`, take the tail of
 each path:
 
 ```python
@@ -57,6 +60,9 @@ kvmd validates the id as a string and accepts exactly two forms:
 | --- | --- |
 | `"0"` | the machine PiKVM itself is wired to |
 | `"SwitchPort<N>"` | port *N* of an attached PiKVM Switch, counted from 0 |
+
+Redfish numbers the ports from 0 while the switch's own `id` starts at 1, so
+the port labelled "1" in the switch UI is `SwitchPort0`.
 
 Everything else is refused with HTTP 400 — `"1"` and `"00"` included, because
 `"00"` is not the string `"0"`:
@@ -117,6 +123,14 @@ answers 204 and does nothing at all, so there is no error to catch — check
     plugin disabled *and* a switch attached — a normal configuration — the two
     ids behave completely differently.
 
+    A reset also does **not** bounds-check the port: kvmd validates the form
+    of the id and then drops a command for a port that does not exist, so
+    `reset("ForceOff", "SwitchPort9")` on a four-port switch answers 204 and
+    does nothing. `get_system("SwitchPort9")` does answer 400 — use it to
+    check an id you did not build yourself. A port that is busy with an
+    earlier click drops the command silently too, where `"0"` would raise
+    `BusyError`.
+
 ### Reset types
 
 kvmd accepts these six, matched **case-sensitively**:
@@ -139,19 +153,21 @@ the host's current power state:
 | `ForceOff` | power switch held down (5.5 s by default) | only if the host is on |
 | `GracefulShutdown` | short power click, for the OS to act on | only if the host is on |
 | `ForceRestart` | click on the **reset** switch | only if the host is on |
-| `PushPowerButton` | short power click | always |
+| `PushPowerButton` | short power click | no power-state condition |
 
-Every click duration is configurable — `atx.click_delay` and
-`atx.long_click_delay` for the machine PiKVM is wired to, per-port settings for
-a switch, whose defaults differ from the ATX plugin's.
+Every click duration is configurable: `atx.click_delay` (0.1 s) and
+`atx.long_click_delay` (5.5 s) for the machine PiKVM is wired to, per-port
+settings for a switch. A switch's long click defaults to the same 5.5 s; its
+short click and reset click default to 0.5 s rather than 0.1 s.
 
 !!! note
     `ForceRestart` does not cut the power — it is the reset line. And the
     conditional types check the power state kvmd reads from the host's **power
     LED**, the same source as `PowerState`, so `reset("ForceRestart")` against
     a host kvmd believes to be off does nothing at all and still answers 204.
-    On an install where only the switch wires were connected and the power-LED
-    wire was not, that is every host.
+    Where that LED is miswired or unread, the conditional types become
+    unpredictable — compare `PowerState` against reality before relying on
+    them. The switch-port branch gates on the same LED, read per port.
 
 The DMTF schema defines more — `GracefulRestart`, `Nmi`, `PowerCycle` — and
 kvmd refuses all of them with HTTP 400 before taking any action, as it does a

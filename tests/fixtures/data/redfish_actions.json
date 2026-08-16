@@ -1,5 +1,5 @@
 {
-  "description": "Everything GET /api/redfish/v1/Systems/{sid} accepts and refuses, and what the two actions answer, recorded by hand against kvmd 4.186 (see README). The capture tool only records GETs that succeed; these are the empty 204s and the refusals, which no capture had.",
+  "description": "What GET /api/redfish/v1/Systems/{sid} accepts and refuses on this device, and what the two actions answer, recorded by hand against kvmd 4.186 (see README). The capture tool only records GETs that succeed; these are the empty 204s and the refusals, which no capture had. kvmd also accepts every SwitchPort<N> a real switch exposes; this device has none, so no accepted port id is recorded here.",
   "safety": "The device records with atx.type = disabled, whose plugin returns a hardcoded enabled=false and whose every action raises AtxDisabledError. kvmd dispatches a reset of Systems/0 only when the ATX is enabled, so the accepted reset below performed no power action; the target machine's video stayed online across it. Note that the enabled check guards the Systems/0 branch only — a SwitchPort<N> reset acts on the port whatever atx.type is set to.",
   "steps": [
     {

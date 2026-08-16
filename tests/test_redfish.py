@@ -69,7 +69,14 @@ def replay(name: str) -> httpx.Response:
 
 
 def body_of(mock_api: respx.MockRouter) -> Any:
-    """Return the JSON body of the last request the router saw."""
+    """Return the JSON body of the last request the router saw.
+
+    Args:
+        mock_api: The respx router the client was pointed at.
+
+    Returns:
+        The parsed request body.
+    """
     return json.loads(mock_api.calls[-1].request.content)
 
 

@@ -246,8 +246,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   which makes a reset harmless on a device with `atx.type = disabled` guards
   the `"0"` branch only, so a `"SwitchPort<N>"` reset acts on the port
   regardless, records that the `SetDefaultBootOrder` action every system
-  document advertises is answered by a plain-text 404, and documents that
-  `Members` holds `{"@odata.id": ...}` links rather than bare ids (#78).
+  document advertises is answered by a plain-text 404, that a reset does not
+  bounds-check a switch port — a nonexistent one answers 204 and does nothing,
+  where `get_system()` answers 400 — and that `Members` holds
+  `{"@odata.id": ...}` links rather than bare ids (#78).
 - The Prometheus guide showed `# HELP` lines the exporter does not emit, and
   documented none of its limits: the export is cached server-side for 5 s, it
   covers only ATX, GPIO, health and fan, it exports numbers only, and an

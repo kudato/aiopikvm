@@ -200,7 +200,7 @@
     },
     "redfish_actions": {
       "file": "redfish_actions.json",
-      "description": "Every system id GET /api/redfish/v1/Systems/{sid} accepts and refuses, the empty 204s of the PATCH stub and ComputerSystem.Reset, the ResetType values kvmd rejects, and the advertised-but-missing SetDefaultBootOrder action."
+      "description": "The one system id GET /api/redfish/v1/Systems/{sid} accepts on this device and four it refuses, the empty 204s of the PATCH stub and ComputerSystem.Reset, the ResetType values kvmd rejects, and the advertised-but-missing SetDefaultBootOrder action."
     },
     "ws_events": {
       "file": "ws_events.jsonl",

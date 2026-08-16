@@ -181,14 +181,18 @@ class RedfishResource(BaseResource):
           on — the OS decides what to do with it.
         - ``"ForceRestart"``: a click on the *reset* switch, only if the host
           is on. It does not cut the power.
-        - ``"PushPowerButton"``: a short power click, unconditionally.
+        - ``"PushPowerButton"``: a short power click, with no power-state
+          condition. On a switch port it is still dropped while that port is
+          busy with an earlier click.
 
         The default ``"ForceRestart"`` gives the host no chance to shut down
         cleanly. Everything but ``"PushPowerButton"`` is conditional on the
-        power state kvmd reads from the host's power LED — the same source as
-        ``PowerState`` — so a ``"ForceRestart"`` does nothing at all against a
-        host kvmd believes to be off, and still answers 204. On an install
-        where the power-LED wire was never connected, that is every host.
+        power state kvmd reads from the host's power LED — the same value it
+        reports as ``PowerState``, on both the ``"0"`` and the switch-port
+        branch — so a ``"ForceRestart"`` does nothing at all against a host
+        kvmd believes to be off, and still answers 204. Where that LED is
+        miswired or unread, the conditional types are unpredictable; compare
+        ``PowerState`` against reality before relying on them.
 
         Returns nothing — kvmd answers HTTP 204 with an empty body, and the
         action is asynchronous besides. Read the outcome from
@@ -202,6 +206,13 @@ class RedfishResource(BaseResource):
         ``"0"`` branch, and a ``"SwitchPort<N>"`` reset acts on the port
         whatever the ATX plugin is set to.
 
+        Unlike :meth:`get_system`, this does not bounds-check a switch port:
+        kvmd validates the *form* of the id and then drops a command for a
+        port that does not exist, so ``"SwitchPort9"`` on a four-port switch
+        answers 204 and does nothing. Read the port back with
+        :meth:`get_system` — that one does answer 400 — if the id came from
+        somewhere you do not control.
+
         Args:
             reset_type: One of :data:`RESET_TYPES`, matched case-sensitively.
                 Anything else is refused with HTTP 400 before any action is
@@ -211,8 +222,12 @@ class RedfishResource(BaseResource):
                 *N* of an attached PiKVM Switch.
 
         Raises:
-            APIError: If the reset type or the id is not one kvmd accepts
-                (HTTP 400).
+            APIError: If the reset type is not one kvmd accepts, or the id is
+                not of a form it knows (HTTP 400). An id whose form is valid
+                but whose port does not exist is *not* refused.
+            BusyError: If an earlier ATX action on ``"0"`` is still running
+                (HTTP 409). A busy *switch port* drops the command silently
+                instead, and still answers 204.
             PiKVMError: If PiKVM is unreachable.
         """
         await self._send_action(
