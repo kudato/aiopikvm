@@ -10,6 +10,7 @@ print(f"Enabled: {state.enabled}")
 print(f"Busy: {state.busy}")
 print(f"Power LED: {state.leds.power}")
 print(f"HDD LED: {state.leds.hdd}")
+print(f"Power action running: {state.acts.power}")
 ```
 
 The returned `ATXState` contains:
@@ -17,9 +18,31 @@ The returned `ATXState` contains:
 | Field | Type | Description |
 |-------|------|-------------|
 | `enabled` | `bool` | Whether ATX is enabled |
-| `busy` | `bool` | Whether an operation is in progress |
+| `busy` | `bool` | Whether any operation is in progress |
+| `acts.power` | `bool` | A power action is running |
+| `acts.reset` | `bool` | A reset action is running |
 | `leds.power` | `bool` | Power LED state |
 | `leds.hdd` | `bool` | HDD activity LED state |
+
+kvmd guards the power and reset lines separately — `busy` is the two of them
+combined, while `acts` says which one is occupied.
+
+## When a call fails
+
+```python
+from aiopikvm import APIError, BusyError
+
+try:
+    await kvm.atx.click_power()
+except BusyError:
+    print("Another ATX action is still running")
+except APIError as exc:
+    if exc.error == "AtxIsDisabledError":
+        print("The ATX plugin is disabled on this device")
+```
+
+`BusyError` (HTTP 409) comes back whether or not you wait. A disabled plugin
+answers HTTP 400 on every action, and `state.enabled` tells you up front.
 
 ## Power on / off
 
@@ -55,14 +78,24 @@ await kvm.atx.reset_hard()
 
 ## The `wait` parameter
 
-All ATX operations accept a `wait` parameter (default `True`). When `True`, the method waits for the operation to complete before returning:
+All ATX operations accept `wait`, which defaults to `False` — the same default
+kvmd itself uses. The call returns as soon as kvmd has accepted the action, and
+anything that fails while it runs goes to kvmd's log rather than to the caller:
 
 ```python
-# Don't wait for completion
-await kvm.atx.power_on(wait=False)
+# Return immediately (default)
+await kvm.atx.power_on()
 
-# Wait for completion (default)
+# Block until the action has finished
 await kvm.atx.power_on(wait=True)
+```
+
+Waiting holds the HTTP request open for the whole action. A long power click
+alone holds the button for 5.5 seconds of the 10-second client default, so give
+it room:
+
+```python
+await kvm.atx.click_power_long(wait=True, timeout=30.0)
 ```
 
 ## Full example

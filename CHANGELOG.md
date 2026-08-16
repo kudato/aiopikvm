@@ -52,6 +52,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   blocks until the action finishes and those failures reach the caller. A busy
   channel raises `BusyError` either way. Both calls also take a per-call
   `timeout`, since a waited pulse can outlast the client default (#51).
+- `ATXState.acts` (`ATXActs`), the per-line busy flags kvmd has always sent.
+  `busy` is the union of the two; `acts` says whether it is the power or the
+  reset line that is occupied (#72).
 - Models for everything the switch reports: `SwitchSummary`, `SwitchModel`,
   `SwitchUnit`, `SwitchLimits`, `SwitchEdids`, `EDIDInfo`, `SwitchColors`,
   `SwitchLinks`, `SwitchBeacons`, `SwitchAtx` and the pieces they are built
@@ -68,6 +71,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
   `leds`. `HIDState` gains `enabled` and `jiggler`, and keeps the nullable
   top-level `connected` (#36).
+- **Breaking:** every mutating `ATXResource` call now defaults to
+  `wait=False`, matching kvmd. Waiting was the client's own invention and held
+  the HTTP request for the length of the action — a long power click alone ate
+  5.5 s of the 10 s default timeout. Pass `wait=True` (with a wider `timeout`)
+  where confirmation matters (#73).
 - **Breaking:** `SwitchState` follows the real payload — `model`, `summary`,
   `edids`, `colors`, `video`, `usb`, `beacons`, `atx` — instead of the flat
   `{active, ports}` no kvmd ever emitted. `EDID` now carries `name`, `data`

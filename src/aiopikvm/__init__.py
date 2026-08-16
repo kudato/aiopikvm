@@ -15,7 +15,7 @@ from aiopikvm._exceptions import (
     WebSocketError,
 )
 from aiopikvm._ws import PiKVMWebSocket
-from aiopikvm.models.atx import ATXLeds, ATXState
+from aiopikvm.models.atx import ATXActs, ATXLeds, ATXState
 from aiopikvm.models.gpio import (
     GPIOChannel,
     GPIOHardware,
@@ -98,6 +98,7 @@ __version__ = "0.2.1"
 __all__ = [
     "EDID",
     "APIError",
+    "ATXActs",
     "ATXLeds",
     "ATXState",
     "AuthError",

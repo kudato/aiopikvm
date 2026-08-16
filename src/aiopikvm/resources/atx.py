@@ -16,15 +16,24 @@ class ATXResource(BaseResource):
         return await self._get_model("/api/atx", ATXState)
 
     async def click_power(
-        self, *, wait: bool = True, timeout: float | None = None
+        self, *, wait: bool = False, timeout: float | None = None
     ) -> None:
         """Click the power button.
 
         Args:
-            wait: Wait for the operation to complete.
-            timeout: Per-call timeout in seconds. With ``wait``, kvmd answers
-                only once the click is over, which eats into the client
-                default of 10 s.
+            wait: Answer only once the action has finished. kvmd's own
+                default, and this one, is not to wait: the request comes
+                back immediately and a failure is written to the kvmd log
+                instead of reaching the caller.
+            timeout: Per-call timeout in seconds. Only meaningful with
+                ``wait``, which holds the request open for the length of
+                the click.
+
+        Raises:
+            BusyError: Another ATX action is still running (409). Raised
+                with or without ``wait``.
+            APIError: The ATX plugin is disabled (400), which
+                :attr:`ATXState.enabled` reports up front.
         """
         await self._post(
             "/api/atx/click",
@@ -33,15 +42,24 @@ class ATXResource(BaseResource):
         )
 
     async def click_power_long(
-        self, *, wait: bool = True, timeout: float | None = None
+        self, *, wait: bool = False, timeout: float | None = None
     ) -> None:
         """Long-press the power button.
 
         Args:
-            wait: Wait for the operation to complete.
-            timeout: Per-call timeout in seconds. With ``wait``, kvmd answers
-                only once the click is over — the long click alone holds the
-                button for 5.5 s of the client default of 10 s.
+            wait: Answer only once the action has finished. kvmd's own
+                default, and this one, is not to wait: the request comes
+                back immediately and a failure is written to the kvmd log
+                instead of reaching the caller.
+            timeout: Per-call timeout in seconds. With ``wait`` this call
+                holds the button for 5.5 s of the 10 s client default, so
+                widen it.
+
+        Raises:
+            BusyError: Another ATX action is still running (409). Raised
+                with or without ``wait``.
+            APIError: The ATX plugin is disabled (400), which
+                :attr:`ATXState.enabled` reports up front.
         """
         await self._post(
             "/api/atx/click",
@@ -50,15 +68,24 @@ class ATXResource(BaseResource):
         )
 
     async def click_reset(
-        self, *, wait: bool = True, timeout: float | None = None
+        self, *, wait: bool = False, timeout: float | None = None
     ) -> None:
         """Click the reset button.
 
         Args:
-            wait: Wait for the operation to complete.
-            timeout: Per-call timeout in seconds. With ``wait``, kvmd answers
-                only once the click is over, which eats into the client
-                default of 10 s.
+            wait: Answer only once the action has finished. kvmd's own
+                default, and this one, is not to wait: the request comes
+                back immediately and a failure is written to the kvmd log
+                instead of reaching the caller.
+            timeout: Per-call timeout in seconds. Only meaningful with
+                ``wait``, which holds the request open for the length of
+                the click.
+
+        Raises:
+            BusyError: Another ATX action is still running (409). Raised
+                with or without ``wait``.
+            APIError: The ATX plugin is disabled (400), which
+                :attr:`ATXState.enabled` reports up front.
         """
         await self._post(
             "/api/atx/click",
@@ -67,14 +94,24 @@ class ATXResource(BaseResource):
         )
 
     async def power_on(
-        self, *, wait: bool = True, timeout: float | None = None
+        self, *, wait: bool = False, timeout: float | None = None
     ) -> None:
         """Power on the host.
 
         Args:
-            wait: Wait for the operation to complete.
-            timeout: Per-call timeout in seconds. With ``wait``, kvmd holds
-                the request until the host reaches the requested state.
+            wait: Answer only once the action has finished. kvmd's own
+                default, and this one, is not to wait: the request comes
+                back immediately and a failure is written to the kvmd log
+                instead of reaching the caller.
+            timeout: Per-call timeout in seconds. Only meaningful with
+                ``wait``, which holds the request until the host reaches
+                the requested state.
+
+        Raises:
+            BusyError: Another ATX action is still running (409). Raised
+                with or without ``wait``.
+            APIError: The ATX plugin is disabled (400), which
+                :attr:`ATXState.enabled` reports up front.
         """
         await self._post(
             "/api/atx/power",
@@ -83,14 +120,24 @@ class ATXResource(BaseResource):
         )
 
     async def power_off(
-        self, *, wait: bool = True, timeout: float | None = None
+        self, *, wait: bool = False, timeout: float | None = None
     ) -> None:
         """Power off the host gracefully.
 
         Args:
-            wait: Wait for the operation to complete.
-            timeout: Per-call timeout in seconds. With ``wait``, kvmd holds
-                the request until the host reaches the requested state.
+            wait: Answer only once the action has finished. kvmd's own
+                default, and this one, is not to wait: the request comes
+                back immediately and a failure is written to the kvmd log
+                instead of reaching the caller.
+            timeout: Per-call timeout in seconds. Only meaningful with
+                ``wait``, which holds the request until the host reaches
+                the requested state.
+
+        Raises:
+            BusyError: Another ATX action is still running (409). Raised
+                with or without ``wait``.
+            APIError: The ATX plugin is disabled (400), which
+                :attr:`ATXState.enabled` reports up front.
         """
         await self._post(
             "/api/atx/power",
@@ -99,14 +146,24 @@ class ATXResource(BaseResource):
         )
 
     async def power_off_hard(
-        self, *, wait: bool = True, timeout: float | None = None
+        self, *, wait: bool = False, timeout: float | None = None
     ) -> None:
         """Force power off the host.
 
         Args:
-            wait: Wait for the operation to complete.
-            timeout: Per-call timeout in seconds. With ``wait``, kvmd holds
-                the request until the host reaches the requested state.
+            wait: Answer only once the action has finished. kvmd's own
+                default, and this one, is not to wait: the request comes
+                back immediately and a failure is written to the kvmd log
+                instead of reaching the caller.
+            timeout: Per-call timeout in seconds. Only meaningful with
+                ``wait``, which holds the request until the host reaches
+                the requested state.
+
+        Raises:
+            BusyError: Another ATX action is still running (409). Raised
+                with or without ``wait``.
+            APIError: The ATX plugin is disabled (400), which
+                :attr:`ATXState.enabled` reports up front.
         """
         await self._post(
             "/api/atx/power",
@@ -115,14 +172,24 @@ class ATXResource(BaseResource):
         )
 
     async def reset_hard(
-        self, *, wait: bool = True, timeout: float | None = None
+        self, *, wait: bool = False, timeout: float | None = None
     ) -> None:
         """Force reset the host.
 
         Args:
-            wait: Wait for the operation to complete.
-            timeout: Per-call timeout in seconds. With ``wait``, kvmd holds
-                the request until the host reaches the requested state.
+            wait: Answer only once the action has finished. kvmd's own
+                default, and this one, is not to wait: the request comes
+                back immediately and a failure is written to the kvmd log
+                instead of reaching the caller.
+            timeout: Per-call timeout in seconds. Only meaningful with
+                ``wait``, which holds the request until the host reaches
+                the requested state.
+
+        Raises:
+            BusyError: Another ATX action is still running (409). Raised
+                with or without ``wait``.
+            APIError: The ATX plugin is disabled (400), which
+                :attr:`ATXState.enabled` reports up front.
         """
         await self._post(
             "/api/atx/power",
