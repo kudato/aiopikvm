@@ -514,14 +514,23 @@ class PiKVM:
     def ws(
         self,
         *,
-        stream: int = 0,
+        stream: bool = True,
         open_timeout: float | None = None,
         close_timeout: float | None = None,
     ) -> PiKVMWebSocket:
         """Create a WebSocket connection.
 
+        The socket authenticates with the *user* and *passwd* this client was
+        built with; it does not use :attr:`cookies`.
+
         Args:
-            stream: Stream index (default ``0``).
+            stream: Count this client as a video viewer, which is also
+                kvmd's own default. kvmd runs the streamer while at least one
+                connected session asked for it, so a socket opened with
+                ``False`` lets the video pipeline stop — and
+                :meth:`StreamerResource.snapshot` then answers HTTP 503
+                unless something else is watching. Pass ``False`` only for a
+                client that reads events and never looks at the picture.
             open_timeout: Timeout for opening the connection (defaults to
                 the client *timeout*).
             close_timeout: Timeout for closing the connection (defaults to

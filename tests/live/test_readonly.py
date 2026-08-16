@@ -17,7 +17,7 @@ import contextlib
 
 import pytest
 
-from aiopikvm import PiKVM
+from aiopikvm import APIError, AuthError, PiKVM
 from tests.helpers import undeclared_fields
 
 pytestmark = pytest.mark.live
@@ -25,10 +25,10 @@ pytestmark = pytest.mark.live
 SUBSYSTEMS = ("atx", "hid", "msd", "gpio", "streamer", "switch")
 
 WS_TIMEOUT = 5.0
-"""How long to wait for the initial WebSocket state bundle."""
+"""How long to wait for the initial WebSocket events."""
 
 WS_EXPECTED = frozenset({"loop", "atx", "msd", "streamer"})
-"""Event types kvmd pushes right after the handshake."""
+"""Event types kvmd pushes right after the handshake, in no fixed order."""
 
 
 @pytest.mark.parametrize("subsystem", SUBSYSTEMS)
@@ -92,13 +92,52 @@ async def test_redfish_root_links_to_systems(live: PiKVM) -> None:
 
 
 async def test_websocket_delivers_the_initial_state(live: PiKVM) -> None:
-    """The event socket pushes a full state bundle right after connecting."""
-    seen: set[str] = set()
+    """Every subsystem sends its state once the socket is open, ``loop`` first."""
+    seen: list[str] = []
     async with live.ws() as ws:
         with contextlib.suppress(TimeoutError):
             async with asyncio.timeout(WS_TIMEOUT):
                 async for event in ws.events():
-                    seen.add(event["event_type"])
-                    if WS_EXPECTED <= seen:
+                    seen.append(event["event_type"])
+                    if WS_EXPECTED <= set(seen):
                         break
-    assert WS_EXPECTED <= seen
+    assert WS_EXPECTED <= set(seen)
+    assert seen[0] == "loop", "the protocol version always comes first"
+
+
+async def test_websocket_stream_flag_counts_this_client(live: PiKVM) -> None:
+    """``stream=True`` is what makes kvmd count the session as a video viewer."""
+    counts: dict[bool, int] = {}
+    for stream in (True, False):
+        async with live.ws(stream=stream) as ws:
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(WS_TIMEOUT):
+                    async for event in ws.events():
+                        if event["event_type"] == "clients":
+                            counts[stream] = event["event"]["count"]
+                            break
+    assert counts[True] == counts[False] + 1
+
+
+async def test_websocket_refuses_a_wrong_password(live: PiKVM) -> None:
+    """kvmd applies the auth chain to the upgrade, and this reports it as such."""
+    async with PiKVM(
+        str(live.base_url), user="admin", passwd="definitely-not-the-password"
+    ) as wrong:
+        with pytest.raises(AuthError) as caught:
+            async with wrong.ws():
+                pass
+    assert caught.value.status_code == 403
+    assert caught.value.error == "ForbiddenError"
+
+
+async def test_websocket_rejects_an_unparsable_stream_flag(live: PiKVM) -> None:
+    """A 400 from the upgrade is a plain APIError, not an auth failure."""
+    ws = live.ws()
+    ws._url = ws._url.replace("stream=1", "stream=nonsense")
+    with pytest.raises(APIError) as caught:
+        async with ws:
+            pass
+    assert not isinstance(caught.value, AuthError)
+    assert caught.value.status_code == 400
+    assert caught.value.error == "ValidatorError"

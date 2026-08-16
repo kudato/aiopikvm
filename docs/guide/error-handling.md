@@ -34,7 +34,7 @@ All exceptions inherit from `PiKVMError`, so you can catch all aiopikvm errors w
 | `ConfigurationError` | The URL has no usable scheme, or the credentials cannot be sent in HTTP headers |
 | `ConnectError` | Failed to connect to PiKVM, or the connection broke mid-request |
 | `ConnectionTimeoutError` | Request timed out |
-| `WebSocketError` | WebSocket connection or communication error |
+| `WebSocketError` | The WebSocket could not be opened, or it broke instead of closing cleanly. A handshake kvmd itself refuses raises `AuthError`/`APIError` instead |
 
 ## APIError details
 
@@ -151,16 +151,29 @@ says so without a failed call.
 
 ### WebSocket errors
 
+The upgrade to `/api/ws` goes through the same auth chain as every REST call
+and is refused with an ordinary HTTP response, so a refused handshake raises
+`AuthError` — not `WebSocketError`, which is reserved for a socket that never
+opened or that broke:
+
 ```python
-from aiopikvm import WebSocketError
+from aiopikvm import APIError, AuthError, WebSocketError
 
 try:
     async with kvm.ws() as ws:
         async for event in ws.events():
             print(event)
+except AuthError as exc:
+    print(f"kvmd refused the credentials: HTTP {exc.status_code}")
+except APIError as exc:
+    print(f"kvmd refused the upgrade: HTTP {exc.status_code} {exc.error}")
 except WebSocketError as exc:
-    print(f"WebSocket error: {exc}")
+    print(f"the connection failed or was lost: {exc}")
 ```
+
+`events()` ends quietly when either side closes the connection cleanly and
+raises `WebSocketError` when it breaks instead, so a loop that simply finishes
+never hides a dropped connection.
 
 ### Context not entered
 

@@ -1,0 +1,65 @@
+{
+  "description": "Every way kvmd 4.186 refuses the GET /api/ws upgrade, recorded by hand with the websockets client (see README). The upgrade never happens: kvmd answers the GET with an ordinary HTTP response carrying its usual envelope, which is what websockets reports as InvalidStatus. Credentials are placeholders.",
+  "steps": [
+    {
+      "name": "bad_stream_value",
+      "query": "stream=abc",
+      "note": "kvmd reads the flag with valid_bool, so anything outside its two lists is a validator failure rather than a stream index",
+      "status": 400,
+      "reason_phrase": "Bad Request",
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ValidatorError",
+          "error_msg": "The argument 'abc' is not a valid bool (['1', 'true', 'yes'] or ['0', 'false', 'no'])"
+        }
+      }
+    },
+    {
+      "name": "wrong_passwd",
+      "query": "stream=1",
+      "note": "known user, wrong password",
+      "status": 403,
+      "reason_phrase": "Forbidden",
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ForbiddenError",
+          "error_msg": "Forbidden"
+        }
+      }
+    },
+    {
+      "name": "unknown_user",
+      "query": "stream=1",
+      "note": "an unknown user is refused exactly like a wrong password: kvmd answers 403, not 401",
+      "status": 403,
+      "reason_phrase": "Forbidden",
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ForbiddenError",
+          "error_msg": "Forbidden"
+        }
+      }
+    },
+    {
+      "name": "no_credentials",
+      "query": "stream=1",
+      "note": "empty X-KVMD-User: the auth chain finds no credential source at all, which is the only case that gives 401",
+      "status": 401,
+      "reason_phrase": "Unauthorized",
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "UnauthorizedError",
+          "error_msg": "Unauthorized"
+        }
+      }
+    }
+  ]
+}

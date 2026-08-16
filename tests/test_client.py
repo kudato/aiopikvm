@@ -39,8 +39,8 @@ async def test_totp_concat(mock_api: respx.MockRouter) -> None:
 
 async def test_ws_factory(mock_api: respx.MockRouter) -> None:
     async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as client:
-        ws = client.ws()
-        assert ws._url == "wss://pikvm.local/api/ws?stream=0"
+        assert client.ws()._url == "wss://pikvm.local/api/ws?stream=1"
+        assert client.ws(stream=False)._url == "wss://pikvm.local/api/ws?stream=0"
 
 
 async def test_client_close(mock_api: respx.MockRouter) -> None:

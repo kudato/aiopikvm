@@ -1,4 +1,11 @@
-"""WebSocket client for PiKVM — realtime events and HID input."""
+"""WebSocket client for PiKVM — realtime events and HID input.
+
+kvmd exposes one socket, ``GET /api/ws``. It carries the event stream every
+subsystem broadcasts its state on, and it takes HID input in the other
+direction. The upgrade goes through the same auth chain as the REST API, so a
+refused handshake arrives as a plain HTTP response and is reported with the
+same exceptions.
+"""
 
 import json
 import logging
@@ -10,10 +17,19 @@ from urllib.parse import urlparse, urlunparse
 
 import websockets
 import websockets.asyncio.client
+import websockets.http11
 
-from aiopikvm._exceptions import ConfigurationError, WebSocketError
+from aiopikvm._exceptions import (
+    APIError,
+    AuthError,
+    ConfigurationError,
+    WebSocketError,
+)
 
 logger = logging.getLogger(__name__)
+
+_AUTH_STATUSES = frozenset({401, 403})
+"""Statuses kvmd refuses the upgrade with: 401 no credentials, 403 rejected."""
 
 
 class PiKVMWebSocket:
@@ -33,10 +49,30 @@ class PiKVMWebSocket:
         user: str,
         passwd: str,
         verify_ssl: bool = True,
-        stream: int = 0,
+        stream: bool = True,
         open_timeout: float = 10.0,
         close_timeout: float = 10.0,
     ) -> None:
+        """Prepare a connection.
+
+        Args:
+            url: PiKVM base URL, ``https://`` or ``http://``.
+            user: kvmd user name.
+            passwd: Password, TOTP code appended if the device asks for one.
+            verify_ssl: Verify the TLS certificate.
+            stream: Ask kvmd to treat this client as a video viewer. kvmd
+                counts the sessions that did and runs the streamer while that
+                count is above zero, so a client connected with ``False``
+                lets the video pipeline stop under it — and
+                ``StreamerResource.snapshot()`` then answers HTTP 503 unless
+                something else is watching. Off only makes sense for a client
+                that reads events and never looks at the picture.
+            open_timeout: Seconds to wait for the handshake.
+            close_timeout: Seconds to wait for the closing handshake.
+
+        Raises:
+            ConfigurationError: If the URL scheme is not ``https`` or ``http``.
+        """
         parsed = urlparse(url)
         scheme_map = {"https": "wss", "http": "ws"}
         ws_scheme = scheme_map.get(parsed.scheme, "")
@@ -46,7 +82,9 @@ class PiKVMWebSocket:
                 "start with https:// or http://"
             )
         ws_url = urlunparse(parsed._replace(scheme=ws_scheme))
-        self._url = f"{ws_url}/api/ws?stream={stream}"
+        # kvmd reads the flag with valid_bool, which takes 1/true/yes and
+        # 0/false/no and answers 400 to anything else.
+        self._url = f"{ws_url}/api/ws?stream={'1' if stream else '0'}"
         self._user = user
         self._passwd = passwd
         self._verify_ssl = verify_ssl
@@ -55,6 +93,20 @@ class PiKVMWebSocket:
         self._connection: websockets.asyncio.client.ClientConnection | None = None
 
     async def __aenter__(self) -> Self:
+        """Open the connection.
+
+        Returns:
+            This client, connected.
+
+        Raises:
+            AuthError: kvmd refused the credentials during the upgrade — 401
+                when none reached it, 403 when the ones that did were
+                rejected.
+            APIError: kvmd rejected the upgrade for another reason, such as a
+                query parameter its validators do not accept.
+            WebSocketError: The connection could not be established: DNS,
+                TLS, timeout, or a server that is not kvmd.
+        """
         ssl_context: ssl.SSLContext | bool | None = None
         if self._url.startswith("wss://"):
             if not self._verify_ssl:
@@ -77,6 +129,10 @@ class PiKVMWebSocket:
                 open_timeout=self._open_timeout,
                 close_timeout=self._close_timeout,
             )
+        except websockets.exceptions.InvalidStatus as exc:
+            # The upgrade never happened: kvmd answered the GET with an
+            # ordinary HTTP error, envelope and all.
+            raise _handshake_error(exc.response) from exc
         except (OSError, websockets.exceptions.WebSocketException) as exc:
             raise WebSocketError(f"Failed to connect: {exc}") from exc
 
@@ -88,9 +144,12 @@ class PiKVMWebSocket:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
+        """Close the connection."""
         if self._connection is not None:
-            await self._connection.close()
-            self._connection = None
+            try:
+                await self._connection.close()
+            finally:
+                self._connection = None
 
     def _ensure_connected(self) -> websockets.asyncio.client.ClientConnection:
         """Return the active connection or raise."""
@@ -101,8 +160,24 @@ class PiKVMWebSocket:
     async def events(self) -> AsyncIterator[dict[str, Any]]:
         """Iterate over incoming events.
 
+        Every frame is a ``{"event_type": ..., "event": ...}`` object. The
+        first one is always ``loop``, carrying the kvmd version; after it
+        each subsystem sends its current state once, interleaved with the
+        broadcasts other clients trigger, so nothing but ``loop`` arrives in
+        a guaranteed order. See the WebSocket guide for the full list.
+
+        The iteration ends when either side closes the connection cleanly. A
+        connection that breaks instead — the device rebooting, the network
+        going away, kvmd restarting — raises, because a caller that only sees
+        the loop finish cannot tell "kvmd has nothing more to say" from
+        "the events stopped arriving".
+
         Yields:
             Parsed JSON event dictionaries.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke instead of closing cleanly.
         """
         conn = self._ensure_connected()
         try:
@@ -114,66 +189,162 @@ class PiKVMWebSocket:
                         yield json.loads(message.decode())
                 except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                     logger.warning("Skipping malformed WebSocket message: %s", exc)
-        except websockets.exceptions.ConnectionClosed:
-            return
+        except websockets.exceptions.ConnectionClosed as exc:
+            # websockets ends the iteration itself on a clean close, so
+            # anything arriving here is a broken connection.
+            raise WebSocketError(
+                f"Connection lost while reading events: {exc}"
+            ) from exc
+
+    async def _send_event(self, event_type: str, event: dict[str, Any]) -> None:
+        """Send one event frame.
+
+        Args:
+            event_type: kvmd event name.
+            event: Payload for that event.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
+        conn = self._ensure_connected()
+        try:
+            await conn.send(json.dumps({"event_type": event_type, "event": event}))
+        except websockets.exceptions.WebSocketException as exc:
+            raise WebSocketError(f"Failed to send {event_type!r}: {exc}") from exc
 
     async def send_key(self, key: str, *, state: bool) -> None:
         """Send a keyboard key event.
 
         Args:
-            key: Key name.
-            state: ``True`` for press, ``False`` for release.
+            key: Key name, one of kvmd's web names such as ``"KeyA"`` or
+                ``"ControlLeft"``. kvmd ignores an event it cannot map.
+            state: ``True`` for press, ``False`` for release. kvmd holds the
+                key until the release arrives.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
         """
-        conn = self._ensure_connected()
-        event = {
-            "event_type": "key",
-            "event": {"key": key, "state": state},
-        }
-        await conn.send(json.dumps(event))
+        await self._send_event("key", {"key": key, "state": state})
 
     async def send_mouse_move(self, to_x: int, to_y: int) -> None:
-        """Move the mouse to absolute coordinates.
+        """Move the mouse to an absolute position.
+
+        The coordinates are not pixels. kvmd works in a resolution-independent
+        space from -32768 (left, top) to 32767 (right, bottom), so ``0, 0`` is
+        the middle of the screen and ``send_mouse_move(500, 300)`` lands a
+        hair right of and below it — not 500 pixels from the corner. Convert
+        from pixels with ``round(x / (width - 1) * 65535) - 32768``.
+
+        Values outside the range are clamped by kvmd, not rejected.
 
         Args:
-            to_x: Target X coordinate.
-            to_y: Target Y coordinate.
+            to_x: Horizontal position, -32768 to 32767.
+            to_y: Vertical position, -32768 to 32767.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
         """
-        conn = self._ensure_connected()
-        event = {
-            "event_type": "mouse_move",
-            "event": {"to": {"x": to_x, "y": to_y}},
-        }
-        await conn.send(json.dumps(event))
+        await self._send_event("mouse_move", {"to": {"x": to_x, "y": to_y}})
 
     async def send_mouse_button(self, button: str, state: bool) -> None:
         """Send a mouse button event.
 
         Args:
-            button: Button name (e.g. ``"left"``).
+            button: One of ``"left"``, ``"right"``, ``"middle"``, ``"up"``
+                (browser back) or ``"down"`` (browser forward).
             state: ``True`` for press, ``False`` for release.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
         """
-        conn = self._ensure_connected()
-        event = {
-            "event_type": "mouse_button",
-            "event": {"button": button, "state": state},
-        }
-        await conn.send(json.dumps(event))
+        await self._send_event("mouse_button", {"button": button, "state": state})
 
     async def send_mouse_wheel(self, delta_x: int, delta_y: int) -> None:
         """Send a mouse wheel event.
 
+        Deltas are steps in kvmd's own range, -127 to 127, clamped rather
+        than rejected, and passed straight into the USB HID wheel field.
+        They are not the browser's pixel deltas: kvmd's own web UI sends one
+        step per gesture, sized by its scroll-rate setting (1 to 25,
+        5 by default) and negated, so a scroll-down gesture leaves it as
+        ``delta_y = -5``.
+
         Args:
-            delta_x: Horizontal scroll delta.
-            delta_y: Vertical scroll delta.
+            delta_x: Horizontal step, -127 to 127.
+            delta_y: Vertical step, -127 to 127. Negative scrolls down on a
+                host with the usual wheel mapping.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
         """
-        conn = self._ensure_connected()
-        event = {
-            "event_type": "mouse_wheel",
-            "event": {"delta": {"x": delta_x, "y": delta_y}},
-        }
-        await conn.send(json.dumps(event))
+        await self._send_event("mouse_wheel", {"delta": {"x": delta_x, "y": delta_y}})
 
     async def ping(self) -> None:
-        """Send a ping event."""
-        conn = self._ensure_connected()
-        await conn.send(json.dumps({"event_type": "ping", "event": {}}))
+        """Ask kvmd for a ``pong`` event.
+
+        This is kvmd's application-level ping, not the protocol one — the
+        answer arrives through :meth:`events` like any other frame, and this
+        call does not wait for it. Keeping the socket alive needs neither:
+        the server sends protocol pings on its own and *websockets* answers
+        them.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
+        await self._send_event("ping", {})
+
+
+def _handshake_error(response: websockets.http11.Response) -> APIError:
+    """Build the exception for an upgrade kvmd refused.
+
+    Args:
+        response: The HTTP response that came back instead of the upgrade.
+
+    Returns:
+        :class:`AuthError` for 401 and 403, :class:`APIError` otherwise, with
+        kvmd's error block attached when the body carried one.
+    """
+    status = response.status_code
+    error, error_msg = _error_fields(response.body)
+    detail = error_msg or error or response.reason_phrase
+    error_class = AuthError if status in _AUTH_STATUSES else APIError
+    return error_class(
+        f"HTTP {status}: {detail}" if detail else f"HTTP {status}",
+        status,
+        error=error,
+        error_msg=error_msg,
+    )
+
+
+def _error_fields(body: bytes | bytearray | None) -> tuple[str, str]:
+    """Extract kvmd's error block from a handshake response body.
+
+    kvmd refuses the upgrade with the same envelope it uses everywhere else:
+    ``{"ok": false, "result": {"error": "<class>", "error_msg": "<text>"}}``.
+
+    Args:
+        body: Raw response body, empty or absent when the server sent none.
+
+    Returns:
+        The ``(error, error_msg)`` pair, each empty when the body is not a
+        kvmd error envelope.
+    """
+    try:
+        parsed = json.loads(body or b"")
+    except (ValueError, UnicodeDecodeError):
+        return ("", "")
+    result = parsed.get("result") if isinstance(parsed, dict) else None
+    if not isinstance(result, dict):
+        return ("", "")
+    error = result.get("error")
+    error_msg = result.get("error_msg")
+    return (
+        error if isinstance(error, str) else "",
+        error_msg if isinstance(error_msg, str) else "",
+    )
