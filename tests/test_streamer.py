@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import APIError, PiKVM
+from aiopikvm import APIError, ConfigurationError, PiKVM
 from tests.fixtures import load_json
 
 OK = {"ok": True, "result": {}}
@@ -335,3 +335,72 @@ async def test_set_params_unsupported(
 async def test_reset(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/streamer/reset").mock(return_value=httpx.Response(200, json=OK))
     await client.streamer.reset()
+
+
+async def test_get_state_without_quality(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # A capture path with no adjustable encoder: kvmd omits quality from both
+    # params and applied.
+    body = _state()
+    result = body["result"]
+    result["features"]["quality"] = False
+    result["params"].pop("quality")
+    result["applied"].pop("quality")
+    mock_api.get("/api/streamer").mock(return_value=httpx.Response(200, json=body))
+    state = await client.streamer.get_state()
+    assert state.params.quality is None
+    assert state.applied.quality is None
+    assert state.features.quality is False
+
+
+async def test_get_state_applied_differs_from_params(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # kvmd builds `applied` from the running streamer, so it lags behind a
+    # change that has not taken effect yet.
+    body = _state()
+    body["result"]["params"]["desired_fps"] = 60
+    mock_api.get("/api/streamer").mock(return_value=httpx.Response(200, json=body))
+    state = await client.streamer.get_state()
+    assert state.params.desired_fps == 60
+    assert state.applied.desired_fps == 20
+
+
+async def test_get_state_saved_snapshot(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    body = _state()
+    body["result"]["snapshot"]["saved"] = {
+        "online": True,
+        "width": 1920,
+        "height": 1080,
+    }
+    mock_api.get("/api/streamer").mock(return_value=httpx.Response(200, json=body))
+    state = await client.streamer.get_state()
+    assert state.snapshot.saved is not None
+    assert state.snapshot.saved.online is True
+    assert state.snapshot.saved.width == 1920
+
+
+async def test_snapshot_ignores_unparsable_headers(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # No capture pins these headers down, so a value we cannot read must not
+    # cost the caller a perfectly good JPEG.
+    mock_api.get("/api/streamer/snapshot").mock(
+        return_value=httpx.Response(
+            200,
+            content=b"jpeg",
+            headers={"X-UStreamer-Width": "wide", "X-Timestamp": "just now"},
+        )
+    )
+    image = await client.streamer.snapshot()
+    assert image.data == b"jpeg"
+    assert image.width is None
+    assert image.timestamp is None
+
+
+async def test_set_params_without_arguments(client: PiKVM) -> None:
+    with pytest.raises(ConfigurationError, match="at least one parameter"):
+        await client.streamer.set_params()

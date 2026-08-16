@@ -60,9 +60,9 @@ async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
 
 ```python
 async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
-    jpeg_bytes = await kvm.streamer.snapshot()
+    screen = await kvm.streamer.snapshot()
     with open("screen.jpeg", "wb") as f:
-        f.write(jpeg_bytes)
+        f.write(screen.data)
 
     # OCR — read text from screen
     text = await kvm.streamer.ocr()

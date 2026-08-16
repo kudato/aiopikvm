@@ -1,11 +1,15 @@
 """Streamer API — snapshots, OCR, video stream."""
 
+import logging
 from typing import Any
 
 import httpx
 
 from aiopikvm._base_resource import BaseResource
+from aiopikvm._exceptions import ConfigurationError
 from aiopikvm.models.streamer import OCRInfo, SnapshotImage, StreamerState
+
+_logger = logging.getLogger(__name__)
 
 
 class StreamerResource(BaseResource):
@@ -33,28 +37,32 @@ class StreamerResource(BaseResource):
 
         kvmd applies these asynchronously — the call returns once the change
         is queued, and :attr:`StreamerState.applied` is what the running
-        streamer ended up with. A parameter the device does not support is
-        rejected outright rather than ignored; the ones it supports are the
-        keys present in :attr:`StreamerState.params`.
+        streamer ended up with. Read it back to confirm: a value outside the
+        device's own limits is accepted with HTTP 200 and then dropped
+        silently, so only re-reading the state shows what happened. What is
+        rejected outright is a parameter the device does not have at all —
+        the ones it has are the keys present in
+        :attr:`StreamerState.params`.
 
         Args:
             quality: JPEG quality, 1 to 100. Unsupported on devices with no
                 adjustable encoder.
-            desired_fps: Target frame rate, within
-                :attr:`StreamerLimits.desired_fps`.
+            desired_fps: Target frame rate, 0 to 120 for kvmd, and within
+                :attr:`StreamerLimits.desired_fps` to actually take effect.
             resolution: Capture resolution as ``"WIDTHxHEIGHT"``, one of
                 :attr:`StreamerLimits.available_resolutions`. Only on
                 resolution-capable hardware.
-            h264_bitrate: H.264 bitrate in kbps, within
-                :attr:`StreamerLimits.h264_bitrate`.
-            h264_gop: H.264 group-of-pictures size, within
-                :attr:`StreamerLimits.h264_gop`.
+            h264_bitrate: H.264 bitrate in kbps, 25 to 20000 for kvmd, and
+                within :attr:`StreamerLimits.h264_bitrate` to take effect.
+            h264_gop: H.264 group-of-pictures size, 0 to 60 for kvmd, and
+                within :attr:`StreamerLimits.h264_gop` to take effect.
             timeout: Per-call timeout in seconds.
 
         Raises:
-            APIError: The device does not support one of the parameters
+            ConfigurationError: If no parameter is given at all.
+            APIError: The device does not have one of these parameters
                 (HTTP 400, e.g. ``StreamerH264NotSupported``), or a value is
-                out of range.
+                outside the range kvmd validates against.
         """
         params: dict[str, Any] = {
             name: value
@@ -67,6 +75,8 @@ class StreamerResource(BaseResource):
             )
             if value is not None
         }
+        if not params:
+            raise ConfigurationError("set_params() needs at least one parameter")
         await self._post("/api/streamer/set_params", params=params, timeout=timeout)
 
     async def reset(self, *, timeout: float | None = None) -> None:
@@ -107,18 +117,27 @@ class StreamerResource(BaseResource):
                 video source is offline.
             save: Also store this frame as the device's saved snapshot, where
                 it shows up in :attr:`StreamerState.snapshot` and survives the
-                streamer being stopped.
+                streamer being stopped. Ignored together with ``load``, which
+                returns before anything is saved.
             load: Return the saved snapshot instead of capturing a new one.
                 Works while the streamer is stopped, which is the point.
-            preview: Have kvmd scale the image down before sending it.
-            preview_max_width: Width bound for the preview. ``0`` or unset
-                means a fifth of the source width.
+            preview: Have kvmd scale the image down before sending it. The
+                reported ``width`` and ``height`` still describe the source
+                frame, not the scaled data.
+            preview_max_width: Width bound for the preview. Leaving *both*
+                bounds unset gives a fifth of the source size; setting only
+                this one leaves the height at the source height.
             preview_max_height: Height bound for the preview.
             preview_quality: JPEG quality of the preview, 1 to 100.
             timeout: Per-call timeout in seconds.
 
         Returns:
             The JPEG together with the metadata ustreamer reports for it.
+
+        Raises:
+            UnavailableError: The video source is offline and
+                ``allow_offline`` was not set, the streamer process is
+                stopped, or ``load`` was used with nothing saved (HTTP 503).
         """
         params: dict[str, Any] = {}
         if allow_offline:
@@ -218,26 +237,30 @@ class StreamerResource(BaseResource):
     def _snapshot_image(self, response: httpx.Response) -> SnapshotImage:
         """Build a :class:`SnapshotImage` from a snapshot response.
 
+        A header that cannot be read is dropped rather than failing the call:
+        the JPEG is what the caller asked for, and these are ustreamer's own
+        annotations, which no capture in this repository pins down.
+
         Args:
             response: The raw snapshot response.
 
         Returns:
             The image and whatever ustreamer metadata the headers carried.
-
-        Raises:
-            ResponseError: If a metadata header is present but unparsable.
         """
-        headers = response.headers
         payload: dict[str, Any] = {"data": response.content}
-        online = headers.get("X-UStreamer-Online")
+        online = response.headers.get("X-UStreamer-Online")
         if online is not None:
             payload["online"] = online.strip().lower() == "true"
-        for field, header in (
-            ("width", "X-UStreamer-Width"),
-            ("height", "X-UStreamer-Height"),
-            ("timestamp", "X-Timestamp"),
+        for field, header, parse in (
+            ("width", "X-UStreamer-Width", int),
+            ("height", "X-UStreamer-Height", int),
+            ("timestamp", "X-Timestamp", float),
         ):
-            value = headers.get(header)
-            if value is not None:
-                payload[field] = value
+            value = response.headers.get(header)
+            if value is None:
+                continue
+            try:
+                payload[field] = parse(value.strip())
+            except ValueError:
+                _logger.warning("Ignoring unparsable %s header: %r", header, value[:64])
         return self._validate(SnapshotImage, payload, "/api/streamer/snapshot")

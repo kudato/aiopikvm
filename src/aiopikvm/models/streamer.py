@@ -33,8 +33,14 @@ class SnapshotImage(_Base):
 
     ``online`` is ``False`` when the frame is the "NO LIVE VIDEO" placeholder
     rather than a picture of the host, which is the only way to tell the two
-    apart. The metadata is missing when the snapshot came from the cache
-    (``load=True``) rather than from the running streamer.
+    apart. A saved snapshot returned with ``load=True`` carries the same
+    metadata it had when it was taken.
+
+    Everything but ``data`` is optional: these come from response headers
+    that no capture in this repository pins down, so a header that is absent
+    or unreadable leaves its field unset rather than failing the call. With
+    ``preview=True`` the size still describes the source frame, not the
+    scaled-down ``data``.
     """
 
     data: bytes
@@ -136,10 +142,26 @@ class StreamerParams(_Base):
     h264_gop: int | None = None
 
 
-class StreamerSnapshot(_Base):
-    """Cached snapshot info."""
+class SavedSnapshot(_Base):
+    """Metadata of the snapshot stored on the device.
 
-    saved: dict[str, Any] | None = None
+    kvmd keeps the image itself out of the state and reports only what it
+    was: whether the source was live and how big the frame is.
+    """
+
+    online: bool
+    width: int
+    height: int
+
+
+class StreamerSnapshot(_Base):
+    """The snapshot stored on the device, if any.
+
+    ``saved`` is ``None`` until something calls
+    :meth:`StreamerResource.snapshot` with ``save=True``.
+    """
+
+    saved: SavedSnapshot | None = None
 
 
 class StreamerState(_Base):

@@ -34,7 +34,7 @@ effect:
 
 ```python
 if state.applied.desired_fps != state.params.desired_fps:
-    print("The streamer could not keep up with the requested rate")
+    print("The requested rate has not been applied")
 ```
 
 ## Change parameters
@@ -46,9 +46,10 @@ await kvm.streamer.set_params(quality=70, desired_fps=25)
 await kvm.streamer.set_params(resolution="1280x720")
 ```
 
-Values are bounded by `state.limits`, and asking for something the device
-does not support fails with `APIError` (HTTP 400) rather than being ignored.
-kvmd applies the change asynchronously, so read `applied` back to confirm it.
+Asking for a parameter the device does not have at all fails with `APIError`
+(HTTP 400). A value outside `state.limits` does *not*: kvmd answers 200 and
+then drops it. Since the change is applied asynchronously either way, reading
+`applied` back is the only way to know what happened.
 
 ## Restart the streamer
 
@@ -95,6 +96,9 @@ await kvm.streamer.snapshot(save=True)
 # Later, with no stream clients and the streamer shut down:
 image = await kvm.streamer.snapshot(load=True)
 ```
+
+`load=True` with nothing saved raises `UnavailableError`; `state.snapshot.saved`
+says whether there is one, and how big it is.
 
 ### Previews
 

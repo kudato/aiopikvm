@@ -67,7 +67,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   a region a fraction of that (#55).
 - `StreamerState.applied`, the parameters the running streamer ended up with.
   Comparing it against `params` is the only way to tell whether a change took
-  effect (#52).
+  effect — kvmd accepts a value outside the device limits with HTTP 200 and
+  then drops it (#52).
+- `StreamerLimits.available_resolutions` and a typed `SavedSnapshot` for
+  `StreamerState.snapshot.saved`, which was an untyped dict (#52, #54).
+- Per-call `timeout` on `StreamerResource.snapshot()`, `set_params()` and
+  `reset()`, matching the other subsystems (#66).
 - **Breaking:** `ATXState.acts` (`ATXActs`), the per-line busy flags kvmd has
   always sent, is now a declared and required field rather than an untyped
   extra. `busy` is the union of the two; `acts` says whether it is the power
