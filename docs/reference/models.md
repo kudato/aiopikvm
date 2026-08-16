@@ -82,11 +82,47 @@ All response models inherit from a base class with `extra="allow"` for forward-c
     options:
       show_bases: false
 
+::: aiopikvm.GPIOIOState
+    options:
+      show_bases: false
+
 ::: aiopikvm.GPIOChannel
     options:
       show_bases: false
 
 ::: aiopikvm.GPIOInput
+    options:
+      show_bases: false
+
+::: aiopikvm.GPIOModel
+    options:
+      show_bases: false
+
+::: aiopikvm.GPIOScheme
+    options:
+      show_bases: false
+
+::: aiopikvm.GPIOOutputScheme
+    options:
+      show_bases: false
+
+::: aiopikvm.GPIOInputScheme
+    options:
+      show_bases: false
+
+::: aiopikvm.GPIOPulse
+    options:
+      show_bases: false
+
+::: aiopikvm.GPIOHardware
+    options:
+      show_bases: false
+
+::: aiopikvm.GPIOView
+    options:
+      show_bases: false
+
+::: aiopikvm.GPIOViewHeader
     options:
       show_bases: false
 
