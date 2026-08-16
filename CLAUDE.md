@@ -1,5 +1,16 @@
 # CLAUDE.md
 
+## Git
+
+- Open every pull request against `main`, never against another branch; keep
+  dependent work local until what it needs is merged
+- Write commits and pull request titles as Conventional Commits, `!` included;
+  the title becomes the squash commit subject on `main`
+- Update a branch from `main` by merging, never by rebasing
+- Never rewrite pushed history — no force push, rebase, amend or hard reset on
+  a published branch
+- Squash-merge every pull request; `main` stays linear
+
 ## Commands
 
 ```bash
@@ -45,14 +56,3 @@ uv run mkdocs build                    # build static docs
   the marker in the PR that fixes the model
 - Never run `tests/live` or `tests/fixtures/capture.py` without the device
   owner's explicit permission — both talk to real hardware
-
-## Git
-
-- Open every pull request against `main`, never against another branch; keep
-  dependent work local until what it needs is merged
-- Write commits and pull request titles as Conventional Commits, `!` included;
-  the title becomes the squash commit subject on `main`
-- Update a branch from `main` by merging, never by rebasing
-- Never rewrite pushed history — no force push, rebase, amend or hard reset on
-  a published branch
-- Squash-merge every pull request; `main` stays linear
