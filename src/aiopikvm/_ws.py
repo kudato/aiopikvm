@@ -21,15 +21,50 @@ import websockets.http11
 
 from aiopikvm._exceptions import (
     APIError,
-    AuthError,
     ConfigurationError,
     WebSocketError,
+    _error_fields_from_bytes,
+    _status_error,
 )
 
 logger = logging.getLogger(__name__)
 
-_AUTH_STATUSES = frozenset({401, 403})
-"""Statuses kvmd refuses the upgrade with: 401 no credentials, 403 rejected."""
+
+class _Connector(websockets.asyncio.client.connect):
+    """``connect()`` that reports redirects instead of following them.
+
+    *websockets* follows up to ten redirects on its own, resending the
+    credential headers to wherever each one points. The REST client refuses
+    to do that unless asked, and the WebSocket carries the same password, so
+    it defaults to the same refusal.
+    """
+
+    def __init__(
+        self, *args: Any, follow_redirects: bool = False, **kwargs: Any
+    ) -> None:
+        """Prepare the handshake.
+
+        Args:
+            *args: Passed to :class:`websockets.asyncio.client.connect`.
+            follow_redirects: Follow a redirect instead of reporting it.
+            **kwargs: Passed to :class:`websockets.asyncio.client.connect`.
+        """
+        self._follow_redirects = follow_redirects
+        super().__init__(*args, **kwargs)
+
+    def process_redirect(self, exc: Exception) -> Exception | str:
+        """Decide what to do with a handshake response.
+
+        Args:
+            exc: The exception the handshake produced.
+
+        Returns:
+            The URI to follow when redirects are allowed and this is one,
+            otherwise the exception, which makes *websockets* raise it.
+        """
+        if self._follow_redirects:
+            return super().process_redirect(exc)
+        return exc
 
 
 class PiKVMWebSocket:
@@ -50,6 +85,7 @@ class PiKVMWebSocket:
         passwd: str,
         verify_ssl: bool = True,
         stream: bool = True,
+        follow_redirects: bool = False,
         open_timeout: float = 10.0,
         close_timeout: float = 10.0,
     ) -> None:
@@ -67,6 +103,10 @@ class PiKVMWebSocket:
                 ``StreamerResource.snapshot()`` then answers HTTP 503 unless
                 something else is watching. Off only makes sense for a client
                 that reads events and never looks at the picture.
+            follow_redirects: Follow a redirected handshake instead of
+                raising :class:`RedirectError`. Off by default: the upgrade
+                carries the password in a header, and following the redirect
+                hands it to whatever the redirect points at.
             open_timeout: Seconds to wait for the handshake.
             close_timeout: Seconds to wait for the closing handshake.
 
@@ -88,6 +128,7 @@ class PiKVMWebSocket:
         self._user = user
         self._passwd = passwd
         self._verify_ssl = verify_ssl
+        self._follow_redirects = follow_redirects
         self._open_timeout = open_timeout
         self._close_timeout = close_timeout
         self._connection: websockets.asyncio.client.ClientConnection | None = None
@@ -102,10 +143,13 @@ class PiKVMWebSocket:
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
+            RedirectError: The upgrade was redirected and *follow_redirects*
+                is off. Following it would resend the password to the target.
             APIError: kvmd rejected the upgrade for another reason, such as a
-                query parameter its validators do not accept.
+                query parameter its validators do not accept, or a proxy in
+                front of it answered instead.
             WebSocketError: The connection could not be established: DNS,
-                TLS, timeout, or a server that is not kvmd.
+                TLS, timeout, or a server that does not speak WebSocket.
         """
         ssl_context: ssl.SSLContext | bool | None = None
         if self._url.startswith("wss://"):
@@ -122,18 +166,26 @@ class PiKVMWebSocket:
         }
 
         try:
-            self._connection = await websockets.asyncio.client.connect(
+            self._connection = await _Connector(
                 self._url,
                 additional_headers=headers,
                 ssl=ssl_context,
                 open_timeout=self._open_timeout,
                 close_timeout=self._close_timeout,
+                follow_redirects=self._follow_redirects,
             )
         except websockets.exceptions.InvalidStatus as exc:
             # The upgrade never happened: kvmd answered the GET with an
             # ordinary HTTP error, envelope and all.
             raise _handshake_error(exc.response) from exc
-        except (OSError, websockets.exceptions.WebSocketException) as exc:
+        except (
+            OSError,
+            ValueError,
+            websockets.exceptions.WebSocketException,
+        ) as exc:
+            # ValueError covers the URIs websockets rejects itself, which a
+            # redirect can produce even though this one is built from a
+            # checked scheme.
             raise WebSocketError(f"Failed to connect: {exc}") from exc
 
         return self
@@ -290,8 +342,10 @@ class PiKVMWebSocket:
         This is kvmd's application-level ping, not the protocol one — the
         answer arrives through :meth:`events` like any other frame, and this
         call does not wait for it. Keeping the socket alive needs neither:
-        the server sends protocol pings on its own and *websockets* answers
-        them.
+        *websockets* sends a protocol ping every 20 seconds by itself and
+        drops the connection when one goes unanswered for another 20, which
+        is what turns a silently dead link into a :class:`WebSocketError`
+        out of :meth:`events`.
 
         Raises:
             WebSocketError: The client is not connected, or the connection
@@ -301,50 +355,22 @@ class PiKVMWebSocket:
 
 
 def _handshake_error(response: websockets.http11.Response) -> APIError:
-    """Build the exception for an upgrade kvmd refused.
+    """Build the exception for an upgrade that was refused.
+
+    kvmd refuses it with the same envelope it uses everywhere else, so the
+    status is mapped exactly as the REST client maps it.
 
     Args:
         response: The HTTP response that came back instead of the upgrade.
 
     Returns:
-        :class:`AuthError` for 401 and 403, :class:`APIError` otherwise, with
-        kvmd's error block attached when the body carried one.
+        The exception to raise.
     """
-    status = response.status_code
-    error, error_msg = _error_fields(response.body)
-    detail = error_msg or error or response.reason_phrase
-    error_class = AuthError if status in _AUTH_STATUSES else APIError
-    return error_class(
-        f"HTTP {status}: {detail}" if detail else f"HTTP {status}",
-        status,
+    error, error_msg = _error_fields_from_bytes(response.body)
+    return _status_error(
+        response.status_code,
         error=error,
         error_msg=error_msg,
-    )
-
-
-def _error_fields(body: bytes | bytearray | None) -> tuple[str, str]:
-    """Extract kvmd's error block from a handshake response body.
-
-    kvmd refuses the upgrade with the same envelope it uses everywhere else:
-    ``{"ok": false, "result": {"error": "<class>", "error_msg": "<text>"}}``.
-
-    Args:
-        body: Raw response body, empty or absent when the server sent none.
-
-    Returns:
-        The ``(error, error_msg)`` pair, each empty when the body is not a
-        kvmd error envelope.
-    """
-    try:
-        parsed = json.loads(body or b"")
-    except (ValueError, UnicodeDecodeError):
-        return ("", "")
-    result = parsed.get("result") if isinstance(parsed, dict) else None
-    if not isinstance(result, dict):
-        return ("", "")
-    error = result.get("error")
-    error_msg = result.get("error_msg")
-    return (
-        error if isinstance(error, str) else "",
-        error_msg if isinstance(error_msg, str) else "",
+        detail=response.reason_phrase,
+        location=response.headers.get("Location", ""),
     )

@@ -119,7 +119,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the abnormal ones, since websockets ends the iteration itself on a clean
   close — so every dropped connection looked like "kvmd has nothing more to
   say" (#59).
-
+- **Breaking:** a redirected WebSocket handshake raises `RedirectError`
+  instead of being followed. *websockets* follows up to ten redirects on its
+  own, resending the credential headers to each target; the REST client has
+  refused to do that since #67, and the socket carries the same password.
+  `ws()` inherits the client's `follow_redirects` (#59).
 - **Breaking:** `HIDKeyboard` and `HIDMouse` replace `connected` with the
   fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
   `leds`. `HIDState` gains `enabled` and `jiggler`, and keeps the nullable
@@ -208,7 +212,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - The WebSocket HID methods let `websockets`' own `ConnectionClosed` escape to
   the caller when the socket was already dead, outside the documented
-  `PiKVMError` hierarchy. They now raise `WebSocketError` (#59).
+  `PiKVMError` hierarchy. `__aenter__` could likewise let a bare `ValueError`
+  through for a URI `websockets` rejects itself. Both now raise
+  `WebSocketError` (#59).
+- The WebSocket handshake mapped only 401 and 403; every other status it was
+  refused with became a bare `APIError`, so a 409 or 503 meant one thing over
+  REST and another over the socket. Both transports now share one status
+  table (#59).
 - The WebSocket guide described a handshake that does not happen. kvmd does
   not send "a full state bundle" first: `loop` carries the protocol version,
   then each subsystem sends its state in no guaranteed order, and later

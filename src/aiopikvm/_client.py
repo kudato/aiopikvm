@@ -15,15 +15,12 @@ from aiopikvm._constants import (
     DEFAULT_VERIFY_SSL,
 )
 from aiopikvm._exceptions import (
-    APIError,
-    AuthError,
-    BusyError,
     ConfigurationError,
     ConnectError,
     ConnectionTimeoutError,
     PiKVMError,
-    RedirectError,
-    UnavailableError,
+    _error_fields,
+    _status_error,
 )
 from aiopikvm._ws import PiKVMWebSocket
 
@@ -53,14 +50,6 @@ _RESOURCE_NAMES = (
     "prometheus",
     "system",
 )
-
-_STATUS_ERRORS: dict[int, type[APIError]] = {
-    401: AuthError,
-    403: AuthError,
-    409: BusyError,
-    503: UnavailableError,
-}
-"""kvmd maps IsBusyError to 409 and UnavailableError to 503 (htserver.py)."""
 
 
 class PiKVM:
@@ -272,31 +261,18 @@ class PiKVM:
         if status < 300:
             return
 
-        if status < 400:
-            location = response.headers.get("location", "")
-            raise RedirectError(
-                f"HTTP {status}: PiKVM redirected to "
-                f"{location or 'an undisclosed location'}. Point the client at "
-                "the final URL, or pass follow_redirects=True to follow it "
-                "and resend the credentials there.",
-                status,
-            )
-
         error, error_msg = cls._error_fields(response)
-        detail = error_msg or error or cls._body_excerpt(response)
-        raise _STATUS_ERRORS.get(status, APIError)(
-            f"HTTP {status}: {detail}" if detail else f"HTTP {status}",
+        raise _status_error(
             status,
             error=error,
             error_msg=error_msg,
+            detail=cls._body_excerpt(response),
+            location=response.headers.get("location", ""),
         )
 
     @staticmethod
     def _error_fields(response: httpx.Response) -> tuple[str, str]:
         """Extract kvmd's error block from a response body.
-
-        kvmd reports failures as ``{"ok": false, "result": {"error":
-        "<class>", "error_msg": "<message>"}}``.
 
         Args:
             response: The HTTP response to read.
@@ -306,18 +282,9 @@ class PiKVM:
             a kvmd error envelope or has not been read yet.
         """
         try:
-            body = response.json()
+            return _error_fields(response.json())
         except (ValueError, TypeError, httpx.ResponseNotRead):
             return ("", "")
-        result = body.get("result") if isinstance(body, dict) else None
-        if not isinstance(result, dict):
-            return ("", "")
-        error = result.get("error")
-        error_msg = result.get("error_msg")
-        return (
-            error if isinstance(error, str) else "",
-            error_msg if isinstance(error_msg, str) else "",
-        )
 
     @staticmethod
     def _body_excerpt(response: httpx.Response, limit: int = 200) -> str:
@@ -537,7 +504,14 @@ class PiKVM:
                 the client *timeout*).
 
         Returns:
-            A *PiKVMWebSocket* async context manager.
+            A *PiKVMWebSocket* async context manager. It inherits this
+            client's *verify_ssl* and *follow_redirects*; with an external
+            *http_client* it still uses the credentials and URL passed to
+            this constructor, since it does not go through httpx at all.
+
+        Raises:
+            ConfigurationError: If the URL this client was built with has no
+                usable scheme.
         """
         return PiKVMWebSocket(
             url=self._url,
@@ -545,6 +519,7 @@ class PiKVM:
             passwd=self._password,
             verify_ssl=self._verify_ssl,
             stream=stream,
+            follow_redirects=self._follow_redirects,
             open_timeout=open_timeout if open_timeout is not None else self._timeout,
             close_timeout=close_timeout if close_timeout is not None else self._timeout,
         )

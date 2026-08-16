@@ -23,6 +23,11 @@ async with kvm.ws(
     ...
 ```
 
+The socket inherits the client's `verify_ssl` and `follow_redirects`. Redirects
+are not followed by default for the same reason as on the REST side: the
+upgrade carries the password in a header, and following the redirect hands it
+to whatever the redirect points at.
+
 `stream` is a flag, not an index. kvmd counts the connected sessions that asked for
 video and runs the streamer for as long as that count is above zero, so an open
 socket is what keeps the video pipeline alive:
@@ -47,18 +52,24 @@ kvmd applies the same auth chain to the upgrade as to the REST API, and refuses
 it with an ordinary HTTP response, so the errors are the familiar ones:
 
 ```python
-from aiopikvm import APIError, AuthError, WebSocketError
+from aiopikvm import APIError, AuthError, RedirectError, WebSocketError
 
 try:
     async with kvm.ws() as ws:
         ...
 except AuthError as err:          # 401 no credentials, 403 rejected
     print(err.status_code, err.error_msg)
+except RedirectError as err:      # not followed: it would resend the password
+    print(err)
 except APIError as err:           # anything else kvmd refused the upgrade with
     print(err.status_code)
 except WebSocketError as err:     # DNS, TLS, timeout — the socket never opened
     print(err)
 ```
+
+A status means the same thing on both transports — `AuthError` for 401 and
+403, `BusyError` for 409, `UnavailableError` for 503, `RedirectError` for 3xx —
+because the REST client and the socket share one mapping.
 
 ## Receiving events
 
@@ -83,15 +94,20 @@ There is no single "initial state" message. kvmd sends:
 3. updates from then on, whenever anything changes.
 
 So a client that needs a particular subsystem waits for its event rather than
-reading the first message:
+reading the first message — with a timeout, since a subsystem the device does
+not have never sends one:
 
 ```python
+import asyncio
+
+wanted = {"atx", "hid", "streamer"}
 state = {}
 async with kvm.ws() as ws:
-    async for event in ws.events():
-        state[event["event_type"]] = event["event"]
-        if {"atx", "hid", "streamer"} <= state.keys():
-            break
+    async with asyncio.timeout(5):
+        async for event in ws.events():
+            state[event["event_type"]] = event["event"]
+            if wanted <= state.keys():
+                break
 ```
 
 ### Event types
@@ -117,9 +133,9 @@ Two things a consumer has to expect:
   state, later ones only the field that changed. `info` never sends a bundle at
   all — each event carries a single key such as `uptime` or `health`. Merge into
   what you already have instead of replacing it.
-- **`clients` arrives unprompted**, broadcast to everyone whenever any session
-  connects or disconnects, which is why it turns up in the middle of the initial
-  burst.
+- **`clients` arrives unprompted**, broadcast to every session whenever any
+  session connects or disconnects — including this one, which is why it lands
+  among the initial events and again at any time afterwards.
 
 ### When the stream ends
 
@@ -224,9 +240,12 @@ async with kvm.ws() as ws:
 ```
 
 This is kvmd's application-level ping: the answer comes back as a `pong` event
-through `events()`, and `ping()` does not wait for it. Keeping the socket alive
-needs neither — kvmd sends protocol-level pings on its own and the underlying
-library answers them.
+through `events()`, and `ping()` does not wait for it.
+
+Keeping the socket alive needs neither. The underlying library sends a
+protocol-level ping every 20 seconds and closes the connection if one goes
+unanswered for another 20, which is how a link that dies without a close frame
+surfaces as `WebSocketError` from `events()` rather than hanging forever.
 
 ## Standalone usage
 

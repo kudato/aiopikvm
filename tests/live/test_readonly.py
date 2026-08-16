@@ -17,7 +17,7 @@ import contextlib
 
 import pytest
 
-from aiopikvm import APIError, AuthError, PiKVM
+from aiopikvm import APIError, AuthError, PiKVM, PiKVMWebSocket
 from tests.helpers import undeclared_fields
 
 pytestmark = pytest.mark.live
@@ -105,18 +105,52 @@ async def test_websocket_delivers_the_initial_state(live: PiKVM) -> None:
     assert seen[0] == "loop", "the protocol version always comes first"
 
 
+async def _client_counts(ws: PiKVMWebSocket, seconds: float = 2.0) -> list[int]:
+    """Collect the ``clients`` counts kvmd broadcasts on *ws*.
+
+    kvmd broadcasts one when the stream controller wakes and one from the
+    connect handler, so a single read can return a count from before the
+    thing being measured. This drains the window instead.
+
+    Args:
+        ws: An open socket.
+        seconds: How long to listen.
+
+    Returns:
+        Every count seen, in arrival order.
+    """
+    counts: list[int] = []
+    events = ws.events()
+    try:
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(seconds):
+                async for event in events:
+                    if event["event_type"] == "clients":
+                        counts.append(event["event"]["count"])
+    finally:
+        await events.aclose()
+    return counts
+
+
 async def test_websocket_stream_flag_counts_this_client(live: PiKVM) -> None:
     """``stream=True`` is what makes kvmd count the session as a video viewer."""
-    counts: dict[bool, int] = {}
-    for stream in (True, False):
-        async with live.ws(stream=stream) as ws:
-            with contextlib.suppress(TimeoutError):
-                async with asyncio.timeout(WS_TIMEOUT):
-                    async for event in ws.events():
-                        if event["event_type"] == "clients":
-                            counts[stream] = event["event"]["count"]
-                            break
-    assert counts[True] == counts[False] + 1
+    # Every count is read from the same watching socket, so a viewer that
+    # comes or goes elsewhere shows up as its own event rather than as a
+    # wrong delta. The watcher itself must not be counted.
+    async with live.ws(stream=False) as watcher:
+        settled = await _client_counts(watcher)
+        assert settled, "kvmd broadcasts a clients count when a session connects"
+        baseline = settled[-1]
+
+        async with live.ws(stream=True):
+            with_viewer = await _client_counts(watcher)
+        assert baseline + 1 in with_viewer, "a stream client is counted"
+
+        async with live.ws(stream=False):
+            without_viewer = await _client_counts(watcher)
+        assert baseline + 1 not in without_viewer, "a non-stream client is not"
+
+    assert without_viewer[-1] == baseline
 
 
 async def test_websocket_refuses_a_wrong_password(live: PiKVM) -> None:

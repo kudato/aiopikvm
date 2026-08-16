@@ -1,4 +1,14 @@
-"""Exception hierarchy for aiopikvm."""
+"""Exception hierarchy for aiopikvm.
+
+The bottom of this module also holds the mapping from an HTTP status to the
+exception that reports it. Both transports need it — the REST client for a
+response and the WebSocket client for a refused upgrade, which kvmd answers
+with an ordinary HTTP response — and a status they disagree about is a bug in
+whichever one a caller is not looking at.
+"""
+
+import json
+from typing import Any
 
 
 class PiKVMError(Exception):
@@ -92,3 +102,94 @@ class ConnectionTimeoutError(PiKVMError):
 
 class WebSocketError(PiKVMError):
     """WebSocket connection error."""
+
+
+_STATUS_ERRORS: dict[int, type[APIError]] = {
+    401: AuthError,
+    403: AuthError,
+    409: BusyError,
+    503: UnavailableError,
+}
+"""kvmd maps IsBusyError to 409 and UnavailableError to 503 (htserver.py)."""
+
+
+def _status_error(
+    status: int,
+    *,
+    error: str = "",
+    error_msg: str = "",
+    detail: str = "",
+    location: str = "",
+) -> APIError:
+    """Build the exception reporting an HTTP status kvmd refused with.
+
+    Args:
+        status: HTTP status code, 3xx or above.
+        error: kvmd's exception class name from the response envelope.
+        error_msg: kvmd's human-readable message from the envelope.
+        detail: Fallback description when the envelope carried neither — the
+            start of the body, or the reason phrase.
+        location: Target of a redirect, when the response carried one.
+
+    Returns:
+        :class:`RedirectError` for 3xx, the class registered for the status,
+        or :class:`APIError` for anything else.
+    """
+    if status < 400:
+        return RedirectError(
+            f"HTTP {status}: PiKVM redirected to "
+            f"{location or 'an undisclosed location'}. Point the client at "
+            "the final URL, or pass follow_redirects=True to follow it "
+            "and resend the credentials there.",
+            status,
+        )
+
+    described = error_msg or error or detail
+    return _STATUS_ERRORS.get(status, APIError)(
+        f"HTTP {status}: {described}" if described else f"HTTP {status}",
+        status,
+        error=error,
+        error_msg=error_msg,
+    )
+
+
+def _error_fields(body: Any) -> tuple[str, str]:
+    """Extract kvmd's error block from a parsed response body.
+
+    kvmd reports failures as ``{"ok": false, "result": {"error": "<class>",
+    "error_msg": "<message>"}}`` — over REST, and equally in the body of an
+    upgrade it refuses.
+
+    Args:
+        body: The parsed response body, or anything else when it could not
+            be parsed.
+
+    Returns:
+        The ``(error, error_msg)`` pair, each empty when the body is not a
+        kvmd error envelope.
+    """
+    result = body.get("result") if isinstance(body, dict) else None
+    if not isinstance(result, dict):
+        return ("", "")
+    error = result.get("error")
+    error_msg = result.get("error_msg")
+    return (
+        error if isinstance(error, str) else "",
+        error_msg if isinstance(error_msg, str) else "",
+    )
+
+
+def _error_fields_from_bytes(body: bytes | bytearray) -> tuple[str, str]:
+    """Extract kvmd's error block from a raw response body.
+
+    Args:
+        body: Raw response body, empty when the server sent none.
+
+    Returns:
+        The ``(error, error_msg)`` pair, each empty when the body is not a
+        kvmd error envelope.
+    """
+    try:
+        return _error_fields(json.loads(body))
+    except (ValueError, UnicodeDecodeError):
+        return ("", "")

@@ -1,22 +1,28 @@
 """PiKVMWebSocket tests."""
 
+import asyncio
 import json
 import logging
 import ssl
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import websockets.asyncio.server
 import websockets.exceptions
+import websockets.http11
 from websockets.datastructures import Headers
-from websockets.http11 import Response
 
 from aiopikvm import (
     APIError,
     AuthError,
+    BusyError,
     ConfigurationError,
     PiKVMWebSocket,
+    RedirectError,
+    UnavailableError,
     WebSocketError,
 )
 from tests.fixtures import load_json
@@ -75,36 +81,72 @@ def step(name: str) -> dict[str, Any]:
     raise KeyError(f"Unknown ws_handshake step {name!r}; recorded: {known}")
 
 
-def refusal(name: str) -> websockets.exceptions.InvalidStatus:
-    """Rebuild the exception websockets raises for a recorded refusal.
+async def connect_failing(ws: PiKVMWebSocket, exc: BaseException) -> None:
+    """Enter *ws* with the websockets handshake raising *exc*."""
+    with patch("aiopikvm._ws._Connector", AsyncMock(side_effect=exc)):
+        await ws.__aenter__()
 
-    Args:
-        name: Step name from the ``ws_handshake`` scenario.
 
-    Returns:
-        The ``InvalidStatus`` a real handshake against kvmd produces.
-    """
-    recorded = step(name)
-    body = json.dumps(recorded["body"]).encode()
-    return websockets.exceptions.InvalidStatus(
-        Response(
-            recorded["status"],
-            recorded["reason_phrase"],
-            Headers(
-                {
-                    "Content-Type": recorded["content_type"],
-                    "Content-Length": str(len(body)),
-                }
-            ),
-            body,
-        )
+def response(
+    status: int, reason: str, body: bytes = b"", **headers: str
+) -> websockets.http11.Response:
+    """Build the HTTP response a server rejects the upgrade with."""
+    sent = {"Content-Length": str(len(body)), **headers}
+    return websockets.http11.Response(status, reason, Headers(sent), body)
+
+
+def recorded_response(name: str) -> websockets.http11.Response:
+    """Build the response kvmd was recorded refusing the upgrade with."""
+    step_data = step(name)
+    body = json.dumps(step_data["body"]).encode()
+    return response(
+        step_data["status"],
+        step_data["reason_phrase"],
+        body,
+        **{"Content-Type": step_data["content_type"]},
     )
 
 
-async def connect_failing(ws: PiKVMWebSocket, exc: BaseException) -> None:
-    """Enter *ws* with the websockets handshake raising *exc*."""
-    with patch("websockets.asyncio.client.connect", AsyncMock(side_effect=exc)):
-        await ws.__aenter__()
+Handler = Callable[[websockets.asyncio.server.ServerConnection], Awaitable[None]]
+
+
+async def _hold(connection: websockets.asyncio.server.ServerConnection) -> None:
+    """Keep the connection open until the client is done with it."""
+    await connection.wait_closed()
+
+
+@asynccontextmanager
+async def serving(
+    reject: websockets.http11.Response | None = None,
+    handler: Handler = _hold,
+) -> AsyncIterator[tuple[str, list[websockets.http11.Request]]]:
+    """Run a WebSocket server on loopback.
+
+    Nothing here stands in for kvmd's payloads — the server exists so the
+    real *websockets* client runs a real handshake and a real close, instead
+    of a mock guessing what either would have done.
+
+    Args:
+        reject: Response to refuse the upgrade with; accept it when ``None``.
+        handler: What the server does with an accepted connection.
+
+    Yields:
+        The server's URL and the list its received requests accumulate in.
+    """
+    seen: list[websockets.http11.Request] = []
+
+    async def process(
+        connection: websockets.asyncio.server.ServerConnection,
+        request: websockets.http11.Request,
+    ) -> websockets.http11.Response | None:
+        seen.append(request)
+        return reject
+
+    async with websockets.asyncio.server.serve(
+        handler, "127.0.0.1", 0, process_request=process
+    ) as server:
+        host, port = server.sockets[0].getsockname()[:2]
+        yield (f"http://{host}:{port}", seen)
 
 
 # --- URL and parameters --------------------------------------------------
@@ -147,7 +189,7 @@ def test_ws_timeouts_custom() -> None:
 async def test_aenter_wss_no_verify() -> None:
     ws = socket(verify_ssl=False)
     mock_connect = AsyncMock(return_value=AsyncMock())
-    with patch("websockets.asyncio.client.connect", mock_connect):
+    with patch("aiopikvm._ws._Connector", mock_connect):
         await ws.__aenter__()
         ctx = mock_connect.call_args[1]["ssl"]
         assert isinstance(ctx, ssl.SSLContext)
@@ -159,7 +201,7 @@ async def test_aenter_wss_no_verify() -> None:
 async def test_aenter_wss_verify() -> None:
     ws = socket(verify_ssl=True)
     mock_connect = AsyncMock(return_value=AsyncMock())
-    with patch("websockets.asyncio.client.connect", mock_connect):
+    with patch("aiopikvm._ws._Connector", mock_connect):
         await ws.__aenter__()
         assert mock_connect.call_args[1]["ssl"] is True
     ws._connection = None
@@ -168,19 +210,9 @@ async def test_aenter_wss_verify() -> None:
 async def test_aenter_http() -> None:
     ws = socket("http://pikvm.local")
     mock_connect = AsyncMock(return_value=AsyncMock())
-    with patch("websockets.asyncio.client.connect", mock_connect):
+    with patch("aiopikvm._ws._Connector", mock_connect):
         await ws.__aenter__()
         assert mock_connect.call_args[1]["ssl"] is None
-    ws._connection = None
-
-
-async def test_aenter_sends_the_credential_headers() -> None:
-    ws = PiKVMWebSocket("https://pikvm.local", user="operator", passwd="s3cret")
-    mock_connect = AsyncMock(return_value=AsyncMock())
-    with patch("websockets.asyncio.client.connect", mock_connect):
-        await ws.__aenter__()
-        headers = mock_connect.call_args[1]["additional_headers"]
-    assert headers == {"X-KVMD-User": "operator", "X-KVMD-Passwd": "s3cret"}
     ws._connection = None
 
 
@@ -194,12 +226,45 @@ async def test_aenter_websocket_exception() -> None:
         await connect_failing(socket(), websockets.exceptions.InvalidURI("bad", "why"))
 
 
+async def test_aenter_value_error() -> None:
+    """websockets rejects some URIs with a bare ValueError, outside our hierarchy."""
+    with pytest.raises(WebSocketError, match="Failed to connect"):
+        await connect_failing(socket(), ValueError("ssl=None is incompatible"))
+
+
+# --- Handshake against a real server -------------------------------------
+
+
+async def test_handshake_sends_the_credential_headers() -> None:
+    """The upgrade carries the credentials kvmd's auth chain reads."""
+    async with serving() as (url, seen):
+        async with PiKVMWebSocket(url, user="operator", passwd="s3cret"):
+            pass
+    assert seen[0].headers["X-KVMD-User"] == "operator"
+    assert seen[0].headers["X-KVMD-Passwd"] == "s3cret"
+
+
+async def test_handshake_asks_for_the_stream() -> None:
+    """The flag reaches the server as the bool kvmd's validator reads."""
+    async with serving() as (url, seen):
+        async with socket(url):
+            pass
+        async with socket(url, stream=False):
+            pass
+    assert [request.path for request in seen] == [
+        "/api/ws?stream=1",
+        "/api/ws?stream=0",
+    ]
+
+
 @pytest.mark.parametrize("name", ["wrong_passwd", "unknown_user", "no_credentials"])
 async def test_refused_credentials_raise_auth_error(name: str) -> None:
     """A refused upgrade reports like the HTTP client, not as a transport failure."""
     recorded = step(name)
-    with pytest.raises(AuthError) as caught:
-        await connect_failing(socket(), refusal(name))
+    async with serving(recorded_response(name)) as (url, _):
+        with pytest.raises(AuthError) as caught:
+            async with socket(url):
+                pass
     assert caught.value.status_code == recorded["status"]
     assert caught.value.error == recorded["body"]["result"]["error"]
     assert caught.value.error_msg == recorded["body"]["result"]["error_msg"]
@@ -208,43 +273,86 @@ async def test_refused_credentials_raise_auth_error(name: str) -> None:
 
 async def test_refused_credentials_are_still_pikvm_errors() -> None:
     """`except APIError` keeps working for callers that do not want AuthError."""
-    with pytest.raises(APIError):
-        await connect_failing(socket(), refusal("wrong_passwd"))
+    async with serving(recorded_response("wrong_passwd")) as (url, _):
+        with pytest.raises(APIError):
+            async with socket(url):
+                pass
 
 
 async def test_rejected_query_is_not_reported_as_an_auth_failure() -> None:
     """kvmd's 400 for a bad stream flag is a plain APIError, never AuthError."""
-    with pytest.raises(APIError) as caught:
-        await connect_failing(socket(), refusal("bad_stream_value"))
+    async with serving(recorded_response("bad_stream_value")) as (url, _):
+        with pytest.raises(APIError) as caught:
+            async with socket(url):
+                pass
     assert not isinstance(caught.value, AuthError)
     assert caught.value.status_code == 400
     assert caught.value.error == "ValidatorError"
     assert "not a valid bool" in caught.value.error_msg
 
 
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [(409, BusyError), (503, UnavailableError), (502, APIError)],
+)
+async def test_status_mapping_matches_the_http_client(
+    status: int, expected: type[APIError]
+) -> None:
+    """A status means the same thing whichever transport reported it."""
+    async with serving(response(status, "Nope")) as (url, _):
+        with pytest.raises(expected) as caught:
+            async with socket(url):
+                pass
+    assert type(caught.value) is expected
+    assert caught.value.status_code == status
+
+
 async def test_refusal_without_a_kvmd_envelope() -> None:
     """A proxy in front of kvmd answers with something else entirely."""
     body = b"<html>nginx</html>"
-    response = Response(
-        502,
-        "Bad Gateway",
-        Headers({"Content-Type": "text/html", "Content-Length": str(len(body))}),
-        body,
-    )
-    with pytest.raises(APIError) as caught:
-        await connect_failing(socket(), websockets.exceptions.InvalidStatus(response))
+    async with serving(response(502, "Bad Gateway", body, **{"C-T": "text/html"})) as (
+        url,
+        _,
+    ):
+        with pytest.raises(APIError) as caught:
+            async with socket(url):
+                pass
     assert caught.value.status_code == 502
     assert caught.value.error == ""
     assert "Bad Gateway" in str(caught.value)
 
 
-async def test_refusal_without_a_body() -> None:
-    """websockets leaves the body empty when the server sends none."""
-    response = Response(403, "Forbidden", Headers(), b"")
-    with pytest.raises(AuthError) as caught:
-        await connect_failing(socket(), websockets.exceptions.InvalidStatus(response))
-    assert caught.value.status_code == 403
+async def test_refusal_with_a_json_body_that_is_not_an_envelope() -> None:
+    """Valid JSON without kvmd's result block leaves the error fields empty."""
+    async with serving(response(500, "Oops", b'{"error": "boom"}')) as (url, _):
+        with pytest.raises(APIError) as caught:
+            async with socket(url):
+                pass
+    assert caught.value.error == ""
     assert caught.value.error_msg == ""
+
+
+async def test_redirect_is_reported_instead_of_followed() -> None:
+    """Following it would hand the password to whatever the redirect points at."""
+    async with serving() as (target, target_seen):
+        moved = response(302, "Found", Location=f"ws{target[4:]}/api/ws")
+        async with serving(moved) as (url, _):
+            with pytest.raises(RedirectError) as caught:
+                async with socket(url):
+                    pass
+    assert caught.value.status_code == 302
+    assert "follow_redirects=True" in str(caught.value)
+    assert target_seen == [], "the credentials must not reach the redirect target"
+
+
+async def test_redirect_is_followed_when_asked() -> None:
+    """The opt-out matches the HTTP client's follow_redirects."""
+    async with serving() as (target, target_seen):
+        moved = response(302, "Found", Location=f"ws{target[4:]}/api/ws")
+        async with serving(moved) as (url, _):
+            async with socket(url, follow_redirects=True):
+                pass
+    assert len(target_seen) == 1
 
 
 # --- Events --------------------------------------------------------------
@@ -280,11 +388,46 @@ async def test_events_skips_malformed_json(caplog: pytest.LogCaptureFixture) -> 
     assert "Skipping malformed WebSocket message" in caplog.text
 
 
-async def test_events_end_on_a_clean_close() -> None:
-    """websockets ends its own iteration when either side closes properly."""
-    ws = socket()
-    ws._connection = iterating(json.dumps({"event_type": "pong", "event": {}}))
-    assert len([event async for event in ws.events()]) == 1
+@pytest.mark.parametrize(
+    ("code", "reason"),
+    [(1000, "normal closure"), (1001, "going away")],
+)
+async def test_events_end_quietly_on_a_clean_close(code: int, reason: str) -> None:
+    """A server closing properly ends the iteration, it does not raise."""
+
+    async def close_cleanly(
+        connection: websockets.asyncio.server.ServerConnection,
+    ) -> None:
+        await connection.send(json.dumps({"event_type": "loop", "event": {}}))
+        await connection.close(code, reason)
+
+    async with serving(handler=close_cleanly) as (url, _):
+        async with socket(url) as ws:
+            seen = [event async for event in ws.events()]
+    assert [event["event_type"] for event in seen] == ["loop"]
+
+
+@pytest.mark.parametrize("code", [1006, 1011])
+async def test_events_raise_on_a_connection_that_breaks(code: int) -> None:
+    """An abnormal close reaches the caller instead of looking like the end."""
+
+    async def break_off(connection: websockets.asyncio.server.ServerConnection) -> None:
+        await connection.send(json.dumps({"event_type": "loop", "event": {}}))
+        await asyncio.sleep(0.05)
+        if code == 1006:
+            connection.transport.abort()  # no close frame at all
+        else:
+            await connection.close(code, "boom")
+
+    seen = []
+    async with serving(handler=break_off) as (url, _):
+        # A short close timeout only shortens the teardown of a socket that
+        # is already gone.
+        async with socket(url, close_timeout=1.0) as ws:
+            with pytest.raises(WebSocketError, match="Connection lost"):
+                async for event in ws.events():
+                    seen.append(event)
+    assert [event["event_type"] for event in seen] == ["loop"]
 
 
 async def test_events_raise_when_the_connection_breaks() -> None:
@@ -373,12 +516,27 @@ async def test_aexit_closes_connection() -> None:
     assert ws._connection is None
 
 
-async def test_aexit_forgets_a_connection_that_fails_to_close() -> None:
+async def test_aexit_forgets_a_connection_even_when_cancelled() -> None:
+    """A cancelled close must not leave a dead connection behind."""
     ws, conn = connected()
-    conn.close.side_effect = OSError("gone")
-    with pytest.raises(OSError, match="gone"):
+    conn.close.side_effect = asyncio.CancelledError
+    with pytest.raises(asyncio.CancelledError):
         await ws.__aexit__(None, None, None)
     assert ws._connection is None
+
+
+async def test_send_after_the_server_disappears() -> None:
+    """A real dead socket, not a mocked one, still reports as WebSocketError."""
+
+    async def drop(connection: websockets.asyncio.server.ServerConnection) -> None:
+        connection.transport.abort()
+
+    async with serving(handler=drop) as (url, _):
+        async with socket(url) as ws:
+            await asyncio.sleep(0.05)
+            with pytest.raises(WebSocketError, match="Failed to send"):
+                for _ in range(100):
+                    await ws.send_key("KeyA", state=True)
 
 
 async def test_aexit_none_connection() -> None:
