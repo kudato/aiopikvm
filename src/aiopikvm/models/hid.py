@@ -67,7 +67,7 @@ class HIDKeymaps(_Base):
     """Keyboard layouts installed on the device.
 
     Returned by ``GET /api/hid/keymaps``; the names are what
-    :pymethod:`HIDResource.type_text` accepts as its ``keymap`` argument.
+    :meth:`HIDResource.type_text` accepts as its ``keymap`` argument.
     """
 
     default: str

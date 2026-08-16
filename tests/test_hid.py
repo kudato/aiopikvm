@@ -25,16 +25,8 @@ async def test_get_state(mock_api: respx.MockRouter, client: PiKVM) -> None:
     assert state.mouse.outputs.available == ["usb", "usb_rel"]
     assert state.jiggler.enabled is True
     assert state.jiggler.interval == 60
-
-
-async def test_get_state_keyboard_without_outputs(
-    mock_api: respx.MockRouter, client: PiKVM
-) -> None:
-    # The OTG keyboard cannot switch modes, so kvmd reports no choices at all.
-    mock_api.get("/api/hid").mock(
-        return_value=httpx.Response(200, json=load_json("hid"))
-    )
-    state = await client.hid.get_state()
+    # The OTG keyboard cannot switch modes, so kvmd offers no choice for it
+    # even though the mouse on the same device has two.
     assert state.keyboard.outputs.available == []
     assert state.keyboard.outputs.active == ""
 

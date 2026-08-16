@@ -24,6 +24,7 @@ from aiopikvm import (
     StreamerState,
     SwitchState,
 )
+from aiopikvm.models.hid import _HIDInactivity
 from tests.fixtures import DATA_DIR, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
 
@@ -51,6 +52,7 @@ CASES = (
     Case("atx", ATXState, coverage_issue=72),
     Case("hid", HIDState),
     Case("hid_keymaps", HIDKeymaps, key="keymaps"),
+    Case("hid_inactivity", _HIDInactivity),
     Case("msd", MSDState, parse_issue=38, coverage_issue=38),
     Case("gpio", GPIOState, parse_issue=41, coverage_issue=41),
     Case("streamer", StreamerState, coverage_issue=52),

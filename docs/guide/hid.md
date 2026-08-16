@@ -21,12 +21,13 @@ Only MCU-based backends can tell — it is `None` on OTG.
 
 ## Idle time
 
-Seconds since the last key press or mouse movement, from any source — the
-web UI, another client, or this one:
+Seconds since the last key press or mouse movement kvmd delivered, from
+any of its clients — the web UI, another script, or this one. Input typed
+on a keyboard plugged straight into the host does not reset it:
 
 ```python
 if await kvm.hid.get_inactivity() > 300:
-    print("Nobody has touched the host for five minutes")
+    print("Nobody has used the PiKVM for five minutes")
 ```
 
 ## Type text
@@ -41,6 +42,13 @@ await kvm.hid.type_text("Hello", keymap="en-us")
 
 # Slow down for firmware that drops fast input (0 to 5 seconds per key)
 await kvm.hid.type_text("Hello", delay=0.05)
+```
+
+kvmd answers only once the whole string is typed, so a large `delay` or a
+long text needs a wider timeout than the 10-second client default:
+
+```python
+await kvm.hid.type_text(bios_config, delay=0.5, timeout=120)
 ```
 
 `limit` is server-side truncation, not chunking: kvmd types the first
@@ -133,8 +141,9 @@ await kvm.hid.set_params(jiggler=True)
 ```
 
 Valid output names come from the state: `state.keyboard.outputs.available`
-and `state.mouse.outputs.available`. Both are empty on backends that cannot
-switch modes at runtime.
+and `state.mouse.outputs.available`. Either list can be empty — an OTG
+keyboard offers no choice at all, while its mouse still switches between
+`usb` and `usb_rel`.
 
 ## Connection control
 

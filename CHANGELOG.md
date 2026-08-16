@@ -70,7 +70,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hand-written; the models now follow a capture from kvmd 4.186 (#36).
 - `HIDResource.type_text()` silently truncated at 1024 characters. `limit=0`
   was documented as unlimited but omitted the query parameter, leaving kvmd's
-  own default of 1024 in force; `limit` is now always sent (#37).
+  own default of 1024 in force; `limit` is now always sent. kvmd answers only
+  once the whole string is typed, so a text that used to stop at 1024
+  characters may now need a wider `timeout` than the client default (#37).
 - `get_state()` let pydantic's `ValidationError` escape when a response did not
   match its model — outside the documented `PiKVMError` hierarchy, so
   `except PiKVMError` did not catch it. Model validation now raises

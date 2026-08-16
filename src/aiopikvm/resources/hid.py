@@ -20,11 +20,12 @@ class HIDResource(BaseResource):
     async def get_inactivity(self) -> int:
         """Get the time since the last keyboard or mouse event.
 
-        The counter is what drives the jiggler, and it is the only way to
-        tell whether somebody else is working on the target host.
+        The counter is what drives the jiggler. It tracks the input kvmd
+        itself delivered, from any of its clients — somebody typing on a
+        keyboard plugged straight into the target host does not reset it.
 
         Returns:
-            Seconds since the last HID event.
+            Seconds since the last HID event kvmd sent.
         """
         state = await self._get_model("/api/hid/inactivity", _HIDInactivity)
         return state.inactivity
@@ -40,10 +41,10 @@ class HIDResource(BaseResource):
 
         Args:
             keyboard_output: Keyboard output type. Valid values are the ones
-                :attr:`HIDState.keyboard.outputs.available` lists.
+                ``HIDState.keyboard.outputs.available`` lists.
             mouse_output: Mouse output type, e.g. ``"usb"`` (absolute) or
                 ``"usb_rel"`` (relative); see
-                :attr:`HIDState.mouse.outputs.available`.
+                ``HIDState.mouse.outputs.available``.
             jiggler: Whether the mouse jiggler moves the pointer while the
                 host is idle.
         """
@@ -103,7 +104,10 @@ class HIDResource(BaseResource):
                 ``0.02`` when ``slow`` is set and to ``0`` otherwise.
             slow: Enable server-side per-character delays for reliable input.
             timeout: Per-call timeout in seconds. kvmd types the whole string
-                before answering, and ``slow`` adds a delay per character.
+                before answering, so anything that stretches that out needs a
+                wider timeout than the client default: ``slow``, a large
+                ``delay``, or simply a long string, which no longer stops at
+                the first 1024 characters.
         """
         params: dict[str, str | int | float] = {"limit": limit}
         if keymap is not None:
