@@ -55,10 +55,14 @@ class AuthResource(BaseResource):
         answers with an empty envelope and puts the token in a ``Set-Cookie:
         auth_token`` header — that header is the only place it ever appears.
 
-        The token is also stored in :attr:`PiKVM.cookies` and sent with every
-        later request, though it decides nothing while this client keeps
-        sending its credential headers. See :attr:`PiKVM.cookies` for what a
-        session token is actually good for.
+        The token is also stored in :attr:`PiKVM.cookies`, scoped to the host
+        it came from, and sent with every later request — though it decides
+        nothing while this client keeps sending its credential headers. See
+        :attr:`PiKVM.cookies` for what a session token is actually good for.
+
+        A token already in the jar is replaced. The session it belonged to
+        stays open on the device until it expires or any session of that user
+        is logged out, so keep it if it is still wanted.
 
         Args:
             user: kvmd user name. Must match
@@ -124,8 +128,7 @@ class AuthResource(BaseResource):
             # domain, and a token restored by hand sits under none. The jar
             # keys on the domain, so both would survive under one name and
             # httpx's own lookup raises on that. Collapse them to this one.
-            self._client.cookies.delete(_COOKIE)
-            self._client.cookies.set(_COOKIE, token)
+            self._store_token(token, response.request.url.host)
             return token
 
         # No cookie means kvmd is running without authentication — or that
@@ -174,10 +177,11 @@ class AuthResource(BaseResource):
         nothing about which session is meant, so a call with no cookie fails
         with HTTP 400.
 
-        The cookie is dropped from :attr:`PiKVM.cookies` once kvmd confirms,
-        and kept otherwise: a failure here leaves the session in an unknown
-        state, and throwing the token away would be the one thing that
-        cannot be undone. Clear it by hand —
+        The cookie is dropped from :attr:`PiKVM.cookies` once kvmd confirms.
+        On failure the jar is left as it was found — including when the token
+        came from the argument rather than the jar — because the session is
+        then in an unknown state, and throwing a token away is the one thing
+        that cannot be undone. Clear it by hand —
         ``kvm.cookies.delete("auth_token")`` — for a token known to be dead.
 
         Args:
@@ -195,11 +199,14 @@ class AuthResource(BaseResource):
                 with a password that is the headers, not the token, and the
                 session is left alone.
         """
+        given = token is not None
         token = token.strip() if token is not None else self._stored_token()
         if not token:
             raise ConfigurationError(
-                "logout() needs a session token: pass one, or call login() "
-                "first so the client has one to drop."
+                "logout() was given a blank session token"
+                if given
+                else "logout() needs a session token: pass one, or call "
+                "login() first so the client has one to drop."
             )
         if not _TOKEN.fullmatch(token):
             detail = (
@@ -210,10 +217,32 @@ class AuthResource(BaseResource):
             raise ConfigurationError(
                 f"A kvmd session token is 64 hexadecimal characters; this one {detail}"
             )
+        host = self._client.base_url.host
+        previous = self._stored_token()
+        self._store_token(token, host)
+        try:
+            await self._post("/api/auth/logout", timeout=timeout)
+        except Exception:
+            # Put back whatever the client was carrying: dropping somebody
+            # else's session must not cost this one its own credential.
+            self._client.cookies.delete(_COOKIE)
+            if previous:
+                self._store_token(previous, host)
+            raise
         self._client.cookies.delete(_COOKIE)
-        self._client.cookies.set(_COOKIE, token)
-        await self._post("/api/auth/logout", timeout=timeout)
+
+    def _store_token(self, token: str, host: str) -> None:
+        """Make *token* the one session cookie the client carries.
+
+        Args:
+            token: Session token to store.
+            host: Host to scope the cookie to. Without one httpx offers it to
+                every server the client talks to, which for a shared client
+                or a cross-host redirect means handing the session to
+                somewhere it does not belong.
+        """
         self._client.cookies.delete(_COOKIE)
+        self._client.cookies.set(_COOKIE, token, domain=host, path="/")
 
     def _stored_token(self) -> str:
         """Return the session token held by the client, if any.
@@ -221,8 +250,7 @@ class AuthResource(BaseResource):
         Walks the jar rather than calling ``httpx.Cookies.get``, which raises
         ``CookieConflict`` — outside the :class:`PiKVMError` hierarchy — when
         two cookies share a name under different domains. Should the jar hold
-        more than one anyway, the most recently stored wins, so a token the
-        caller just put there is not shadowed by an older one.
+        more than one anyway, the last in jar order wins.
 
         Returns:
             The stored token, or ``""`` when there is none.

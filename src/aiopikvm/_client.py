@@ -137,6 +137,20 @@ class PiKVM:
         return self._client
 
     @property
+    def base_url(self) -> httpx.URL:
+        """Base URL every request is sent relative to.
+
+        Returns:
+            The underlying client's base URL. With an external *http_client*
+            this is whatever that client was configured with, not the *url*
+            passed to this constructor.
+
+        Raises:
+            PiKVMError: If the async context has not been entered yet.
+        """
+        return self._ensure_client().base_url
+
+    @property
     def cookies(self) -> httpx.Cookies:
         """Cookies the underlying HTTP client carries.
 

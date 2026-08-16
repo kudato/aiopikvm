@@ -139,6 +139,36 @@ async def test_login_returns_this_response_token_not_a_stale_one(
     assert await client.auth.login("admin", "secret") == ""
 
 
+async def test_login_scopes_the_token_to_the_device(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """A cookie stored without a domain is offered to every host the client
+    talks to — a shared http_client or a cross-host redirect would hand the
+    session somewhere it does not belong."""
+    mock_api.post("/api/auth/login").mock(
+        return_value=replay("login_form_body", cookie=TOKEN)
+    )
+    await client.auth.login("admin", "secret")
+
+    assert [c.domain for c in client.cookies.jar] == ["pikvm.local"]
+    elsewhere = httpx.Request("GET", "https://example.com/")
+    client.cookies.set_cookie_header(elsewhere)
+    assert "cookie" not in elsewhere.headers
+
+
+async def test_logout_restores_the_jar_when_it_fails(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Dropping somebody else's session must not cost this client its own
+    credential, which for a header-less client is the cookie itself."""
+    mock_api.post("/api/auth/logout").mock(return_value=replay("logout_refused"))
+    client.cookies.set("auth_token", TOKEN)
+
+    with pytest.raises(AuthError):
+        await client.auth.logout("b" * 64)
+    assert client.cookies.get("auth_token") == TOKEN
+
+
 async def test_login_keeps_a_restored_token_when_it_fails(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
@@ -336,8 +366,10 @@ async def test_logout_keeps_the_cookie_when_kvmd_refuses_the_call(
     the first credential source present and never reaches the cookie, so the
     session is still alive and the token still the only copy of it."""
     mock_api.post("/api/auth/logout").mock(return_value=replay("logout_refused"))
+    client.cookies.set("auth_token", TOKEN)
+
     with pytest.raises(AuthError):
-        await client.auth.logout(TOKEN)
+        await client.auth.logout()
     assert client.cookies.get("auth_token") == TOKEN
 
 
@@ -346,6 +378,19 @@ async def test_logout_keeps_the_cookie_when_the_connection_fails(
 ) -> None:
     """The session may well still be alive, so the token stays usable."""
     mock_api.post("/api/auth/logout").mock(side_effect=httpx.ConnectError("boom"))
+    client.cookies.set("auth_token", TOKEN)
+
+    with pytest.raises(ConnectError):
+        await client.auth.logout()
+    assert client.cookies.get("auth_token") == TOKEN
+
+
+async def test_logout_leaves_no_cookie_behind_when_it_was_given_one(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """A token passed in belongs to the caller, who still has it; the jar is
+    put back the way it was rather than keeping somebody else's session."""
+    mock_api.post("/api/auth/logout").mock(side_effect=httpx.ConnectError("boom"))
     with pytest.raises(ConnectError):
         await client.auth.logout(TOKEN)
-    assert client.cookies.get("auth_token") == TOKEN
+    assert client.cookies.get("auth_token") is None
