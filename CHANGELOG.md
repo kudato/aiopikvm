@@ -166,6 +166,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Breaking:** `AuthResource.check()` and `logout()` return `None` instead of
   the same empty envelope. Whether kvmd answered at all is the entire result;
   a refusal raises `AuthError` (#34).
+- `AuthResource.logout()` is documented as what kvmd actually does: it looks up
+  the token's owner and closes **every** session that user has, so logging out
+  a token a script created also signs the same account out of the web UI (#34).
 - **Breaking:** credentials kvmd's validators reject — a user name that fails
   its regex, a password with non-printable characters — now raise `AuthError`
   rather than a bare `APIError`. kvmd reports them as HTTP 400 `ValidatorError`

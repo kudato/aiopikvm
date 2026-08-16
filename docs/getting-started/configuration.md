@@ -56,18 +56,28 @@ authenticates a client that sends no credential headers at all:
 ```python
 import httpx
 
-transport = httpx.AsyncClient(base_url="https://pikvm.local", verify=False)
-transport.cookies.set("auth_token", token)
+async with httpx.AsyncClient(base_url="https://pikvm.local", verify=False) as http:
+    http.cookies.set("auth_token", token)
 
-async with PiKVM("https://pikvm.local", http_client=transport) as kvm:
-    await kvm.auth.check()      # authenticated by the token alone
-    await kvm.auth.logout()     # ends the session server-side
+    async with PiKVM("https://pikvm.local", http_client=http) as kvm:
+        await kvm.auth.check()   # authenticated by the token alone
 ```
 
 !!! note
     `expire=0` asks for an unlimited session, and kvmd caps every session at the
     device-wide limit from its own config either way. An expired or logged-out
     token raises `AuthError`.
+
+    `kvm.ws()` is not covered by the token: the WebSocket authenticates with the
+    `user` and `passwd` the client was built with, which are the defaults when
+    the credentials live on an external `http_client`. Tracked in
+    [#63](https://github.com/kudato/aiopikvm/issues/63).
+
+!!! warning
+    `logout()` closes **every** session belonging to that user, not only the one
+    whose token is passed — kvmd looks up the token's owner and drops all of
+    them. Logging out a token your script created also signs the same account
+    out of the PiKVM web UI.
 
 ## Client lifecycle
 

@@ -199,6 +199,29 @@ class BaseResource:
             timeout=timeout,
         )
 
+    async def _post_raw(
+        self,
+        path: str,
+        *,
+        data: dict[str, str] | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> httpx.Response:
+        """Send a POST request and return the raw *httpx.Response*.
+
+        For endpoints that answer in the headers rather than the body:
+        ``/auth/login`` returns an empty envelope and hands out the session
+        token in ``Set-Cookie``.
+
+        Args:
+            path: URL path relative to the PiKVM base URL.
+            data: Form fields, sent as ``application/x-www-form-urlencoded``.
+            timeout: Override the client-level timeout for this call.
+
+        Returns:
+            The *httpx.Response* object.
+        """
+        return await self._client.request("POST", path, data=data, timeout=timeout)
+
 
 def _envelope_error(result: Any) -> APIError:
     """Build the error for an ``{"ok": false}`` envelope.

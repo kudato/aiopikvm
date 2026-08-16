@@ -94,9 +94,51 @@ async def test_login_returns_the_token_from_the_cookie(
 async def test_login_returns_empty_string_when_kvmd_hands_out_no_session(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    """With auth disabled kvmd answers 200 and sets no cookie."""
+    """With authentication disabled kvmd answers 200 and sets no cookie.
+
+    Derived from the recorded success step rather than captured: the device
+    the fixtures come from runs with authentication on, and turning it off
+    to record this would lock everyone out of it. kvmd's login handler
+    returns a bare ``make_json_response()`` when ``is_auth_enabled()`` is
+    false, which is exactly this response minus the cookie.
+    """
     mock_api.post("/api/auth/login").mock(return_value=replay("login_form_body"))
     assert await client.auth.login("admin", "secret") == ""
+
+
+async def test_login_over_a_restored_session_does_not_trip_httpx(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Restoring a token by hand stores it without a domain while kvmd's own
+    Set-Cookie carries one. Two entries of the same name make
+    ``httpx.Cookies.get`` raise ``CookieConflict``, which is outside the
+    PiKVMError hierarchy."""
+    mock_api.post("/api/auth/login").mock(
+        return_value=replay("login_form_body", cookie=TOKEN)
+    )
+    client.cookies.set("auth_token", "a" * 64)
+
+    assert await client.auth.login("admin", "secret") == TOKEN
+    assert sum(c.name == "auth_token" for c in client.cookies.jar) == 1
+
+
+async def test_login_returns_this_response_token_not_a_stale_one(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """A leftover cookie must not be mistaken for a session kvmd just
+    declined to open."""
+    mock_api.post("/api/auth/login").mock(return_value=replay("login_form_body"))
+    client.cookies.set("auth_token", "a" * 64)
+
+    assert await client.auth.login("admin", "secret") == ""
+
+
+async def test_login_rejects_an_expire_kvmd_cannot_read(client: PiKVM) -> None:
+    """kvmd's validator caps the raw value at 16 characters and answers 400
+    'RAW limit exceed' — a rejection that is not about credentials, so it
+    must not reach the 400-to-AuthError translation."""
+    with pytest.raises(ConfigurationError):
+        await client.auth.login("admin", "secret", expire=10**17)
 
 
 async def test_login_appends_totp_to_the_password(
@@ -217,14 +259,45 @@ async def test_logout_without_a_session_sends_nothing(
     assert not mock_api.calls
 
 
-async def test_logout_drops_a_cookie_kvmd_refuses(
+async def test_logout_rejects_a_malformed_token(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    """A token kvmd does not know is dead; keeping it only breaks later calls."""
-    mock_api.post("/api/auth/logout").mock(return_value=replay("check_after_logout"))
+    """kvmd wants 64 hex characters; anything else is a 400 worth avoiding,
+    and it would leave junk in the jar for every later request to send."""
+    with pytest.raises(ConfigurationError):
+        await client.auth.logout("not-a-token")
+    assert not mock_api.calls
+    assert client.cookies.get("auth_token") is None
+
+
+async def test_logout_sends_one_cookie_after_a_login(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Two auth_token cookies on the wire would leave kvmd's choice of
+    session to jar ordering."""
+    mock_api.post("/api/auth/login").mock(
+        return_value=replay("login_form_body", cookie=TOKEN)
+    )
+    mock_api.post("/api/auth/logout").mock(return_value=replay("logout"))
+
+    await client.auth.login("admin", "secret")
+    await client.auth.logout("b" * 64)
+
+    assert mock_api.calls[-1].request.headers["cookie"].count("auth_token=") == 1
+
+
+async def test_logout_keeps_the_cookie_when_kvmd_refuses_the_call(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """A 403 here is about the X-KVMD headers, not the token: kvmd stops at
+    the first credential source present and never reaches the cookie, so the
+    session is still alive and the token still the only copy of it."""
+    mock_api.post("/api/auth/logout").mock(
+        return_value=replay("check_without_credentials")
+    )
     with pytest.raises(AuthError):
         await client.auth.logout(TOKEN)
-    assert client.cookies.get("auth_token") is None
+    assert client.cookies.get("auth_token") == TOKEN
 
 
 async def test_logout_keeps_the_cookie_when_the_connection_fails(
