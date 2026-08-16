@@ -1,133 +1,214 @@
 """SwitchResource tests."""
 
-import json
-
 import httpx
+import pytest
 import respx
 
-from aiopikvm import PiKVM
+from aiopikvm import ConfigurationError, PiKVM, ResponseError
+from tests.fixtures import load_json
 
-SWITCH_STATE = {
-    "ok": True,
-    "result": {
-        "active": "port0",
-        "ports": {
-            "port0": {"name": "Server 1"},
-            "port1": {"name": "Server 2"},
-        },
-    },
-}
+OK = {"ok": True, "result": {}}
 
 
 async def test_get_state(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/api/switch").mock(
-        return_value=httpx.Response(200, json=SWITCH_STATE)
+        return_value=httpx.Response(200, json=load_json("switch"))
     )
     state = await client.switch.get_state()
-    assert state.active == "port0"
-    assert "port0" in state.ports
-    assert state.ports["port0"].name == "Server 1"
+    # No switch is attached to the capture device, so every per-port list is
+    # empty and nothing is selected.
+    assert state.summary.active_port == -1
+    assert state.summary.active_id == ""
+    assert state.summary.synced is True
+    assert state.model.ports == []
+    assert state.model.units == []
+    assert state.video.links == []
+    assert state.atx.busy == []
+
+
+async def test_get_state_reads_the_limits(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/switch").mock(
+        return_value=httpx.Response(200, json=load_json("switch"))
+    )
+    state = await client.switch.get_state()
+    limits = state.model.limits.atx.click_delays
+    assert limits.power.max == 10
+    assert limits.power_long.default > limits.power.default
+    assert state.model.firmware.version > 0
+
+
+async def test_get_state_reads_the_colors(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/switch").mock(
+        return_value=httpx.Response(200, json=load_json("switch"))
+    )
+    state = await client.switch.get_state()
+    assert state.colors.active.green == 255
+    # Only the beacon role blinks by default.
+    assert state.colors.beacon.blink_ms == 250
+    assert state.colors.inactive.blink_ms == 0
+
+
+async def test_get_state_reads_the_edids(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/switch").mock(
+        return_value=httpx.Response(200, json=load_json("switch"))
+    )
+    state = await client.switch.get_state()
+    edid = state.edids.all["default"]
+    assert edid.name == "Default"
+    assert edid.parsed is not None
+    # The monitor identity is replaced with placeholders in the fixture; see
+    # scrub_edid() in the capture tool.
+    assert edid.parsed.mfc_id == "AAA"
+    assert edid.parsed.monitor_name == "DUMMY SCREEN"
+    assert state.edids.used == []
+
+
+async def test_get_edids(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    # There is no GET /switch/edids endpoint; the catalogue lives in the state.
+    mock_api.get("/api/switch").mock(
+        return_value=httpx.Response(200, json=load_json("switch"))
+    )
+    edids = await client.switch.get_edids()
+    assert "default" in edids
+    assert edids["default"].data
 
 
 async def test_set_active(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/set_active").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
-    await client.switch.set_active("port1")
-    request = mock_api.calls[-1].request
-    assert "port=port1" in str(request.url)
+    await client.switch.set_active(1)
+    assert mock_api.calls[-1].request.url.params["port"] == "1"
+
+
+async def test_set_active_unit_port(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.post("/api/switch/set_active").mock(
+        return_value=httpx.Response(200, json=OK)
+    )
+    await client.switch.set_active(1.3)
+    assert mock_api.calls[-1].request.url.params["port"] == "1.3"
+
+
+def _edid_hex() -> str:
+    """A blob of the length kvmd accepts, taken from the capture."""
+    data: str = load_json("switch")["result"]["edids"]["all"]["default"]["data"]
+    return data
 
 
 async def test_create_edid(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/edids/create").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(
+            200, json={"ok": True, "result": {"id": "9b3c1e0a"}}
+        )
     )
-    await client.switch.create_edid(
-        "edid1", "00ffffffffffff00", description="Test EDID"
+    blob = _edid_hex()
+    edid_id = await client.switch.create_edid("Monitor", blob)
+    assert edid_id == "9b3c1e0a"
+    params = mock_api.calls[-1].request.url.params
+    assert params["name"] == "Monitor"
+    assert params["data"] == blob
+
+
+async def test_create_edid_without_id(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.post("/api/switch/edids/create").mock(
+        return_value=httpx.Response(200, json=OK)
     )
-    request = mock_api.calls[-1].request
-    body = json.loads(request.content)
-    assert body["id"] == "edid1"
-    assert body["data"] == "00ffffffffffff00"
-    assert body["description"] == "Test EDID"
+    with pytest.raises(ResponseError, match="did not return the new EDID id"):
+        await client.switch.create_edid("Monitor", _edid_hex())
 
 
 async def test_change_edid(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/edids/change").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
-    await client.switch.change_edid("port0", "edid1")
-
-
-async def test_get_edids(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    mock_api.get("/api/switch/edids").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "ok": True,
-                "result": {
-                    "edids": [
-                        {"id": "default", "data": "00ff...", "description": "Default"},
-                    ]
-                },
-            },
-        )
-    )
-    edids = await client.switch.get_edids()
-    assert len(edids) == 1
-    assert edids[0].id == "default"
+    await client.switch.change_edid("9b3c1e0a", name="Renamed")
+    params = mock_api.calls[-1].request.url.params
+    assert params["id"] == "9b3c1e0a"
+    assert params["name"] == "Renamed"
+    assert "data" not in params
 
 
 async def test_remove_edid(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/edids/remove").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
-    await client.switch.remove_edid("edid1")
+    await client.switch.remove_edid("9b3c1e0a")
+    assert mock_api.calls[-1].request.url.params["id"] == "9b3c1e0a"
 
 
 async def test_set_active_prev(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/set_active_prev").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
     await client.switch.set_active_prev()
 
 
 async def test_set_active_next(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/set_active_next").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
     await client.switch.set_active_next()
 
 
-async def test_set_beacon(mock_api: respx.MockRouter, client: PiKVM) -> None:
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"port": 3}, ("port", "3")),
+        ({"uplink": 1}, ("uplink", "1")),
+        ({"downlink": 0}, ("downlink", "0")),
+    ],
+)
+async def test_set_beacon(
+    mock_api: respx.MockRouter,
+    client: PiKVM,
+    kwargs: dict[str, int],
+    expected: tuple[str, str],
+) -> None:
     mock_api.post("/api/switch/set_beacon").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
-    await client.switch.set_beacon(True, port=3)
-    request = mock_api.calls[-1].request
-    url = str(request.url)
-    assert "state=1" in url
-    assert "port=3" in url
+    await client.switch.set_beacon(True, **kwargs)
+    params = mock_api.calls[-1].request.url.params
+    assert params["state"] == "1"
+    assert params[expected[0]] == expected[1]
 
 
-async def test_set_beacon_minimal(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    mock_api.post("/api/switch/set_beacon").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
-    )
-    await client.switch.set_beacon(False)
-    request = mock_api.calls[-1].request
-    url = str(request.url)
-    assert "state=0" in url
-    assert "port" not in url
+@pytest.mark.parametrize("kwargs", [{}, {"port": 1, "uplink": 0}])
+async def test_set_beacon_needs_exactly_one_target(
+    client: PiKVM, kwargs: dict[str, int]
+) -> None:
+    # kvmd checks port, then uplink, then falls through to downlink, so a
+    # target-less call is a 400 rather than "all beacons off".
+    with pytest.raises(ConfigurationError, match="exactly one of port, uplink"):
+        await client.switch.set_beacon(False, **kwargs)
+
+
+async def test_change_edid_without_changes(client: PiKVM) -> None:
+    # kvmd skips the update and still answers ok, so the call would look
+    # like it worked.
+    with pytest.raises(ConfigurationError, match="needs a new name or new data"):
+        await client.switch.change_edid("9b3c1e0a")
+
+
+async def test_set_colors_without_roles(client: PiKVM) -> None:
+    with pytest.raises(ConfigurationError, match="at least one role"):
+        await client.switch.set_colors()
 
 
 async def test_set_port_params(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/set_port_params").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
     await client.switch.set_port_params(0, name="Server1", dummy=True)
-    request = mock_api.calls[-1].request
-    url = str(request.url)
+    url = str(mock_api.calls[-1].request.url)
     assert "port=0" in url
     assert "name=Server1" in url
     assert "dummy=1" in url
@@ -137,63 +218,56 @@ async def test_set_port_params_minimal(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
     mock_api.post("/api/switch/set_port_params").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
     await client.switch.set_port_params(2)
-    request = mock_api.calls[-1].request
-    url = str(request.url)
+    url = str(mock_api.calls[-1].request.url)
     assert "port=2" in url
     assert "name" not in url
 
 
 async def test_set_colors(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/set_colors").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
-    await client.switch.set_colors("FFA500:BF:0028")
-    request = mock_api.calls[-1].request
-    assert "beacon=FFA500" in str(request.url)
+    await client.switch.set_colors(beacon="FFA500:BF:0028", active="default")
+    params = mock_api.calls[-1].request.url.params
+    assert params["beacon"] == "FFA500:BF:0028"
+    assert params["active"] == "default"
+    assert "inactive" not in params
 
 
 async def test_reset(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    mock_api.post("/api/switch/reset").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
-    )
+    mock_api.post("/api/switch/reset").mock(return_value=httpx.Response(200, json=OK))
     await client.switch.reset(0)
-    request = mock_api.calls[-1].request
-    url = str(request.url)
+    url = str(mock_api.calls[-1].request.url)
     assert "unit=0" in url
     assert "bootloader" not in url
 
 
 async def test_reset_with_bootloader(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    mock_api.post("/api/switch/reset").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
-    )
+    mock_api.post("/api/switch/reset").mock(return_value=httpx.Response(200, json=OK))
     await client.switch.reset(1, bootloader=True)
-    request = mock_api.calls[-1].request
-    url = str(request.url)
+    url = str(mock_api.calls[-1].request.url)
     assert "unit=1" in url
     assert "bootloader=1" in url
 
 
 async def test_atx_power(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/atx/power").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
     await client.switch.atx_power(0, "on")
-    request = mock_api.calls[-1].request
-    url = str(request.url)
+    url = str(mock_api.calls[-1].request.url)
     assert "port=0" in url
     assert "action=on" in url
 
 
 async def test_atx_click(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/atx/click").mock(
-        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+        return_value=httpx.Response(200, json=OK)
     )
     await client.switch.atx_click(3, "power")
-    request = mock_api.calls[-1].request
-    url = str(request.url)
+    url = str(mock_api.calls[-1].request.url)
     assert "port=3" in url
     assert "button=power" in url

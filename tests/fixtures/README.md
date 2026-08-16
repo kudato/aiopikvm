@@ -52,9 +52,14 @@ Captures come from someone's actual device, so the tool redacts before writing:
 - IPv4 and MAC addresses, plus the client-address field of kvmd's
   `aiohttp.access` log lines, replaced with `192.0.2.10` (RFC 5737) and
   `00:00:00:00:00:00`;
+- the monitor an EDID was learned from: the decoded `parsed` block by key path,
+  and the raw blob by rewriting it — manufacturer, product id, serial and
+  monitor name are replaced and the checksums recomputed, so the fixture stays
+  a valid EDID that identifies nothing;
 - anything else listed in `PIKVM_SCRUB`, for device-specific values the rules
-  above cannot know about — port names, a monitor serial inside a captured
-  EDID, an internal DNS suffix.
+  above cannot know about — switch port names, an internal DNS suffix. It is a
+  literal text replacement, so it cannot reach a value that only appears
+  hex-encoded.
 
 A final guard refuses to write a file that still contains a redacted string or
 an address that is not the placeholder, so a leak fails the capture instead of
@@ -91,7 +96,9 @@ switch, on a multi-partition MSD, or on a HID backend other than OTG. Where a
 field is nullable or a collection is empty, the fixture usually shows the empty
 case only, and a few models rest on kvmd's source rather than on a captured
 response — `GPIOInputScheme` and `GPIOInput` have no input channel to be
-captured from, and the `GPIOView` table items have no populated table. Prefer
+captured from, the `GPIOView` table items have no populated table, and every
+per-port element of `SwitchState` (`SwitchPort`, `SwitchUnit`, the link and
+beacon lists) has no switch to be captured from. Prefer
 asserting on the shape the fixture does contain, and use the live harness
 (`tests/live/`) against a differently configured device when the difference
 matters.
