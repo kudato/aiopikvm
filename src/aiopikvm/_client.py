@@ -136,6 +136,55 @@ class PiKVM:
             )
         return self._client
 
+    @property
+    def base_url(self) -> httpx.URL:
+        """Base URL every request is sent relative to.
+
+        Returns:
+            The underlying client's base URL. With an external *http_client*
+            this is whatever that client was configured with, not the *url*
+            passed to this constructor.
+
+        Raises:
+            PiKVMError: If the async context has not been entered yet.
+        """
+        return self._ensure_client().base_url
+
+    @property
+    def cookies(self) -> httpx.Cookies:
+        """Cookies the underlying HTTP client carries.
+
+        :meth:`AuthResource.login` leaves kvmd's ``auth_token`` here, and
+        every later request sends it back.
+
+        Putting a token here is not enough to authenticate by session,
+        though. kvmd tries the ``X-KVMD-*`` headers first and, once it sees a
+        non-empty ``X-KVMD-User``, either accepts that pair or refuses the
+        request outright — it never falls through to the cookie. Since this
+        client always sends the header, the token is only ever the credential
+        for an :class:`httpx.AsyncClient` passed in as *http_client* without
+        those headers::
+
+            async with httpx.AsyncClient(base_url=url, verify=False) as http:
+                http.cookies.set("auth_token", saved_token)
+                async with PiKVM(url, http_client=http) as kvm:
+                    ...
+
+        :meth:`ws` does not take part in this. The WebSocket authenticates
+        with the *user* and *passwd* this client was built with, which are
+        the defaults when an *http_client* carries the credentials instead.
+
+        Returns:
+            The live cookie jar — mutating it affects subsequent requests.
+            Set a cookie through :meth:`httpx.Cookies.set`; two entries of
+            the same name under different domains make httpx's own lookup
+            raise, which is why aiopikvm clears before it sets.
+
+        Raises:
+            PiKVMError: If the async context has not been entered yet.
+        """
+        return self._ensure_client().cookies
+
     async def request(
         self,
         method: str,
@@ -143,6 +192,7 @@ class PiKVM:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | httpx.Timeout | None = None,
@@ -154,6 +204,11 @@ class PiKVM:
             path: URL path relative to the PiKVM base URL.
             params: Query parameters.
             json: JSON body.
+            data: Form fields, sent as ``application/x-www-form-urlencoded``.
+                kvmd reads ``/auth/login`` with aiohttp's form parser, which
+                sees nothing in a JSON body. httpx picks one body per
+                request, preferring ``content`` over ``data`` over ``json``,
+                so pass exactly one of the three.
             content: Raw body bytes or async byte stream.
             headers: Extra HTTP headers.
             timeout: Override the client-level timeout for this request.
@@ -179,6 +234,7 @@ class PiKVM:
                 path,
                 params=params,
                 json=json,
+                data=data,
                 content=content,
                 headers=headers,
                 timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,

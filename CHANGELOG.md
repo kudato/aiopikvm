@@ -87,6 +87,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `GPIOPulse`, `GPIOHardware`, `GPIOView`, `GPIOViewHeader` and `GPIOIOState`
   models. The scheme is where a channel's driver, pin and pulse limits live —
   none of it was reachable before (#41).
+- `PiKVM.cookies`, the HTTP client's cookie jar. `login()` leaves kvmd's
+  session token there, and putting a saved one back is how a session is
+  restored. kvmd stops at the first credential source that is *present*,
+  so a token only authenticates a client that sends no `X-KVMD-*` headers —
+  in practice an `httpx.AsyncClient` passed in as `http_client` (#34).
+- `expire` on `AuthResource.login()`, the session lifetime kvmd accepts and
+  the client never sent. `0` asks for an unlimited session; kvmd caps both
+  cases at the device-wide limit (#34).
+- Form-encoded request bodies (`data`) in `PiKVM.request()` and the resource
+  helpers. The HTTP core could only send JSON, which is why `/auth/login`
+  could not work at all (#34).
 
 ### Changed
 
@@ -147,6 +158,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - A non-JSON or non-object response body now raises `ResponseError` rather than
   a plain `APIError`. `ResponseError` derives from `APIError`, so existing
   handlers are unaffected (#45).
+- **Breaking:** `AuthResource.login()` returns the session token as a `str`
+  instead of the response envelope, which was an empty dict on every call.
+  kvmd sends the token only in a `Set-Cookie` header, so there was no way to
+  get hold of it. The string is empty when kvmd runs with authentication
+  disabled and hands out no session (#34).
+- **Breaking:** `AuthResource.check()` and `logout()` return `None` instead of
+  the same empty envelope. Whether kvmd answered at all is the entire result;
+  a refusal raises `AuthError` (#34).
+- `AuthResource.logout()` is documented as what kvmd actually does: it looks up
+  the token's owner and closes **every** session that user has, so logging out
+  a token a script created also signs the same account out of the web UI (#34).
+- **Breaking:** credentials kvmd's validators reject — a user name that fails
+  its regex, a password with non-printable characters — now raise `AuthError`
+  rather than a bare `APIError`. kvmd reports them as HTTP 400 `ValidatorError`
+  before it looks anything up, but from the caller's side the login still
+  failed on the credentials. `AuthError` derives from `APIError`, so existing
+  handlers keep working (#34).
 
 ### Removed
 
@@ -159,6 +187,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `AuthResource.login()` failed with HTTP 400 against every real device. kvmd
+  reads the credentials with aiohttp's form parser, which finds nothing in the
+  JSON body the client sent, so it validated an empty user name and refused
+  the request. `logout()` was broken the same way: kvmd identifies the session
+  to drop by the `auth_token` cookie, which the client never sent, and answered
+  HTTP 400 for every call. Both are verified against kvmd 4.186 (#34).
 - `HIDResource.get_state()` raised `ResponseError` against every real device:
   `HIDKeyboard.connected` and `HIDMouse.connected` were required, but no kvmd
   HID backend nests `connected` under `keyboard` or `mouse` — it exists only

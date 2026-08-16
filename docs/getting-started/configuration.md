@@ -35,6 +35,51 @@ async with PiKVM("https://pikvm.local", passwd="secret", totp="123456") as kvm:
     ...
 ```
 
+## Session tokens
+
+By default every request carries the `X-KVMD-User` and `X-KVMD-Passwd` headers,
+and nothing else is needed. `kvm.auth.login()` exists for the other case: handing
+a session to something that should not see the password.
+
+```python
+async with PiKVM("https://pikvm.local", user="admin", passwd="secret") as kvm:
+    token = await kvm.auth.login("admin", "secret", expire=3600)
+    # 64 hex characters; kvmd only ever sends it in a Set-Cookie header
+```
+
+kvmd tries four credential sources in order — the `X-KVMD-*` headers, the
+`auth_token` cookie, HTTP Basic, then the unix socket peer — and the first one
+**present** decides the request. A non-empty `X-KVMD-User` with a bad password is
+refused outright rather than retried against the cookie, so a token only
+authenticates a client that sends no credential headers at all:
+
+```python
+import httpx
+
+async with httpx.AsyncClient(base_url="https://pikvm.local", verify=False) as http:
+    http.cookies.set("auth_token", token)
+
+    async with PiKVM("https://pikvm.local", http_client=http) as kvm:
+        await kvm.auth.check()    # authenticated by the token alone
+        await kvm.auth.logout()   # see the warning below before calling this
+```
+
+!!! note
+    `expire=0` asks for an unlimited session, and kvmd caps every session at the
+    device-wide limit from its own config either way. An expired or logged-out
+    token raises `AuthError`.
+
+    `kvm.ws()` is not covered by the token: the WebSocket authenticates with the
+    `user` and `passwd` the client was built with, which are the defaults when
+    the credentials live on an external `http_client`. Tracked in
+    [#63](https://github.com/kudato/aiopikvm/issues/63).
+
+!!! warning
+    `logout()` closes **every** session belonging to that user, not only the one
+    whose token is passed — kvmd looks up the token's owner and drops all of
+    them. Logging out a token your script created also signs the same account
+    out of the PiKVM web UI.
+
 ## Client lifecycle
 
 ### Async context manager (recommended)

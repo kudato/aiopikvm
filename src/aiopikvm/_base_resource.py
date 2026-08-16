@@ -33,6 +33,7 @@ class BaseResource:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | httpx.Timeout | None = None,
@@ -44,6 +45,7 @@ class BaseResource:
             path: URL path relative to the PiKVM base URL.
             params: Query parameters.
             json: JSON body.
+            data: Form fields, sent as ``application/x-www-form-urlencoded``.
             content: Raw body bytes or async byte stream.
             headers: Extra HTTP headers.
             timeout: Override the client-level timeout for this call.
@@ -60,6 +62,7 @@ class BaseResource:
             path,
             params=params,
             json=json,
+            data=data,
             content=content,
             headers=headers,
             timeout=timeout,
@@ -139,6 +142,7 @@ class BaseResource:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | httpx.Timeout | None = None,
@@ -149,6 +153,7 @@ class BaseResource:
             path,
             params=params,
             json=json,
+            data=data,
             content=content,
             headers=headers,
             timeout=timeout,
@@ -185,7 +190,23 @@ class BaseResource:
         accept: str = "application/octet-stream",
         timeout: float | httpx.Timeout | None = None,
     ) -> httpx.Response:
-        """Send a GET request and return the raw *httpx.Response*."""
+        """Send a GET request and return the raw *httpx.Response*.
+
+        Args:
+            path: URL path relative to the PiKVM base URL.
+            params: Query parameters.
+            accept: Value of the ``Accept`` header.
+            timeout: Override the client-level timeout for this call.
+
+        Returns:
+            The *httpx.Response* object, body included.
+
+        Raises:
+            PiKVMError: Whatever :meth:`PiKVM.request` raises for a transport
+                failure or an error status. The response envelope is not
+                checked here, so an ``{"ok": false}`` body arriving with
+                HTTP 200 reaches the caller as-is.
+        """
         return await self._client.request(
             "GET",
             path,
@@ -193,6 +214,35 @@ class BaseResource:
             headers={"Accept": accept},
             timeout=timeout,
         )
+
+    async def _post_raw(
+        self,
+        path: str,
+        *,
+        data: dict[str, str] | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> httpx.Response:
+        """Send a POST request and return the raw *httpx.Response*.
+
+        For endpoints that answer in the headers rather than the body:
+        ``/auth/login`` returns an empty envelope and hands out the session
+        token in ``Set-Cookie``.
+
+        Args:
+            path: URL path relative to the PiKVM base URL.
+            data: Form fields, sent as ``application/x-www-form-urlencoded``.
+            timeout: Override the client-level timeout for this call.
+
+        Returns:
+            The *httpx.Response* object, headers and body included.
+
+        Raises:
+            PiKVMError: Whatever :meth:`PiKVM.request` raises for a transport
+                failure or an error status. The response envelope is not
+                checked here, so a caller that cares about it — rather than
+                only about the headers — has to look at the body itself.
+        """
+        return await self._client.request("POST", path, data=data, timeout=timeout)
 
 
 def _envelope_error(result: Any) -> APIError:
