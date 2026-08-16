@@ -18,8 +18,7 @@ class MSDResource(BaseResource):
         Returns:
             Current MSD subsystem state.
         """
-        result = await self._get("/api/msd")
-        return MSDState.model_validate(result)
+        return await self._get_model("/api/msd", MSDState)
 
     async def set_params(
         self,
@@ -52,12 +51,16 @@ class MSDResource(BaseResource):
         self,
         name: str,
         data: bytes | AsyncIterator[bytes],
+        *,
+        timeout: float | None = None,
     ) -> None:
         """Upload a disk image.
 
         Args:
             name: Image file name.
             data: Image data as bytes or an async byte iterator.
+            timeout: Per-call timeout in seconds. Images are large and the
+                client default of 10 s is meant for state calls.
         """
         content = data if isinstance(data, bytes) else _AsyncStream(data)
         await self._post(
@@ -65,6 +68,7 @@ class MSDResource(BaseResource):
             params={"image": name},
             content=content,
             headers={"Content-Type": "application/octet-stream"},
+            timeout=timeout,
         )
 
     async def upload_remote(self, url: str, *, timeout: float = 0) -> None:
@@ -73,6 +77,9 @@ class MSDResource(BaseResource):
         Args:
             url: Remote image URL.
             timeout: Download timeout in seconds (``0`` = server default).
+                Unlike the ``timeout`` of the other calls, this one is a
+                query parameter kvmd applies to its own download; it does
+                not bound how long this client waits.
         """
         params: dict[str, Any] = {"url": url}
         if timeout > 0:

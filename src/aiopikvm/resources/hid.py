@@ -15,8 +15,7 @@ class HIDResource(BaseResource):
         Returns:
             Current HID subsystem state.
         """
-        result = await self._get("/api/hid")
-        return HIDState.model_validate(result)
+        return await self._get_model("/api/hid", HIDState)
 
     async def set_params(
         self,
@@ -58,13 +57,22 @@ class HIDResource(BaseResource):
         result: dict[str, Any] = await self._get("/api/hid/keymaps")
         return result
 
-    async def type_text(self, text: str, *, limit: int = 0, slow: bool = False) -> None:
+    async def type_text(
+        self,
+        text: str,
+        *,
+        limit: int = 0,
+        slow: bool = False,
+        timeout: float | None = None,
+    ) -> None:
         """Type text via HID keyboard.
 
         Args:
             text: Text string to type.
             limit: Maximum characters per request (``0`` = unlimited).
             slow: Enable server-side per-character delays for reliable input.
+            timeout: Per-call timeout in seconds. kvmd types the whole string
+                before answering, and ``slow`` adds a delay per character.
         """
         params: dict[str, int] = {}
         if limit > 0:
@@ -76,6 +84,7 @@ class HIDResource(BaseResource):
             content=text.encode(),
             headers={"Content-Type": "text/plain"},
             params=params if params else None,
+            timeout=timeout,
         )
 
     async def send_key(self, key: str, *, state: bool | None = None) -> None:

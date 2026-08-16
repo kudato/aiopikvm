@@ -9,13 +9,21 @@ from typing import TYPE_CHECKING, Any, Self
 
 import httpx
 
-from aiopikvm._constants import DEFAULT_TIMEOUT, DEFAULT_VERIFY_SSL
+from aiopikvm._constants import (
+    DEFAULT_FOLLOW_REDIRECTS,
+    DEFAULT_TIMEOUT,
+    DEFAULT_VERIFY_SSL,
+)
 from aiopikvm._exceptions import (
     APIError,
     AuthError,
+    BusyError,
+    ConfigurationError,
     ConnectError,
     ConnectionTimeoutError,
     PiKVMError,
+    RedirectError,
+    UnavailableError,
 )
 from aiopikvm._ws import PiKVMWebSocket
 
@@ -46,6 +54,14 @@ _RESOURCE_NAMES = (
     "system",
 )
 
+_STATUS_ERRORS: dict[int, type[APIError]] = {
+    401: AuthError,
+    403: AuthError,
+    409: BusyError,
+    503: UnavailableError,
+}
+"""kvmd maps IsBusyError to 409 and UnavailableError to 503 (htserver.py)."""
+
 
 class PiKVM:
     """Async client for PiKVM API.
@@ -68,14 +84,35 @@ class PiKVM:
         totp: str | None = None,
         verify_ssl: bool = DEFAULT_VERIFY_SSL,
         timeout: float = DEFAULT_TIMEOUT,
+        follow_redirects: bool = DEFAULT_FOLLOW_REDIRECTS,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Create a client.
+
+        Args:
+            url: PiKVM base URL, including the scheme.
+            user: kvmd user name.
+            passwd: kvmd password.
+            totp: Current TOTP code, appended to the password.
+            verify_ssl: Verify the TLS certificate. Off by default because
+                PiKVM ships a self-signed one.
+            timeout: Default per-request timeout in seconds.
+            follow_redirects: Follow HTTP redirects instead of raising
+                :class:`RedirectError`. Off by default: a redirect resends
+                the credential headers to whatever it points at, and the
+                usual cause — an ``http://`` base URL that nginx redirects
+                to ``https://`` — has already exposed the password in
+                cleartext by then.
+            http_client: Pre-built httpx client. When given, this client
+                does not close it and the arguments above are ignored.
+        """
         self._url = url.rstrip("/")
         self._user = user
         self._passwd = passwd
         self._totp = totp
         self._verify_ssl = verify_ssl
         self._timeout = timeout
+        self._follow_redirects = follow_redirects
         self._external_client = http_client is not None
         self._client: httpx.AsyncClient | None = http_client
 
@@ -125,10 +162,15 @@ class PiKVM:
             The *httpx.Response* object.
 
         Raises:
-            ConnectError: Connection to PiKVM failed.
+            ConfigurationError: The base URL has no usable scheme.
+            ConnectError: Connection to PiKVM failed or broke mid-request.
             ConnectionTimeoutError: Request timed out.
             AuthError: Authentication failed (401/403).
-            APIError: Server returned an error status (>= 400).
+            BusyError: PiKVM is busy with another operation (409).
+            UnavailableError: The subsystem is disabled or offline (503).
+            RedirectError: PiKVM answered with a redirect (3xx) and the
+                client was not created with ``follow_redirects=True``.
+            APIError: Server returned any other error status (>= 400).
         """
         client = self._ensure_client()
         try:
@@ -141,36 +183,93 @@ class PiKVM:
                 headers=headers,
                 timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
             )
-        except httpx.ConnectError as exc:
-            raise ConnectError(str(exc)) from exc
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
+        except httpx.UnsupportedProtocol as exc:
+            raise ConfigurationError(
+                f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
+            ) from exc
+        except httpx.TransportError as exc:
+            # Covers ConnectError, ReadError/WriteError and the
+            # RemoteProtocolError kvmd raises at every restart, which drops
+            # in-flight connections after a one-second shutdown timeout.
+            raise ConnectError(str(exc)) from exc
 
         self._raise_for_status(response)
         return response
 
-    @staticmethod
-    def _raise_for_status(response: httpx.Response) -> None:
-        """Raise an appropriate exception for HTTP error status codes.
+    @classmethod
+    def _raise_for_status(cls, response: httpx.Response) -> None:
+        """Raise the exception matching an error status code.
 
         Args:
             response: The HTTP response to check.
 
         Raises:
-            AuthError: If status code is 401 or 403.
-            APIError: If status code is >= 400.
+            RedirectError: If the status code is a 3xx redirect.
+            AuthError: If the status code is 401 or 403.
+            BusyError: If the status code is 409.
+            UnavailableError: If the status code is 503.
+            APIError: If the status code is any other value >= 400.
         """
-        if response.status_code in (401, 403):
-            raise AuthError(
-                f"Authentication failed: {response.status_code}",
-                status_code=response.status_code,
+        status = response.status_code
+        if status < 300:
+            return
+
+        if status < 400:
+            location = response.headers.get("location", "")
+            raise RedirectError(
+                f"HTTP {status}: PiKVM redirected to "
+                f"{location or 'an undisclosed location'}. Point the client at "
+                "the final URL, or pass follow_redirects=True to follow it "
+                "and resend the credentials there.",
+                status,
             )
 
-        if response.status_code >= 400:
-            raise APIError(
-                f"HTTP {response.status_code}: {response.text}",
-                status_code=response.status_code,
-            )
+        error, error_msg = cls._error_fields(response)
+        detail = error_msg or error or cls._body_excerpt(response)
+        raise _STATUS_ERRORS.get(status, APIError)(
+            f"HTTP {status}: {detail}" if detail else f"HTTP {status}",
+            status,
+            error=error,
+            error_msg=error_msg,
+        )
+
+    @staticmethod
+    def _error_fields(response: httpx.Response) -> tuple[str, str]:
+        """Extract kvmd's error block from a response body.
+
+        kvmd reports failures as ``{"ok": false, "result": {"error":
+        "<class>", "error_msg": "<message>"}}``.
+
+        Args:
+            response: The HTTP response to read.
+
+        Returns:
+            The ``(error, error_msg)`` pair, each empty when the body is not
+            a kvmd error envelope or has not been read yet.
+        """
+        try:
+            body = response.json()
+        except (ValueError, TypeError, httpx.ResponseNotRead):
+            return ("", "")
+        result = body.get("result") if isinstance(body, dict) else None
+        if not isinstance(result, dict):
+            return ("", "")
+        error = result.get("error")
+        error_msg = result.get("error_msg")
+        return (
+            error if isinstance(error, str) else "",
+            error_msg if isinstance(error_msg, str) else "",
+        )
+
+    @staticmethod
+    def _body_excerpt(response: httpx.Response, limit: int = 200) -> str:
+        """Return the start of a response body, or ``""`` if it is unread."""
+        try:
+            return response.text[:limit]
+        except httpx.ResponseNotRead:  # pragma: no cover - defensive
+            return ""
 
     @asynccontextmanager
     async def stream(
@@ -195,22 +294,40 @@ class PiKVM:
             The *httpx.Response* with an unconsumed body.
 
         Raises:
-            ConnectError: Connection to PiKVM failed.
+            ConfigurationError: The base URL has no usable scheme.
+            ConnectError: Connection to PiKVM failed or broke mid-request.
             ConnectionTimeoutError: Request timed out.
             AuthError: Authentication failed (401/403).
-            APIError: Server returned an error status (>= 400).
+            BusyError: PiKVM is busy with another operation (409).
+            UnavailableError: The subsystem is disabled or offline (503).
+            RedirectError: PiKVM answered with a redirect (3xx) and the
+                client was not created with ``follow_redirects=True``.
+            APIError: Server returned any other error status (>= 400).
         """
         client = self._ensure_client()
         try:
             async with client.stream(
-                method, path, params=params, headers=headers, timeout=timeout
+                method,
+                path,
+                params=params,
+                headers=headers,
+                timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
             ) as response:
+                if response.status_code >= 400:
+                    # The body is still unread here, and kvmd's error block is
+                    # what makes the failure readable; reading it also keeps
+                    # response.text from raising httpx.ResponseNotRead.
+                    await response.aread()
                 self._raise_for_status(response)
                 yield response
-        except httpx.ConnectError as exc:
-            raise ConnectError(str(exc)) from exc
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
+        except httpx.UnsupportedProtocol as exc:
+            raise ConfigurationError(
+                f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
+            ) from exc
+        except httpx.TransportError as exc:
+            raise ConnectError(str(exc)) from exc
 
     # --- Resources (lazy) ----------------------------------------------
 
@@ -298,15 +415,25 @@ class PiKVM:
 
     async def __aenter__(self) -> Self:
         if self._client is None:
-            self._client = httpx.AsyncClient(
-                base_url=self._url,
-                headers={
-                    "X-KVMD-User": self._user,
-                    "X-KVMD-Passwd": self._password,
-                },
-                verify=self._verify_ssl,
-                timeout=self._timeout,
-            )
+            try:
+                self._client = httpx.AsyncClient(
+                    base_url=self._url,
+                    headers={
+                        "X-KVMD-User": self._user,
+                        "X-KVMD-Passwd": self._password,
+                    },
+                    verify=self._verify_ssl,
+                    timeout=self._timeout,
+                    follow_redirects=self._follow_redirects,
+                )
+            except UnicodeEncodeError as exc:
+                raise ConfigurationError(
+                    f"PiKVM credentials travel in HTTP headers and must be ASCII: {exc}"
+                ) from exc
+            except httpx.InvalidURL as exc:
+                raise ConfigurationError(
+                    f"Invalid PiKVM URL {self._url!r}: {exc}"
+                ) from exc
         return self
 
     async def aclose(self) -> None:

@@ -13,8 +13,7 @@ class GPIOResource(BaseResource):
         Returns:
             Current GPIO subsystem state with inputs and outputs.
         """
-        result = await self._get("/api/gpio")
-        return GPIOState.model_validate(result)
+        return await self._get_model("/api/gpio", GPIOState)
 
     async def switch(self, channel: str, state: bool) -> None:
         """Set a GPIO output channel state.

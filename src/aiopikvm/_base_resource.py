@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from pydantic import BaseModel, ValidationError
 
-from aiopikvm._exceptions import APIError
+from aiopikvm._exceptions import APIError, ResponseError
 
 if TYPE_CHECKING:
     from aiopikvm._client import PiKVM
@@ -34,34 +35,103 @@ class BaseResource:
         json: dict[str, Any] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
+        timeout: float | httpx.Timeout | None = None,
     ) -> Any:
         """Send a request and parse the PiKVM JSON envelope.
 
+        Args:
+            method: HTTP method.
+            path: URL path relative to the PiKVM base URL.
+            params: Query parameters.
+            json: JSON body.
+            content: Raw body bytes or async byte stream.
+            headers: Extra HTTP headers.
+            timeout: Override the client-level timeout for this call.
+
+        Returns:
+            The unwrapped ``result`` payload.
+
         Raises:
+            ResponseError: When the body is not the documented JSON envelope.
             APIError: When the ``ok`` field is ``false``.
         """
         response = await self._client.request(
-            method, path, params=params, json=json, content=content, headers=headers
+            method,
+            path,
+            params=params,
+            json=json,
+            content=content,
+            headers=headers,
+            timeout=timeout,
         )
 
         try:
             body = response.json()
         except (ValueError, TypeError) as exc:
-            raise APIError(f"Invalid JSON response: {response.text[:200]}") from exc
+            raise ResponseError(
+                f"Invalid JSON response from {path}: {response.text[:200]}",
+                response.status_code,
+            ) from exc
+
+        if not isinstance(body, dict):
+            raise ResponseError(
+                f"Invalid JSON response from {path}: expected an object, "
+                f"got {type(body).__name__}",
+                response.status_code,
+            )
 
         if not body.get("ok", False):
-            result = body.get("result", {})
-            if isinstance(result, dict):
-                msg = result.get("error", "Unknown error")
-            else:
-                msg = str(result) if result else "Unknown error"
-            raise APIError(msg)
+            raise _envelope_error(body.get("result"))
 
         return body.get("result")
 
-    async def _get(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
+    @staticmethod
+    def _validate[M: BaseModel](model: type[M], data: Any, path: str) -> M:
+        """Validate a payload against a response model.
+
+        Args:
+            model: Model describing the payload.
+            data: Payload to validate.
+            path: URL path it came from, for the error message.
+
+        Returns:
+            The validated model.
+
+        Raises:
+            ResponseError: If the payload does not match the model. Pydantic
+                raises ``ValidationError``, which is outside the aiopikvm
+                hierarchy and would escape ``except PiKVMError``.
+        """
+        try:
+            return model.model_validate(data)
+        except ValidationError as exc:
+            raise ResponseError(
+                f"{path} returned a payload {model.__name__} cannot parse. "
+                f"This usually means a kvmd version aiopikvm does not know "
+                f"about yet:\n{exc}"
+            ) from exc
+
+    async def _get_model[M: BaseModel](
+        self,
+        path: str,
+        model: type[M],
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> M:
+        """Send a GET request and validate the result against a model."""
+        result = await self._get(path, params=params, timeout=timeout)
+        return self._validate(model, result, path)
+
+    async def _get(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> Any:
         """Send a GET request and parse the PiKVM response."""
-        return await self._request("GET", path, params=params)
+        return await self._request("GET", path, params=params, timeout=timeout)
 
     async def _post(
         self,
@@ -71,15 +141,28 @@ class BaseResource:
         json: dict[str, Any] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
+        timeout: float | httpx.Timeout | None = None,
     ) -> Any:
         """Send a POST request and parse the PiKVM response."""
         return await self._request(
-            "POST", path, params=params, json=json, content=content, headers=headers
+            "POST",
+            path,
+            params=params,
+            json=json,
+            content=content,
+            headers=headers,
+            timeout=timeout,
         )
 
-    async def _delete(self, path: str, *, params: dict[str, Any] | None = None) -> Any:
+    async def _delete(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> Any:
         """Send a DELETE request and parse the PiKVM response."""
-        return await self._request("DELETE", path, params=params)
+        return await self._request("DELETE", path, params=params, timeout=timeout)
 
     async def _patch(
         self,
@@ -87,9 +170,12 @@ class BaseResource:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        timeout: float | httpx.Timeout | None = None,
     ) -> Any:
         """Send a PATCH request and parse the PiKVM response."""
-        return await self._request("PATCH", path, params=params, json=json)
+        return await self._request(
+            "PATCH", path, params=params, json=json, timeout=timeout
+        )
 
     async def _get_raw(
         self,
@@ -107,3 +193,27 @@ class BaseResource:
             headers={"Accept": accept},
             timeout=timeout,
         )
+
+
+def _envelope_error(result: Any) -> APIError:
+    """Build the error for an ``{"ok": false}`` envelope.
+
+    kvmd fills ``result`` with ``{"error": "<class>", "error_msg": "<text>"}``;
+    the status code stays ``0`` because the failure was reported in the body
+    rather than by the HTTP status.
+
+    Args:
+        result: The ``result`` field of the response envelope.
+
+    Returns:
+        The exception to raise.
+    """
+    if isinstance(result, dict):
+        error = result.get("error")
+        error_msg = result.get("error_msg")
+        error = error if isinstance(error, str) else ""
+        error_msg = error_msg if isinstance(error_msg, str) else ""
+        return APIError(
+            error_msg or error or "Unknown error", error=error, error_msg=error_msg
+        )
+    return APIError(str(result) if result else "Unknown error")

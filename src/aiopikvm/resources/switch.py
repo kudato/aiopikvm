@@ -15,8 +15,7 @@ class SwitchResource(BaseResource):
         Returns:
             Current switch state with active port and port list.
         """
-        result = await self._get("/api/switch")
-        return SwitchState.model_validate(result)
+        return await self._get_model("/api/switch", SwitchState)
 
     async def set_active(self, port: str) -> None:
         """Set the active port.
@@ -33,7 +32,10 @@ class SwitchResource(BaseResource):
             List of available EDID profiles.
         """
         result = await self._get("/api/switch/edids")
-        return [EDID.model_validate(e) for e in result.get("edids", [])]
+        return [
+            self._validate(EDID, edid, "/api/switch/edids")
+            for edid in result.get("edids", [])
+        ]
 
     async def create_edid(
         self, edid_id: str, data: str, *, description: str = ""
