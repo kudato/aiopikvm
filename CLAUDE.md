@@ -62,15 +62,7 @@ tests/
 ├── test_redfish.py          # RedfishResource tests
 ├── test_prometheus.py       # PrometheusResource tests
 ├── test_ws.py               # PiKVMWebSocket tests
-├── test_errors.py           # Network/HTTP error handling tests
-├── test_contract.py         # Captured responses vs models (strict xfail per open issue)
-├── helpers.py               # Assertions shared by the mocked and live suites
-├── fixtures/
-│   ├── __init__.py          # load_json / load_result / load_text / load_jsonl / manifest
-│   ├── capture.py           # `python -m tests.fixtures.capture` — refresh + sanitize
-│   ├── README.md            # Provenance, redaction rules, caveats
-│   └── data/                # Sanitized real kvmd 4.186 responses + _manifest.json
-└── live/                    # Opt-in read-only suite against a real device (--live)
+└── test_errors.py           # Network/HTTP error handling tests
 ```
 
 ## Commands
@@ -83,10 +75,6 @@ uv run ruff check src/ tests/        # Lint
 uv run ruff format src/ tests/       # Format
 uv run ruff format --check src/ tests/  # Check formatting without modifying
 uv run mypy src/                     # Type check (strict)
-
-# Against a real device (skipped without --live and without the env vars)
-PIKVM_URL=... PIKVM_PASSWD=... uv run pytest --live tests/live
-PIKVM_URL=... PIKVM_PASSWD=... uv run python -m tests.fixtures.capture
 ```
 
 ## Architecture patterns
@@ -196,8 +184,9 @@ One test file per resource (`test_atx.py`, `test_hid.py`, etc.) plus `test_clien
 
 ### Mocking routes
 
-Mock with a captured response, not a hand-written dict — hand-written payloads
-are why several models shipped unable to parse anything a real device sends:
+Mock with a response captured from a real device (`tests/fixtures`, see its
+README), never a hand-written dict — hand-written payloads are why several
+models shipped unable to parse anything a real device sends:
 
 ```python
 from tests.fixtures import load_json
@@ -207,24 +196,16 @@ mock_api.get("/api/atx").mock(
 )
 ```
 
-`load_result("atx")` returns the unwrapped `result`; `load_text` and
-`load_jsonl` cover the plain-text and JSON Lines captures. `manifest()`
-describes every capture (method, path, params, status, content type).
-
 ### Contract tests
 
-`test_contract.py` validates each captured response against its model. Cases
-the library cannot handle yet carry `xfail(reason="... (#NN)", strict=True)`.
-When a fix lands, remove the marker in the same PR — strict xfail turns a
-silent pass into a failure.
+A gap between a model and a captured response is marked in `test_contract.py`
+with `xfail(reason="... (#NN)", strict=True)`. Fixing the model means removing
+its marker in the same PR — strict xfail turns the silent pass into a failure.
 
 ### Live device suite
 
-`tests/live` runs only with `pytest --live` and only when `PIKVM_URL` /
-`PIKVM_PASSWD` are set, so CI never touches hardware. It must stay read-only:
-no ATX, MSD or HID calls. `tests/fixtures/capture.py` refreshes the captures
-from a device, redacting serials, host names and addresses; it refuses to
-write a file where a secret survived.
+Never run `tests/live` or the capture tool without the device owner's explicit
+permission: both talk to real hardware.
 
 ### Exception testing
 
