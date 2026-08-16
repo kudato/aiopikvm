@@ -228,6 +228,20 @@ async def test_redirect_followed_when_enabled(mock_api: respx.MockRouter) -> Non
         assert (await kvm.atx.get_state()).enabled is True
 
 
+async def test_redirect_loop_stays_in_the_hierarchy(
+    mock_api: respx.MockRouter,
+) -> None:
+    """httpx derives TooManyRedirects from RequestError, not TransportError."""
+    mock_api.get("/api/atx").mock(
+        return_value=httpx.Response(
+            301, headers={"Location": "https://pikvm.local/api/atx"}
+        )
+    )
+    async with PiKVM("https://pikvm.local", follow_redirects=True) as kvm:
+        with pytest.raises(RedirectError, match="edirect"):
+            await kvm.atx.get_state()
+
+
 async def test_unparsable_payload(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/api/atx").mock(
         return_value=httpx.Response(200, json={"ok": True, "result": {"enabled": True}})
@@ -265,6 +279,32 @@ async def test_error_status_while_streaming(
     with pytest.raises(UnavailableError, match="Service Unavailable"):
         async for _ in client.system.stream_log():
             pass  # pragma: no cover - the request fails before yielding
+
+
+async def test_redirect_while_streaming(mock_api: respx.MockRouter) -> None:
+    """The unread body must not be touched to report a redirect."""
+    mock_api.get("/api/log").mock(
+        return_value=httpx.Response(
+            302, headers={"Location": "https://pikvm.local/api/log/"}
+        )
+    )
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(RedirectError, match="api/log/"):
+            async for _ in kvm.system.stream_log():
+                pass  # pragma: no cover - the request fails before yielding
+
+
+async def test_redirect_loop_while_streaming(mock_api: respx.MockRouter) -> None:
+    """The same httpx.TooManyRedirects gap exists on the streaming path."""
+    mock_api.get("/api/log").mock(
+        return_value=httpx.Response(
+            302, headers={"Location": "https://pikvm.local/api/log"}
+        )
+    )
+    async with PiKVM("https://pikvm.local", follow_redirects=True) as kvm:
+        with pytest.raises(RedirectError, match="edirect"):
+            async for _ in kvm.system.stream_log():
+                pass  # pragma: no cover - the request fails before yielding
 
 
 async def test_per_call_timeout_override(

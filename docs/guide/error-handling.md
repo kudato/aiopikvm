@@ -29,12 +29,12 @@ All exceptions inherit from `PiKVMError`, so you can catch all aiopikvm errors w
 | `AuthError` | Authentication failed (HTTP 401 or 403) |
 | `BusyError` | PiKVM is busy with another operation (HTTP 409); the same call usually succeeds once it finishes |
 | `UnavailableError` | The subsystem is disabled in the kvmd config or offline (HTTP 503) |
-| `RedirectError` | PiKVM answered with a redirect (3xx) and the client was not created with `follow_redirects=True` |
+| `RedirectError` | PiKVM answered with a redirect (3xx) and the client was not created with `follow_redirects=True` — or it was, and the redirects formed a loop, the one case where `status_code` is `0` |
 | `ResponseError` | The response was not the documented JSON envelope, or did not match the model for that endpoint |
 | `ConfigurationError` | The URL has no usable scheme, or the credentials cannot be sent in HTTP headers |
 | `ConnectError` | Failed to connect to PiKVM, or the connection broke mid-request |
 | `ConnectionTimeoutError` | Request timed out |
-| `WebSocketError` | WebSocket connection or communication error |
+| `WebSocketError` | The WebSocket could not be opened, or it broke instead of closing cleanly. A handshake kvmd itself refuses raises `AuthError`/`APIError` instead |
 
 ## APIError details
 
@@ -57,7 +57,9 @@ except APIError as exc:
 error block — for example when a reverse proxy answered instead of kvmd.
 
 !!! note
-    When `APIError` is raised from the JSON body (`"ok": false`), `status_code` is `0`.
+    `status_code` is `0` when there was no single status to report: an error
+    kvmd put in the body of an HTTP 200 (`"ok": false`), or a redirect loop
+    the client gave up on.
 
 ## Retrying a busy device
 
@@ -151,16 +153,29 @@ says so without a failed call.
 
 ### WebSocket errors
 
+The upgrade to `/api/ws` goes through the same auth chain as every REST call
+and is refused with an ordinary HTTP response, so a refused handshake raises
+`AuthError` — not `WebSocketError`, which is reserved for a socket that never
+opened or that broke:
+
 ```python
-from aiopikvm import WebSocketError
+from aiopikvm import APIError, AuthError, WebSocketError
 
 try:
     async with kvm.ws() as ws:
         async for event in ws.events():
             print(event)
+except AuthError as exc:
+    print(f"kvmd refused the credentials: HTTP {exc.status_code}")
+except APIError as exc:
+    print(f"kvmd refused the upgrade: HTTP {exc.status_code} {exc.error}")
 except WebSocketError as exc:
-    print(f"WebSocket error: {exc}")
+    print(f"the connection failed or was lost: {exc}")
 ```
+
+`events()` ends quietly when either side closes the connection cleanly and
+raises `WebSocketError` when it breaks instead, so a loop that simply finishes
+never hides a dropped connection.
 
 ### Context not entered
 

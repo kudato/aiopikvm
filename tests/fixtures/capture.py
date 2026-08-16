@@ -298,7 +298,9 @@ async def _capture_ws(kvm: PiKVM, secrets: Redactions) -> str:
         One JSON object per line, each ``{"index": ..., "msg": ...}``.
     """
     lines: list[str] = []
-    async with kvm.ws() as ws:
+    # stream=False keeps this tool read-only: a socket that asks for video
+    # starts the streamer on a device where nothing was watching.
+    async with kvm.ws(stream=False) as ws:
         try:
             async with asyncio.timeout(WS_SECONDS):
                 async for event in ws.events():

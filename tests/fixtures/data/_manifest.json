@@ -201,6 +201,10 @@
     "ws_events": {
       "file": "ws_events.jsonl",
       "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=0, in arrival order."
+    },
+    "ws_handshake": {
+      "file": "ws_handshake.json",
+      "description": "Every way kvmd refuses the GET /api/ws upgrade: a stream flag its bool validator rejects, a wrong password, an unknown user, and no credentials at all."
     }
   }
 }

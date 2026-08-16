@@ -101,6 +101,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** `PiKVM.ws(stream=...)` and `PiKVMWebSocket(stream=...)` take a
+  bool and default to `True`, kvmd's own default. kvmd reads the query
+  parameter with its bool validator — it was never a stream index — and counts
+  the sessions that asked for video to decide whether the streamer runs. The
+  old hardcoded `stream=0` meant an open socket never kept the video pipeline
+  alive, which is why `snapshot()` could answer HTTP 503 with a client
+  connected. Pass `stream=False` for a client that only reads events (#79).
+- **Breaking:** a handshake kvmd refuses raises `AuthError` (401/403) or
+  `APIError`, carrying the status and kvmd's error block, instead of a blanket
+  `WebSocketError` with no detail. Both transports share one status table, so
+  409 is a `BusyError` and 503 an `UnavailableError` whichever one reported
+  it. `WebSocketError` now means a socket that never opened or that broke —
+  DNS, TLS, a timeout, or a server that does not speak WebSocket (#59).
+- **Breaking:** `events()` raises `WebSocketError` when the connection breaks
+  instead of ending the iteration silently. A clean close from either side
+  still ends it quietly; the old blanket `except ConnectionClosed` caught only
+  the abnormal ones, since websockets ends the iteration itself on a clean
+  close — so every dropped connection looked like "kvmd has nothing more to
+  say" (#59).
+- **Breaking:** a redirected WebSocket handshake raises `RedirectError`
+  instead of being followed. *websockets* follows up to ten redirects on its
+  own, resending the credential headers to each target; the REST client has
+  refused to do that since #67, and the socket carries the same password.
+  `ws()` inherits the client's `follow_redirects` (#59).
 - **Breaking:** `HIDKeyboard` and `HIDMouse` replace `connected` with the
   fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
   `leds`. `HIDState` gains `enabled` and `jiggler`, and keeps the nullable
@@ -187,6 +211,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The WebSocket HID methods let `websockets`' own `ConnectionClosed` escape to
+  the caller when the socket was already dead, outside the documented
+  `PiKVMError` hierarchy. `__aenter__` could likewise let a bare `ValueError`
+  through for a URI `websockets` rejects itself. Both now raise
+  `WebSocketError` (#59).
+- `PiKVM.request()` and `PiKVM.stream()` let `httpx.TooManyRedirects` escape
+  when the client was created with `follow_redirects=True`. httpx derives it
+  from `RequestError` rather than `TransportError`, so none of the clauses
+  caught it; it now arrives as `RedirectError` with `status_code` `0`, since
+  the client gave up across several responses rather than refusing one (#59).
+- The WebSocket guide described a handshake that does not happen. kvmd does
+  not send "a full state bundle" first: `loop` carries the protocol version,
+  then each subsystem sends its state in no guaranteed order, and later
+  updates can be partial — `info` only ever sends one key at a time. The event
+  types are now documented from a capture of all twelve (#80).
+- The mouse documentation read as if the coordinates were pixels.
+  `send_mouse_move()` works in kvmd's normalized space, -32768 to 32767, so
+  `send_mouse_move(500, 300)` is the middle of the screen and not a pixel
+  position; wheel and relative deltas are steps in -127 to 127. Both ranges
+  are clamped by kvmd rather than rejected, so the old reading failed
+  silently. The scroll example also had its direction backwards (#80).
 - `AuthResource.login()` failed with HTTP 400 against every real device. kvmd
   reads the credentials with aiohttp's form parser, which finds nothing in the
   JSON body the client sent, so it validated an empty user name and refused

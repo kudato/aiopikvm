@@ -15,15 +15,13 @@ from aiopikvm._constants import (
     DEFAULT_VERIFY_SSL,
 )
 from aiopikvm._exceptions import (
-    APIError,
-    AuthError,
-    BusyError,
     ConfigurationError,
     ConnectError,
     ConnectionTimeoutError,
     PiKVMError,
     RedirectError,
-    UnavailableError,
+    _error_fields,
+    _status_error,
 )
 from aiopikvm._ws import PiKVMWebSocket
 
@@ -53,14 +51,6 @@ _RESOURCE_NAMES = (
     "prometheus",
     "system",
 )
-
-_STATUS_ERRORS: dict[int, type[APIError]] = {
-    401: AuthError,
-    403: AuthError,
-    409: BusyError,
-    503: UnavailableError,
-}
-"""kvmd maps IsBusyError to 409 and UnavailableError to 503 (htserver.py)."""
 
 
 class PiKVM:
@@ -224,7 +214,8 @@ class PiKVM:
             BusyError: PiKVM is busy with another operation (409).
             UnavailableError: The subsystem is disabled or offline (503).
             RedirectError: PiKVM answered with a redirect (3xx) and the
-                client was not created with ``follow_redirects=True``.
+                client was not created with ``follow_redirects=True`` — or it
+                was, and the redirects formed a loop.
             APIError: Server returned any other error status (>= 400).
         """
         client = self._ensure_client()
@@ -241,6 +232,13 @@ class PiKVM:
             )
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
+        except httpx.TooManyRedirects as exc:
+            # Only reachable with follow_redirects=True. httpx derives it
+            # from RequestError rather than TransportError, so the clause
+            # below does not cover it and it would escape PiKVMError.
+            raise RedirectError(
+                f"{exc} Point the client at the URL the redirects lead to."
+            ) from exc
         except httpx.UnsupportedProtocol as exc:
             raise ConfigurationError(
                 f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
@@ -273,30 +271,22 @@ class PiKVM:
             return
 
         if status < 400:
-            location = response.headers.get("location", "")
-            raise RedirectError(
-                f"HTTP {status}: PiKVM redirected to "
-                f"{location or 'an undisclosed location'}. Point the client at "
-                "the final URL, or pass follow_redirects=True to follow it "
-                "and resend the credentials there.",
-                status,
-            )
+            # A redirect is reported from its Location alone; inside stream()
+            # the body has not been read, and none of it would say anything a
+            # caller could act on anyway.
+            raise _status_error(status, location=response.headers.get("location", ""))
 
         error, error_msg = cls._error_fields(response)
-        detail = error_msg or error or cls._body_excerpt(response)
-        raise _STATUS_ERRORS.get(status, APIError)(
-            f"HTTP {status}: {detail}" if detail else f"HTTP {status}",
+        raise _status_error(
             status,
             error=error,
             error_msg=error_msg,
+            detail=cls._body_excerpt(response),
         )
 
     @staticmethod
     def _error_fields(response: httpx.Response) -> tuple[str, str]:
         """Extract kvmd's error block from a response body.
-
-        kvmd reports failures as ``{"ok": false, "result": {"error":
-        "<class>", "error_msg": "<message>"}}``.
 
         Args:
             response: The HTTP response to read.
@@ -306,18 +296,9 @@ class PiKVM:
             a kvmd error envelope or has not been read yet.
         """
         try:
-            body = response.json()
+            return _error_fields(response.json())
         except (ValueError, TypeError, httpx.ResponseNotRead):
             return ("", "")
-        result = body.get("result") if isinstance(body, dict) else None
-        if not isinstance(result, dict):
-            return ("", "")
-        error = result.get("error")
-        error_msg = result.get("error_msg")
-        return (
-            error if isinstance(error, str) else "",
-            error_msg if isinstance(error_msg, str) else "",
-        )
 
     @staticmethod
     def _body_excerpt(response: httpx.Response, limit: int = 200) -> str:
@@ -357,7 +338,8 @@ class PiKVM:
             BusyError: PiKVM is busy with another operation (409).
             UnavailableError: The subsystem is disabled or offline (503).
             RedirectError: PiKVM answered with a redirect (3xx) and the
-                client was not created with ``follow_redirects=True``.
+                client was not created with ``follow_redirects=True`` — or it
+                was, and the redirects formed a loop.
             APIError: Server returned any other error status (>= 400).
         """
         client = self._ensure_client()
@@ -378,6 +360,13 @@ class PiKVM:
                 yield response
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
+        except httpx.TooManyRedirects as exc:
+            # Only reachable with follow_redirects=True. httpx derives it
+            # from RequestError rather than TransportError, so the clause
+            # below does not cover it and it would escape PiKVMError.
+            raise RedirectError(
+                f"{exc} Point the client at the URL the redirects lead to."
+            ) from exc
         except httpx.UnsupportedProtocol as exc:
             raise ConfigurationError(
                 f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
@@ -514,21 +503,37 @@ class PiKVM:
     def ws(
         self,
         *,
-        stream: int = 0,
+        stream: bool = True,
         open_timeout: float | None = None,
         close_timeout: float | None = None,
     ) -> PiKVMWebSocket:
         """Create a WebSocket connection.
 
+        The socket authenticates with the *user* and *passwd* this client was
+        built with; it does not use :attr:`cookies`.
+
         Args:
-            stream: Stream index (default ``0``).
+            stream: Count this client as a video viewer, which is also
+                kvmd's own default. kvmd runs the streamer while at least one
+                connected session asked for it, so a socket opened with
+                ``False`` lets the video pipeline stop — and
+                :meth:`StreamerResource.snapshot` then answers HTTP 503
+                unless something else is watching. Pass ``False`` only for a
+                client that reads events and never looks at the picture.
             open_timeout: Timeout for opening the connection (defaults to
                 the client *timeout*).
             close_timeout: Timeout for closing the connection (defaults to
                 the client *timeout*).
 
         Returns:
-            A *PiKVMWebSocket* async context manager.
+            A *PiKVMWebSocket* async context manager. It inherits this
+            client's *verify_ssl* and *follow_redirects*; with an external
+            *http_client* it still uses the credentials and URL passed to
+            this constructor, since it does not go through httpx at all.
+
+        Raises:
+            ConfigurationError: If the URL this client was built with has no
+                usable scheme.
         """
         return PiKVMWebSocket(
             url=self._url,
@@ -536,6 +541,7 @@ class PiKVM:
             passwd=self._password,
             verify_ssl=self._verify_ssl,
             stream=stream,
+            follow_redirects=self._follow_redirects,
             open_timeout=open_timeout if open_timeout is not None else self._timeout,
             close_timeout=close_timeout if close_timeout is not None else self._timeout,
         )

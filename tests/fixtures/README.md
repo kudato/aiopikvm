@@ -84,6 +84,14 @@ restored afterwards. Reproducing them means changing somebody's device, so ask
 first — and note that toggling the MSD recreates the USB gadget, which briefly
 disconnects the keyboard, mouse and audio the target host sees.
 
+`ws_handshake.json` was recorded by hand too, with the `websockets` client
+opening `GET /api/ws` once per refusal — a bad `stream` value, a wrong
+password, an unknown user, and no credentials at all. The capture tool cannot
+produce it: it holds one working socket, and these are the four ways of not
+getting one. Unlike the other scenarios it records HTTP responses rather than
+kvmd envelopes, since the upgrade is refused before the socket exists, so each
+step carries the `status`, `reason_phrase` and `content_type` a client sees.
+
 ## What these fixtures do and do not prove
 
 They pin one device in one configuration: ATX disabled, a switch with no ports
