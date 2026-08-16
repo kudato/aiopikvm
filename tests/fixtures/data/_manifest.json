@@ -1,0 +1,190 @@
+{
+  "device": {
+    "kvmd": "4.186",
+    "streamer": "ustreamer 6.61",
+    "platform": {
+      "base": "Raspberry Pi Compute Module 4 Rev 1.1",
+      "board": "rpi4",
+      "model": "v3",
+      "serial": "0000000000000000",
+      "type": "rpi",
+      "video": "hdmi"
+    }
+  },
+  "captures": {
+    "info": {
+      "method": "GET",
+      "path": "/api/info",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "info.json"
+    },
+    "info_hw_system": {
+      "method": "GET",
+      "path": "/api/info",
+      "params": {
+        "fields": "hw,system"
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "info_hw_system.json"
+    },
+    "log_seek60": {
+      "method": "GET",
+      "path": "/api/log",
+      "params": {
+        "seek": 60
+      },
+      "status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "file": "log_seek60.txt"
+    },
+    "atx": {
+      "method": "GET",
+      "path": "/api/atx",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "atx.json"
+    },
+    "hid": {
+      "method": "GET",
+      "path": "/api/hid",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "hid.json"
+    },
+    "hid_keymaps": {
+      "method": "GET",
+      "path": "/api/hid/keymaps",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "hid_keymaps.json"
+    },
+    "hid_inactivity": {
+      "method": "GET",
+      "path": "/api/hid/inactivity",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "hid_inactivity.json"
+    },
+    "msd": {
+      "method": "GET",
+      "path": "/api/msd",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "msd.json"
+    },
+    "gpio": {
+      "method": "GET",
+      "path": "/api/gpio",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "gpio.json"
+    },
+    "streamer": {
+      "method": "GET",
+      "path": "/api/streamer",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "streamer.json"
+    },
+    "streamer_ocr": {
+      "method": "GET",
+      "path": "/api/streamer/ocr",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "streamer_ocr.json"
+    },
+    "switch": {
+      "method": "GET",
+      "path": "/api/switch",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "switch.json"
+    },
+    "prometheus_metrics": {
+      "method": "GET",
+      "path": "/api/export/prometheus/metrics",
+      "params": null,
+      "status": 200,
+      "content_type": "text/plain; charset=utf-8",
+      "file": "prometheus_metrics.txt"
+    },
+    "redfish_root": {
+      "method": "GET",
+      "path": "/api/redfish/v1",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "redfish_root.json"
+    },
+    "redfish_systems": {
+      "method": "GET",
+      "path": "/api/redfish/v1/Systems",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "redfish_systems.json"
+    },
+    "redfish_system_0": {
+      "method": "GET",
+      "path": "/api/redfish/v1/Systems/0",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "redfish_system_0.json"
+    },
+    "redfish_managers": {
+      "method": "GET",
+      "path": "/api/redfish/v1/Managers",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "redfish_managers.json"
+    },
+    "redfish_manager_bmc": {
+      "method": "GET",
+      "path": "/api/redfish/v1/Managers/BMC",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "redfish_manager_bmc.json"
+    },
+    "redfish_vm": {
+      "method": "GET",
+      "path": "/api/redfish/v1/Managers/BMC/VirtualMedia",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "redfish_vm.json"
+    },
+    "redfish_vm_msd": {
+      "method": "GET",
+      "path": "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD",
+      "params": null,
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "redfish_vm_msd.json"
+    }
+  },
+  "scenarios": {
+    "ws_events": {
+      "file": "ws_events.jsonl",
+      "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=0, in arrival order."
+    },
+    "auth_roundtrip": {
+      "file": "auth_roundtrip.json",
+      "description": "POST /api/auth/login with a JSON body vs a form body, then check/logout/check with the session cookie."
+    }
+  }
+}

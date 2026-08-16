@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "result": {
+    "busy": false,
+    "drive": null,
+    "enabled": true,
+    "online": false,
+    "storage": null
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "@odata.id": "/redfish/v1/Managers/BMC/VirtualMedia/MSD",
+  "@odata.type": "#VirtualMedia.v1_4_0.VirtualMedia",
+  "Actions": {
+    "#VirtualMedia.EjectMedia": {
+      "target": "/redfish/v1/Managers/BMC/VirtualMedia/MSD/Actions/VirtualMedia.EjectMedia"
+    },
+    "#VirtualMedia.InsertMedia": {
+      "Image@Redfish.AllowableValues": [
+        "URI"
+      ],
+      "target": "/redfish/v1/Managers/BMC/VirtualMedia/MSD/Actions/VirtualMedia.InsertMedia"
+    }
+  },
+  "ConnectedVia": null,
+  "Description": "PiKVM Virtual CD/DVD/Flash Drive",
+  "Id": "MSD",
+  "Image": null,
+  "ImageName": null,
+  "Inserted": null,
+  "MediaTypes": [
+    "USBStick",
+    "CD",
+    "DVD"
+  ],
+  "Name": "Virtual CD/DVD/Flash Drive",
+  "Oem": {
+    "PiKVM": {
+      "@odata.context": "/redfish/v1/$metadata#PiKVMVirtualMedia.PiKVMVirtualMedia",
+      "@odata.type": "#PiKVMVirtualMedia.v1_0_0.PiKVMVirtualMedia",
+      "DriveOptical": null,
+      "MsdBusy": false,
+      "MsdEnabled": true,
+      "MsdOnline": false
+    }
+  },
+  "WriteProtected": null
+}

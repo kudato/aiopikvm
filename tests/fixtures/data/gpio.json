@@ -1,0 +1,45 @@
+{
+  "ok": true,
+  "result": {
+    "model": {
+      "scheme": {
+        "inputs": {},
+        "outputs": {
+          "__v3_usb_breaker__": {
+            "hw": {
+              "driver": "__gpio__",
+              "pin": "5"
+            },
+            "pulse": {
+              "delay": 0.0,
+              "max_delay": 0.0,
+              "min_delay": 0.0
+            },
+            "switch": true
+          }
+        }
+      },
+      "view": {
+        "header": {
+          "title": [
+            {
+              "text": "GPIO",
+              "type": "label"
+            }
+          ]
+        },
+        "table": []
+      }
+    },
+    "state": {
+      "inputs": {},
+      "outputs": {
+        "__v3_usb_breaker__": {
+          "busy": false,
+          "online": true,
+          "state": true
+        }
+      }
+    }
+  }
+}

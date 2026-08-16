@@ -1,0 +1,74 @@
+{
+  "ok": true,
+  "result": {
+    "applied": {
+      "desired_fps": 20,
+      "h264_bitrate": 15000,
+      "h264_gop": 0,
+      "quality": 80
+    },
+    "features": {
+      "h264": true,
+      "quality": true,
+      "resolution": false
+    },
+    "limits": {
+      "desired_fps": {
+        "max": 70,
+        "min": 10
+      },
+      "h264_bitrate": {
+        "max": 20000,
+        "min": 5000
+      },
+      "h264_gop": {
+        "max": 60,
+        "min": 0
+      }
+    },
+    "params": {
+      "desired_fps": 20,
+      "h264_bitrate": 15000,
+      "h264_gop": 0,
+      "quality": 80
+    },
+    "snapshot": {
+      "saved": null
+    },
+    "streamer": {
+      "encoder": {
+        "quality": 80,
+        "type": "M2M-IMAGE"
+      },
+      "h264": {
+        "bitrate": 15000,
+        "fps": 20,
+        "gop": 0,
+        "online": true
+      },
+      "instance_id": "",
+      "sinks": {
+        "h264": {
+          "has_clients": true
+        },
+        "jpeg": {
+          "has_clients": false
+        }
+      },
+      "source": {
+        "captured_fps": 60,
+        "desired_fps": 20,
+        "online": true,
+        "resolution": {
+          "height": 1080,
+          "width": 1920
+        }
+      },
+      "stream": {
+        "clients": 0,
+        "clients_stat": {},
+        "queued_fps": 0
+      }
+    }
+  }
+}

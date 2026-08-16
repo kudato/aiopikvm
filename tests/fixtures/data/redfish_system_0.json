@@ -1,0 +1,27 @@
+{
+  "@odata.id": "/redfish/v1/Systems/0",
+  "@odata.type": "#ComputerSystem.v1_10_0.ComputerSystem",
+  "Actions": {
+    "#ComputerSystem.Reset": {
+      "ResetType@Redfish.AllowableValues": [
+        "On",
+        "ForceOff",
+        "GracefulShutdown",
+        "ForceRestart",
+        "ForceOn",
+        "PushPowerButton"
+      ],
+      "target": "/redfish/v1/Systems/0/Actions/ComputerSystem.Reset"
+    },
+    "#ComputerSystem.SetDefaultBootOrder": {
+      "target": "/redfish/v1/Systems/0/Actions/ComputerSystem.SetDefaultBootOrder"
+    }
+  },
+  "Boot": {
+    "BootSourceOverrideEnabled": "Disabled",
+    "BootSourceOverrideTarget": null
+  },
+  "HostName": "pikvm",
+  "Id": "0",
+  "PowerState": "Off"
+}

@@ -1,0 +1,11 @@
+{
+  "@odata.id": "/redfish/v1/Managers/BMC/VirtualMedia",
+  "@odata.type": "#VirtualMediaCollection.VirtualMediaCollection",
+  "Members": [
+    {
+      "@odata.id": "/redfish/v1/Managers/BMC/VirtualMedia/MSD"
+    }
+  ],
+  "Members@odata.count": 1,
+  "Name": "Virtual Media Collection"
+}
