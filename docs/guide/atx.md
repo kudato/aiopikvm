@@ -37,7 +37,7 @@ try:
 except BusyError:
     print("Another ATX action is still running")
 except APIError as exc:
-    if exc.error == "AtxIsDisabledError":
+    if exc.error == "AtxDisabledError":
         print("The ATX plugin is disabled on this device")
 ```
 

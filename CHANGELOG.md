@@ -15,6 +15,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   client cannot parse) and `ConfigurationError` (unusable URL or credentials).
   Everything except `ConfigurationError` derives from `APIError`, so existing
   `except APIError` handlers keep catching them (#64).
+- Documented the kvmd error class names accurately: a busy ATX reports
+  `AtxIsBusyError`, and a disabled one `AtxDisabledError` with HTTP 400 — not
+  `UnavailableError`, which the error-handling guide claimed. The names the
+  docstrings and tests used before existed nowhere in kvmd.
 - `APIError.error` and `APIError.error_msg` expose kvmd's error class name and
   human-readable message from `{"ok": false, "result": {"error": ...,
   "error_msg": ...}}`; previously only the class name reached the caller, and
@@ -52,9 +56,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   blocks until the action finishes and those failures reach the caller. A busy
   channel raises `BusyError` either way. Both calls also take a per-call
   `timeout`, since a waited pulse can outlast the client default (#51).
-- `ATXState.acts` (`ATXActs`), the per-line busy flags kvmd has always sent.
-  `busy` is the union of the two; `acts` says whether it is the power or the
-  reset line that is occupied (#72).
+- **Breaking:** `ATXState.acts` (`ATXActs`), the per-line busy flags kvmd has
+  always sent, is now a declared and required field rather than an untyped
+  extra. `busy` is the union of the two; `acts` says whether it is the power
+  or the reset line that is occupied. Both ATX plugins emit it
+  unconditionally, including the disabled one (#72).
 - Models for everything the switch reports: `SwitchSummary`, `SwitchModel`,
   `SwitchUnit`, `SwitchLimits`, `SwitchEdids`, `EDIDInfo`, `SwitchColors`,
   `SwitchLinks`, `SwitchBeacons`, `SwitchAtx` and the pieces they are built
@@ -73,9 +79,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   top-level `connected` (#36).
 - **Breaking:** every mutating `ATXResource` call now defaults to
   `wait=False`, matching kvmd. Waiting was the client's own invention and held
-  the HTTP request for the length of the action — a long power click alone ate
-  5.5 s of the 10 s default timeout. Pass `wait=True` (with a wider `timeout`)
-  where confirmation matters (#73).
+  the HTTP request for the length of the action — a long power click holds the
+  button for 5.5 s and kvmd waits another second after it, against a 10 s
+  default timeout. Pass `wait=True` (with a wider `timeout`) where confirmation
+  matters (#73).
 - **Breaking:** `SwitchState` follows the real payload — `model`, `summary`,
   `edids`, `colors`, `video`, `usb`, `beacons`, `atx` — instead of the flat
   `{active, ports}` no kvmd ever emitted. `EDID` now carries `name`, `data`

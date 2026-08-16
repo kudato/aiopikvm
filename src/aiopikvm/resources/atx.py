@@ -25,9 +25,9 @@ class ATXResource(BaseResource):
                 default, and this one, is not to wait: the request comes
                 back immediately and a failure is written to the kvmd log
                 instead of reaching the caller.
-            timeout: Per-call timeout in seconds. Only meaningful with
-                ``wait``, which holds the request open for the length of
-                the click.
+            timeout: Per-call timeout in seconds. It bounds the request
+                either way, but only ``wait`` makes the request last as
+                long as the click itself.
 
         Raises:
             BusyError: Another ATX action is still running (409). Raised
@@ -51,9 +51,10 @@ class ATXResource(BaseResource):
                 default, and this one, is not to wait: the request comes
                 back immediately and a failure is written to the kvmd log
                 instead of reaching the caller.
-            timeout: Per-call timeout in seconds. With ``wait`` this call
-                holds the button for 5.5 s of the 10 s client default, so
-                widen it.
+            timeout: Per-call timeout in seconds. The button is held for
+                5.5 s and kvmd waits another second afterwards, so with
+                ``wait`` this call needs more than the 10 s default to be
+                comfortable.
 
         Raises:
             BusyError: Another ATX action is still running (409). Raised
@@ -77,9 +78,9 @@ class ATXResource(BaseResource):
                 default, and this one, is not to wait: the request comes
                 back immediately and a failure is written to the kvmd log
                 instead of reaching the caller.
-            timeout: Per-call timeout in seconds. Only meaningful with
-                ``wait``, which holds the request open for the length of
-                the click.
+            timeout: Per-call timeout in seconds. It bounds the request
+                either way, but only ``wait`` makes the request last as
+                long as the click itself.
 
         Raises:
             BusyError: Another ATX action is still running (409). Raised
@@ -103,9 +104,9 @@ class ATXResource(BaseResource):
                 default, and this one, is not to wait: the request comes
                 back immediately and a failure is written to the kvmd log
                 instead of reaching the caller.
-            timeout: Per-call timeout in seconds. Only meaningful with
-                ``wait``, which holds the request until the host reaches
-                the requested state.
+            timeout: Per-call timeout in seconds. It bounds the request
+                either way, but only ``wait`` makes the request last
+                until the host reaches the requested state.
 
         Raises:
             BusyError: Another ATX action is still running (409). Raised
@@ -129,9 +130,9 @@ class ATXResource(BaseResource):
                 default, and this one, is not to wait: the request comes
                 back immediately and a failure is written to the kvmd log
                 instead of reaching the caller.
-            timeout: Per-call timeout in seconds. Only meaningful with
-                ``wait``, which holds the request until the host reaches
-                the requested state.
+            timeout: Per-call timeout in seconds. It bounds the request
+                either way, but only ``wait`` makes the request last
+                until the host reaches the requested state.
 
         Raises:
             BusyError: Another ATX action is still running (409). Raised
@@ -155,9 +156,9 @@ class ATXResource(BaseResource):
                 default, and this one, is not to wait: the request comes
                 back immediately and a failure is written to the kvmd log
                 instead of reaching the caller.
-            timeout: Per-call timeout in seconds. Only meaningful with
-                ``wait``, which holds the request until the host reaches
-                the requested state.
+            timeout: Per-call timeout in seconds. It bounds the request
+                either way, but only ``wait`` makes the request last
+                until the host reaches the requested state.
 
         Raises:
             BusyError: Another ATX action is still running (409). Raised
@@ -181,9 +182,9 @@ class ATXResource(BaseResource):
                 default, and this one, is not to wait: the request comes
                 back immediately and a failure is written to the kvmd log
                 instead of reaching the caller.
-            timeout: Per-call timeout in seconds. Only meaningful with
-                ``wait``, which holds the request until the host reaches
-                the requested state.
+            timeout: Per-call timeout in seconds. It bounds the request
+                either way, but only ``wait`` makes the request last
+                until the host reaches the requested state.
 
         Raises:
             BusyError: Another ATX action is still running (409). Raised

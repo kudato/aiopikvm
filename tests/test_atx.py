@@ -133,7 +133,7 @@ async def test_disabled_plugin(mock_api: respx.MockRouter, client: PiKVM) -> Non
             json={
                 "ok": False,
                 "result": {
-                    "error": "AtxIsDisabledError",
+                    "error": "AtxDisabledError",
                     "error_msg": "ATX is disabled",
                 },
             },
@@ -141,7 +141,7 @@ async def test_disabled_plugin(mock_api: respx.MockRouter, client: PiKVM) -> Non
     )
     with pytest.raises(APIError, match="ATX is disabled") as info:
         await client.atx.click_power()
-    assert info.value.error == "AtxIsDisabledError"
+    assert info.value.error == "AtxDisabledError"
 
 
 async def test_busy(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -151,11 +151,14 @@ async def test_busy(mock_api: respx.MockRouter, client: PiKVM) -> None:
             json={
                 "ok": False,
                 "result": {
-                    "error": "IsBusyError",
-                    "error_msg": "Performing another operation",
+                    "error": "AtxIsBusyError",
+                    "error_msg": (
+                        "Performing another ATX operation, please try again later"
+                    ),
                 },
             },
         )
     )
-    with pytest.raises(BusyError, match="Performing another operation"):
+    with pytest.raises(BusyError, match="Performing another ATX operation") as info:
         await client.atx.power_on()
+    assert info.value.error == "AtxIsBusyError"

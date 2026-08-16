@@ -32,8 +32,7 @@ class GPIOResource(BaseResource):
                 replies as soon as the action starts and writes anything that
                 goes wrong after that — an offline driver, most of all — to
                 its own log only. A busy channel is reported either way.
-                Defaults to ``False``, matching kvmd; note that
-                :meth:`ATXResource` calls default to waiting instead.
+                Defaults to ``False``, matching kvmd, as the ATX calls do.
             timeout: Per-call timeout in seconds. Only meaningful with
                 ``wait``, which holds the request open for the duration of
                 the switch.
