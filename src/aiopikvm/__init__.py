@@ -4,9 +4,14 @@ from aiopikvm._client import PiKVM
 from aiopikvm._exceptions import (
     APIError,
     AuthError,
+    BusyError,
+    ConfigurationError,
     ConnectError,
     ConnectionTimeoutError,
     PiKVMError,
+    RedirectError,
+    ResponseError,
+    UnavailableError,
     WebSocketError,
 )
 from aiopikvm._ws import PiKVMWebSocket
@@ -42,6 +47,8 @@ __all__ = [
     "ATXLeds",
     "ATXState",
     "AuthError",
+    "BusyError",
+    "ConfigurationError",
     "ConnectError",
     "ConnectionTimeoutError",
     "GPIOChannel",
@@ -59,7 +66,9 @@ __all__ = [
     "PiKVM",
     "PiKVMError",
     "PiKVMWebSocket",
+    "RedirectError",
     "Resolution",
+    "ResponseError",
     "Streamer",
     "StreamerEncoder",
     "StreamerFeatures",
@@ -75,6 +84,7 @@ __all__ = [
     "StreamerStream",
     "SwitchPort",
     "SwitchState",
+    "UnavailableError",
     "WebSocketError",
     "__version__",
 ]

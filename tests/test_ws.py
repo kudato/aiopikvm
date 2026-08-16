@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import websockets.exceptions
 
-from aiopikvm import PiKVMWebSocket, WebSocketError
+from aiopikvm import ConfigurationError, PiKVMWebSocket, WebSocketError
 
 
 def test_url_construction() -> None:
@@ -90,7 +90,7 @@ async def test_ping() -> None:
 
 
 def test_unsupported_url_scheme() -> None:
-    with pytest.raises(ValueError, match="Unsupported URL scheme"):
+    with pytest.raises(ConfigurationError, match="Unsupported URL scheme"):
         PiKVMWebSocket("ftp://pikvm.local", user="admin", passwd="admin")
 
 

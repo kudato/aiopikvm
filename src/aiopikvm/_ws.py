@@ -11,7 +11,7 @@ from urllib.parse import urlparse, urlunparse
 import websockets
 import websockets.asyncio.client
 
-from aiopikvm._exceptions import WebSocketError
+from aiopikvm._exceptions import ConfigurationError, WebSocketError
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,10 @@ class PiKVMWebSocket:
         scheme_map = {"https": "wss", "http": "ws"}
         ws_scheme = scheme_map.get(parsed.scheme, "")
         if not ws_scheme:
-            raise ValueError(f"Unsupported URL scheme: {parsed.scheme!r}")
+            raise ConfigurationError(
+                f"Unsupported URL scheme {parsed.scheme!r}; the PiKVM URL must "
+                "start with https:// or http://"
+            )
         ws_url = urlunparse(parsed._replace(scheme=ws_scheme))
         self._url = f"{ws_url}/api/ws?stream={stream}"
         self._user = user

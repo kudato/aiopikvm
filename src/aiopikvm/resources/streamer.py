@@ -15,8 +15,7 @@ class StreamerResource(BaseResource):
         Returns:
             Current streamer subsystem state.
         """
-        result = await self._get("/api/streamer")
-        return StreamerState.model_validate(result)
+        return await self._get_model("/api/streamer", StreamerState)
 
     async def snapshot(self, *, allow_offline: bool = False) -> bytes:
         """Take a JPEG screenshot.
@@ -52,7 +51,8 @@ class StreamerResource(BaseResource):
             Installed OCR languages and the default selection.
         """
         result = await self._get("/api/streamer/ocr")
-        return OCRInfo.model_validate(result["ocr"])
+        ocr = result.get("ocr") if isinstance(result, dict) else None
+        return self._validate(OCRInfo, ocr, "/api/streamer/ocr")
 
     async def ocr(
         self,
