@@ -145,9 +145,11 @@ async def main():
     async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
         # Upload an ISO and connect as CD-ROM
         with open("boot.iso", "rb") as f:
-            await kvm.msd.upload("boot.iso", f.read())
+            await kvm.msd.upload("boot.iso", f.read(), timeout=3600)
 
-        await kvm.msd.set_params(cdrom=True)
+        # Uploading does not select the image; without this step
+        # set_connected() fails with "The image is not selected".
+        await kvm.msd.set_params(image="boot.iso", cdrom=True)
         await kvm.msd.set_connected(True)
 
         # Reboot the host to boot from the virtual CD

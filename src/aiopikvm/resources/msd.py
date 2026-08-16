@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from aiopikvm._base_resource import BaseResource
+from aiopikvm._exceptions import ConfigurationError
 from aiopikvm.models.msd import MSDState
 
 
@@ -60,6 +61,7 @@ class MSDResource(BaseResource):
         data: bytes | AsyncIterator[bytes],
         *,
         size: int | None = None,
+        prefix: str | None = None,
         remove_incomplete: bool | None = None,
         timeout: float | None = None,
     ) -> None:
@@ -71,27 +73,35 @@ class MSDResource(BaseResource):
             size: Total image size in bytes. Required for an iterator and
                 ignored for bytes. kvmd reads the size from
                 ``Content-Length`` and rejects a chunked upload outright, so
-                a streamed image has to declare its length up front.
+                a streamed image has to declare its length up front. It must
+                match the data exactly: an undercount makes kvmd store a
+                truncated image and mark it ``complete``.
+            prefix: Subdirectory of the storage to write into.
             remove_incomplete: Whether kvmd deletes a partially written image
                 if the connection breaks. Leave unset for the kvmd default.
             timeout: Per-call timeout in seconds. Images are large and the
                 client default of 10 s is meant for state calls.
 
         Raises:
-            ValueError: If *data* is an iterator and *size* is not given.
+            ConfigurationError: If *data* is an iterator and *size* is
+                missing, negative, or disagrees with the bytes it yields.
         """
         if isinstance(data, bytes):
             length = len(data)
             content: bytes | httpx.AsyncByteStream = data
         else:
             if size is None:
-                raise ValueError(
+                raise ConfigurationError(
                     "upload() needs the size of a streamed image: kvmd takes "
                     "it from Content-Length and rejects a chunked body"
                 )
+            if size < 0:
+                raise ConfigurationError(f"upload() got a negative size: {size}")
             length = size
-            content = _AsyncStream(data)
+            content = _AsyncStream(data, size)
         params: dict[str, Any] = {"image": name}
+        if prefix is not None:
+            params["prefix"] = prefix
         if remove_incomplete is not None:
             params["remove_incomplete"] = int(remove_incomplete)
         await self._post(
@@ -178,9 +188,32 @@ class MSDResource(BaseResource):
 
 
 class _AsyncStream(httpx.AsyncByteStream):
-    def __init__(self, iterator: AsyncIterator[bytes]) -> None:
+    """Request body that holds an iterator to the length it promised.
+
+    A ``Content-Length`` that disagrees with the body makes h11 raise
+    ``LocalProtocolError``, which is outside the aiopikvm hierarchy and
+    escapes ``except PiKVMError``. Worse, an undercount is not an error at
+    all on the kvmd side: it reads exactly as many bytes as were announced
+    and stores the truncated image as complete. Counting here turns both
+    into a ``ConfigurationError`` raised before the mismatch reaches h11.
+    """
+
+    def __init__(self, iterator: AsyncIterator[bytes], size: int) -> None:
         self._iterator = iterator
+        self._size = size
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
+        sent = 0
         async for chunk in self._iterator:
+            sent += len(chunk)
+            if sent > self._size:
+                raise ConfigurationError(
+                    f"upload() was given size={self._size} but the image has "
+                    f"more data than that; kvmd would store it truncated"
+                )
             yield chunk
+        if sent != self._size:
+            raise ConfigurationError(
+                f"upload() was given size={self._size} but the image ended "
+                f"after {sent} bytes"
+            )

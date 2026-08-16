@@ -6,7 +6,7 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import AuthError, PiKVM, UnavailableError
+from aiopikvm import AuthError, ConfigurationError, PiKVM, UnavailableError
 from tests.fixtures import load_json
 
 
@@ -103,6 +103,14 @@ async def test_upload_remove_incomplete(
     )
     await client.msd.upload("test.iso", b"data", remove_incomplete=True)
     assert mock_api.calls[-1].request.url.params["remove_incomplete"] == "1"
+
+
+async def test_upload_prefix(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.post("/api/msd/write").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+    )
+    await client.msd.upload("test.iso", b"data", prefix="isos")
+    assert mock_api.calls[-1].request.url.params["prefix"] == "isos"
 
 
 async def test_upload_remote(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -205,6 +213,15 @@ async def test_download_disables_the_read_timeout(
     assert timeout["connect"] == 10.0
 
 
+async def test_download_explicit_timeout(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/msd/read").mock(return_value=httpx.Response(200, content=b""))
+    async for _ in client.msd.download("boot.iso", timeout=42.0):
+        pass  # pragma: no cover - the body is empty
+    assert mock_api.calls[-1].request.extensions["timeout"]["read"] == 42.0
+
+
 async def test_download_error_status(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/api/msd/read").mock(
         return_value=httpx.Response(
@@ -242,8 +259,47 @@ async def test_upload_streaming_without_size(client: PiKVM) -> None:
     async def data_gen() -> AsyncIterator[bytes]:
         yield b"chunk1"  # pragma: no cover - never consumed
 
-    with pytest.raises(ValueError, match="size of a streamed image"):
+    with pytest.raises(ConfigurationError, match="size of a streamed image"):
         await client.msd.upload("test.iso", data_gen())
+
+
+async def test_upload_negative_size(client: PiKVM) -> None:
+    async def data_gen() -> AsyncIterator[bytes]:
+        yield b"chunk1"  # pragma: no cover - never consumed
+
+    with pytest.raises(ConfigurationError, match="negative size"):
+        await client.msd.upload("test.iso", data_gen(), size=-1)
+
+
+async def test_upload_streaming_size_too_small(client: PiKVM) -> None:
+    # An undercount is the dangerous one: kvmd reads exactly as many bytes as
+    # Content-Length announced and stores the truncated image as complete,
+    # while h11 raises LocalProtocolError outside the aiopikvm hierarchy. The
+    # body is counted before it is handed over, so nothing is sent at all.
+    async def data_gen() -> AsyncIterator[bytes]:
+        yield b"chunk1"
+        yield b"chunk2"
+
+    with pytest.raises(ConfigurationError, match="more data than that"):
+        await client.msd.upload("test.iso", data_gen(), size=6)
+
+
+async def test_upload_streaming_size_too_large(client: PiKVM) -> None:
+    async def data_gen() -> AsyncIterator[bytes]:
+        yield b"chunk1"
+
+    with pytest.raises(ConfigurationError, match="ended after 6 bytes"):
+        await client.msd.upload("test.iso", data_gen(), size=30)
+
+
+async def test_upload_bytes_ignores_size(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.post("/api/msd/write").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+    )
+    await client.msd.upload("test.iso", b"fake-iso-data", size=999)
+    assert mock_api.calls[-1].request.headers["content-length"] == "13"
 
 
 async def test_upload_remote_with_timeout(
