@@ -3,7 +3,7 @@
 ## Commands
 
 ```bash
-uv sync                                # install all deps (dev + docs)
+uv sync --all-groups                   # install all deps (dev + docs)
 uv run ruff check src/ tests/          # lint
 uv run ruff format src/ tests/         # auto-format
 uv run mypy src/                       # type check (strict)
