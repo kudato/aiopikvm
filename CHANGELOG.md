@@ -52,6 +52,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   blocks until the action finishes and those failures reach the caller. A busy
   channel raises `BusyError` either way. Both calls also take a per-call
   `timeout`, since a waited pulse can outlast the client default (#51).
+- Models for everything the switch reports: `SwitchSummary`, `SwitchModel`,
+  `SwitchUnit`, `SwitchLimits`, `SwitchEdids`, `EDIDInfo`, `SwitchColors`,
+  `SwitchLinks`, `SwitchBeacons`, `SwitchAtx` and the pieces they are built
+  from. Per-port video and USB link sensors, beacon states and ATX LEDs had no
+  representation at all (#42).
 - `GPIOModel`, `GPIOScheme`, `GPIOOutputScheme`, `GPIOInputScheme`,
   `GPIOPulse`, `GPIOHardware`, `GPIOView`, `GPIOViewHeader` and `GPIOIOState`
   models. The scheme is where a channel's driver, pin and pulse limits live —
@@ -63,6 +68,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
   `leds`. `HIDState` gains `enabled` and `jiggler`, and keeps the nullable
   top-level `connected` (#36).
+- **Breaking:** `SwitchState` follows the real payload — `model`, `summary`,
+  `edids`, `colors`, `video`, `usb`, `beacons`, `atx` — instead of the flat
+  `{active, ports}` no kvmd ever emitted. `EDID` now carries `name`, `data`
+  and `parsed`; its `id` and `description` fields never existed (#42, #43).
+- **Breaking:** `SwitchResource.set_active()` takes a port number rather than
+  a name — kvmd validates it as a float, so the documented `"port1"` was
+  always a 400. `set_colors()` covers all five roles instead of only
+  `beacon`, and `set_beacon()` raises `ValueError` unless exactly one of
+  `port`/`uplink`/`downlink` is given, which is what kvmd requires; the
+  documented target-less "turn all beacons off" call does not exist (#56).
+- **Breaking:** the EDID methods now match kvmd. `create_edid(name, data)`
+  sends query parameters and returns the id kvmd generated; `change_edid()`
+  edits a stored EDID by id instead of pretending to assign one to a port
+  (that is `set_port_params(edid_id=...)`); `remove_edid()` sends `id`; and
+  `get_edids()` returns the catalogue out of the switch state, since the
+  `GET /switch/edids` endpoint it used to call does not exist (#43).
 - **Breaking:** `GPIOState` follows the two-level shape kvmd sends —
   `model {scheme, view}` and `state {inputs, outputs}` — instead of a flat
   `inputs`/`outputs` no kvmd ever emitted. `state.inputs` and `state.outputs`
@@ -99,6 +120,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   HID backend nests `connected` under `keyboard` or `mouse` — it exists only
   at the top level. The mocked test passed because its payload was
   hand-written; the models now follow a capture from kvmd 4.186 (#36).
+- `SwitchResource.get_state()` raised on every real device — the model was a
+  flat `{active, ports}` shape no kvmd emits (#42).
+- The captured switch fixture carried the model and serial of the monitor the
+  EDID was learned from, in the decoded block and in the raw hex. Both are
+  replaced with placeholders, and the capture tool now redacts the decoded
+  ones on its own (the raw hex still needs `PIKVM_SCRUB`).
 - `GPIOResource.get_state()` raised on every real device: the model expected
   top-level `inputs`/`outputs`, while kvmd nests them under `state` alongside
   a `model` block. The mocked test encoded the flat shape and passed (#41).

@@ -3,6 +3,7 @@
 from typing import Any
 
 from aiopikvm._base_resource import BaseResource
+from aiopikvm._exceptions import ResponseError
 from aiopikvm.models.switch import EDID, SwitchState
 
 
@@ -17,60 +18,82 @@ class SwitchResource(BaseResource):
         """
         return await self._get_model("/api/switch", SwitchState)
 
-    async def set_active(self, port: str) -> None:
+    async def set_active(self, port: int | float) -> None:
         """Set the active port.
 
         Args:
-            port: Port identifier to activate.
+            port: Port number. Ports are numbered from ``0`` across the whole
+                chain; on a multi-unit chain the ``unit.port`` form (``1.3``)
+                addresses the same ports. The ``id`` strings in the state
+                (``"2.3"``) are display labels and are not accepted here.
         """
         await self._post("/api/switch/set_active", params={"port": port})
 
-    async def get_edids(self) -> list[EDID]:
-        """Get all EDID profiles.
+    async def get_edids(self) -> dict[str, EDID]:
+        """Get the EDID catalogue.
+
+        There is no endpoint of its own for this: the catalogue is part of
+        the switch state, and this is a shortcut to it.
 
         Returns:
-            List of available EDID profiles.
+            Every stored EDID, keyed by id. ``"default"`` always exists.
         """
-        result = await self._get("/api/switch/edids")
-        return [
-            self._validate(EDID, edid, "/api/switch/edids")
-            for edid in result.get("edids", [])
-        ]
+        return (await self.get_state()).edids.all
 
-    async def create_edid(
-        self, edid_id: str, data: str, *, description: str = ""
-    ) -> None:
-        """Create a new EDID profile.
+    async def create_edid(self, name: str, data: str) -> str:
+        """Store a new EDID.
 
         Args:
-            edid_id: EDID profile identifier.
-            data: Raw EDID data as hex string.
-            description: Optional human-readable description.
-        """
-        body: dict[str, str] = {"id": edid_id, "data": data}
-        if description:
-            body["description"] = description
-        await self._post("/api/switch/edids/create", json=body)
+            name: Human-readable name.
+            data: EDID blob as an uppercase hex string, 256 or 512 characters
+                (128 or 256 bytes).
 
-    async def change_edid(self, port: str, edid_id: str) -> None:
-        """Change the EDID profile for a port.
+        Returns:
+            The id kvmd generated for it, which is what
+            :meth:`set_port_params` takes as ``edid_id``.
 
-        Args:
-            port: Port identifier.
-            edid_id: EDID profile identifier to assign.
+        Raises:
+            ResponseError: If kvmd does not answer with the new id.
         """
-        await self._post(
-            "/api/switch/edids/change",
-            params={"port": port, "edid_id": edid_id},
+        result = await self._post(
+            "/api/switch/edids/create", params={"name": name, "data": data}
         )
+        edid_id = result.get("id") if isinstance(result, dict) else None
+        if not isinstance(edid_id, str):
+            raise ResponseError(
+                "/api/switch/edids/create did not return the new EDID id"
+            )
+        return edid_id
+
+    async def change_edid(
+        self, edid_id: str, *, name: str | None = None, data: str | None = None
+    ) -> None:
+        """Rename a stored EDID or replace its contents.
+
+        This edits the EDID itself. Assigning one to a port is
+        :meth:`set_port_params` with ``edid_id``.
+
+        Args:
+            edid_id: Id of the EDID to change. The built-in ``"default"``
+                cannot be edited.
+            name: New name, if it should change.
+            data: New EDID blob as hex, if it should change.
+        """
+        params: dict[str, str] = {"id": edid_id}
+        if name is not None:
+            params["name"] = name
+        if data is not None:
+            params["data"] = data
+        await self._post("/api/switch/edids/change", params=params)
 
     async def remove_edid(self, edid_id: str) -> None:
-        """Remove an EDID profile.
+        """Remove a stored EDID.
 
         Args:
-            edid_id: EDID profile identifier to remove.
+            edid_id: Id of the EDID to remove. The built-in ``"default"``
+                cannot be removed.
         """
-        await self._post("/api/switch/edids/remove", params={"edid_id": edid_id})
+        await self._post("/api/switch/edids/remove", params={"id": edid_id})
 
     async def set_active_prev(self) -> None:
         """Switch to the previous port."""
@@ -88,20 +111,42 @@ class SwitchResource(BaseResource):
         uplink: int | None = None,
         downlink: int | None = None,
     ) -> None:
-        """Control indicator beacon lights.
+        """Light or extinguish one beacon.
+
+        Exactly one target must be given. kvmd checks them in the order
+        ``port``, ``uplink``, ``downlink`` and falls through to ``downlink``
+        when none is present, which answers 400.
 
         Args:
-            state: Turn beacon on or off.
-            port: Port number (``0``-``19`` or unit.port like ``0.3``).
-            uplink: Uplink beacon number.
-            downlink: Downlink beacon number.
+            state: Whether the beacon is lit.
+            port: Port number, or ``unit.port`` on a chain.
+            uplink: Unit whose uplink beacon to control.
+            downlink: Unit whose downlink beacon to control.
+
+        Raises:
+            ValueError: If not exactly one of *port*, *uplink* or *downlink*
+                is given.
         """
+        targets = [
+            name
+            for name, value in (
+                ("port", port),
+                ("uplink", uplink),
+                ("downlink", downlink),
+            )
+            if value is not None
+        ]
+        if len(targets) != 1:
+            raise ValueError(
+                "set_beacon() needs exactly one of port, uplink or downlink, "
+                f"got {', '.join(targets) if targets else 'none'}"
+            )
         params: dict[str, Any] = {"state": int(state)}
         if port is not None:
             params["port"] = port
-        if uplink is not None:
+        elif uplink is not None:
             params["uplink"] = uplink
-        if downlink is not None:
+        else:
             params["downlink"] = downlink
         await self._post("/api/switch/set_beacon", params=params)
 
@@ -143,14 +188,40 @@ class SwitchResource(BaseResource):
             params["atx_click_reset_delay"] = atx_click_reset_delay
         await self._post("/api/switch/set_port_params", params=params)
 
-    async def set_colors(self, beacon: str) -> None:
-        """Set beacon indicator colors.
+    async def set_colors(
+        self,
+        *,
+        inactive: str | None = None,
+        active: str | None = None,
+        flashing: str | None = None,
+        beacon: str | None = None,
+        bootloader: str | None = None,
+    ) -> None:
+        """Set the indicator colours, one per port role.
+
+        Every colour is ``RRGGBB:BB:IIII`` in hex — colour, brightness and
+        blink interval in milliseconds — or the string ``"default"`` to go
+        back to the built-in value. Roles left out keep their current colour.
 
         Args:
-            beacon: Color in ``RRGGBB:brightness:interval`` hex format
-                (e.g. ``"FFA500:BF:0028"``).
+            inactive: Ports that are not selected.
+            active: The selected port.
+            flashing: A port whose unit is being flashed.
+            beacon: A port with its beacon lit.
+            bootloader: A unit sitting in the bootloader.
         """
-        await self._post("/api/switch/set_colors", params={"beacon": beacon})
+        params: dict[str, Any] = {
+            role: value
+            for role, value in (
+                ("inactive", inactive),
+                ("active", active),
+                ("flashing", flashing),
+                ("beacon", beacon),
+                ("bootloader", bootloader),
+            )
+            if value is not None
+        }
+        await self._post("/api/switch/set_colors", params=params)
 
     async def reset(self, unit: int, *, bootloader: bool = False) -> None:
         """Reboot a switch unit.

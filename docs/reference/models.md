@@ -158,10 +158,90 @@ All response models inherit from a base class with `extra="allow"` for forward-c
     options:
       show_bases: false
 
+::: aiopikvm.SwitchSummary
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchModel
+    options:
+      show_bases: false
+
 ::: aiopikvm.SwitchPort
     options:
       show_bases: false
 
+::: aiopikvm.SwitchPortAtx
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchPortVideo
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchAtxClickDelays
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchUnit
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchUnitFirmware
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchFirmware
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchLimits
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchAtxLimits
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchAtxClickDelayLimits
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchAtxClickDelayLimit
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchEdids
+    options:
+      show_bases: false
+
 ::: aiopikvm.EDID
+    options:
+      show_bases: false
+
+::: aiopikvm.EDIDInfo
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchColors
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchColor
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchLinks
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchBeacons
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchAtx
+    options:
+      show_bases: false
+
+::: aiopikvm.SwitchAtxLeds
     options:
       show_bases: false

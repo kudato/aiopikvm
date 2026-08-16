@@ -35,6 +35,7 @@ from tests.fixtures import DATA_DIR, MANIFEST_PATH
 
 HOST_PLACEHOLDER = "pikvm"
 SERIAL_PLACEHOLDER = "0" * 16
+MONITOR_PLACEHOLDER = "PIKVM DUMMY"
 IP_PLACEHOLDER = "192.0.2.10"  # RFC 5737 documentation range
 MAC_PLACEHOLDER = "00:00:00:00:00:00"
 REDACTED = "<redacted>"
@@ -52,8 +53,16 @@ _PATH_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("server", "host"), HOST_PLACEHOLDER),
     (("node", "host"), HOST_PLACEHOLDER),
     (("HostName",), HOST_PLACEHOLDER),
+    (("parsed", "monitor_name"), MONITOR_PLACEHOLDER),
+    (("parsed", "monitor_serial"), SERIAL_PLACEHOLDER),
 )
-"""Key paths (matched on the trailing keys) replaced by a placeholder."""
+"""Key paths (matched on the trailing keys) replaced by a placeholder.
+
+The ``parsed`` rules cover the switch EDID catalogue, which carries the model
+and serial of whatever monitor the ports were learned from. They only reach
+the decoded block: the same strings sit in the raw ``data`` hex, where no key
+path can find them, so pass the serial in ``PIKVM_SCRUB`` as well.
+"""
 
 
 class Endpoint(NamedTuple):
