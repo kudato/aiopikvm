@@ -17,12 +17,14 @@ from pydantic import BaseModel
 from aiopikvm import (
     ATXState,
     GPIOState,
+    HIDKeymaps,
     HIDState,
     MSDState,
     OCRInfo,
     StreamerState,
     SwitchState,
 )
+from aiopikvm.models.hid import _HIDInactivity
 from tests.fixtures import DATA_DIR, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
 
@@ -48,7 +50,9 @@ class Case(NamedTuple):
 
 CASES = (
     Case("atx", ATXState, coverage_issue=72),
-    Case("hid", HIDState, parse_issue=36, coverage_issue=36),
+    Case("hid", HIDState),
+    Case("hid_keymaps", HIDKeymaps, key="keymaps"),
+    Case("hid_inactivity", _HIDInactivity),
     Case("msd", MSDState, parse_issue=38, coverage_issue=38),
     Case("gpio", GPIOState, parse_issue=41, coverage_issue=41),
     Case("streamer", StreamerState, coverage_issue=52),

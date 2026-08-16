@@ -68,6 +68,17 @@ async def test_prometheus_metrics_are_exposition_format(live: PiKVM) -> None:
     assert "# TYPE pikvm_" in metrics
 
 
+async def test_keymaps_list_the_default_layout(live: PiKVM) -> None:
+    """The device's keymap catalogue includes the layout it defaults to."""
+    keymaps = await live.hid.get_keymaps()
+    assert keymaps.default in keymaps.available
+
+
+async def test_inactivity_is_a_counter(live: PiKVM) -> None:
+    """``/api/hid/inactivity`` reports elapsed seconds, never a negative."""
+    assert await live.hid.get_inactivity() >= 0
+
+
 async def test_ocr_info_lists_languages(live: PiKVM) -> None:
     """OCR capability metadata parses into :class:`OCRInfo`."""
     info = await live.streamer.get_ocr_info()

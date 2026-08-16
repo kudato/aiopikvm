@@ -8,9 +8,26 @@ The HID resource provides keyboard and mouse control over the PiKVM's HID interf
 state = await kvm.hid.get_state()
 print(f"Online: {state.online}")
 print(f"Busy: {state.busy}")
-print(f"Keyboard connected: {state.keyboard.connected}")
-print(f"Mouse connected: {state.mouse.connected}")
+print(f"Keyboard online: {state.keyboard.online}")
+print(f"Caps Lock: {state.keyboard.leds.caps}")
+print(f"Mouse online: {state.mouse.online}")
 print(f"Mouse absolute: {state.mouse.absolute}")
+print(f"Mouse outputs: {state.mouse.outputs.available}")
+print(f"Jiggler: {state.jiggler.enabled}")
+```
+
+`state.connected` reports whether the target host has the HID plugged in.
+Only MCU-based backends can tell — it is `None` on OTG.
+
+## Idle time
+
+Seconds since the last key press or mouse movement kvmd delivered, from
+any of its clients — the web UI, another script, or this one. Input typed
+on a keyboard plugged straight into the host does not reset it:
+
+```python
+if await kvm.hid.get_inactivity() > 300:
+    print("Nobody has used the PiKVM for five minutes")
 ```
 
 ## Type text
@@ -20,7 +37,26 @@ Send a string as keyboard input:
 ```python
 await kvm.hid.type_text("Hello from aiopikvm!")
 
-# Limit characters per request
+# Type with a specific layout instead of the device-wide default
+await kvm.hid.type_text("Hello", keymap="en-us")
+
+# Slow down for firmware that drops fast input (0 to 5 seconds per key)
+await kvm.hid.type_text("Hello", delay=0.05)
+```
+
+kvmd answers only once the whole string is typed, so a large `delay` or a
+long text needs a wider timeout than the 10-second client default:
+
+```python
+await kvm.hid.type_text(bios_config, delay=0.5, timeout=120)
+```
+
+`limit` is server-side truncation, not chunking: kvmd types the first
+`limit` characters and discards the rest. The default is `0` (type
+everything).
+
+```python
+# Type at most 50 characters and drop the remainder
 await kvm.hid.type_text("Long text...", limit=50)
 ```
 
@@ -99,7 +135,15 @@ await kvm.hid.set_params(keyboard_output="usb")
 
 # Set mouse output type
 await kvm.hid.set_params(mouse_output="usb_rel")
+
+# Toggle the mouse jiggler, which keeps the host from going idle
+await kvm.hid.set_params(jiggler=True)
 ```
+
+Valid output names come from the state: `state.keyboard.outputs.available`
+and `state.mouse.outputs.available`. Either list can be empty — an OTG
+keyboard offers no choice at all, while its mouse still switches between
+`usb` and `usb_rel`.
 
 ## Connection control
 
@@ -118,8 +162,12 @@ await kvm.hid.reset()
 
 ```python
 keymaps = await kvm.hid.get_keymaps()
-print(keymaps)
+print(f"Default: {keymaps.default}")
+print(f"Available: {', '.join(keymaps.available)}")
 ```
+
+The names are what `type_text(keymap=...)` accepts. The device-wide default
+is set in the kvmd config and is not necessarily `en-us`.
 
 ## Full example
 

@@ -3,7 +3,7 @@
 from typing import Any
 
 from aiopikvm._base_resource import BaseResource
-from aiopikvm.models.hid import HIDState
+from aiopikvm.models.hid import HIDKeymaps, HIDState, _HIDInactivity
 
 
 class HIDResource(BaseResource):
@@ -17,23 +17,44 @@ class HIDResource(BaseResource):
         """
         return await self._get_model("/api/hid", HIDState)
 
+    async def get_inactivity(self) -> int:
+        """Get the time since the last keyboard or mouse event.
+
+        The counter is what drives the jiggler. It tracks the input kvmd
+        itself delivered, from any of its clients — somebody typing on a
+        keyboard plugged straight into the target host does not reset it.
+
+        Returns:
+            Seconds since the last HID event kvmd sent.
+        """
+        state = await self._get_model("/api/hid/inactivity", _HIDInactivity)
+        return state.inactivity
+
     async def set_params(
         self,
         *,
         keyboard_output: str | None = None,
         mouse_output: str | None = None,
+        jiggler: bool | None = None,
     ) -> None:
         """Set HID output parameters.
 
         Args:
-            keyboard_output: Keyboard output type.
-            mouse_output: Mouse output type.
+            keyboard_output: Keyboard output type. Valid values are the ones
+                ``HIDState.keyboard.outputs.available`` lists.
+            mouse_output: Mouse output type, e.g. ``"usb"`` (absolute) or
+                ``"usb_rel"`` (relative); see
+                ``HIDState.mouse.outputs.available``.
+            jiggler: Whether the mouse jiggler moves the pointer while the
+                host is idle.
         """
-        params: dict[str, str] = {}
+        params: dict[str, str | int] = {}
         if keyboard_output is not None:
             params["keyboard_output"] = keyboard_output
         if mouse_output is not None:
             params["mouse_output"] = mouse_output
+        if jiggler is not None:
+            params["jiggler"] = int(jiggler)
         await self._post("/api/hid/set_params", params=params)
 
     async def set_connected(self, connected: bool) -> None:
@@ -48,20 +69,23 @@ class HIDResource(BaseResource):
         """Reset the HID subsystem."""
         await self._post("/api/hid/reset")
 
-    async def get_keymaps(self) -> dict[str, Any]:
-        """Get available keyboard keymaps.
+    async def get_keymaps(self) -> HIDKeymaps:
+        """Get the keyboard layouts installed on the device.
 
         Returns:
-            Dictionary of available keymaps.
+            The available layout names and the device-wide default.
         """
-        result: dict[str, Any] = await self._get("/api/hid/keymaps")
-        return result
+        result = await self._get("/api/hid/keymaps")
+        keymaps = result.get("keymaps") if isinstance(result, dict) else None
+        return self._validate(HIDKeymaps, keymaps, "/api/hid/keymaps")
 
     async def type_text(
         self,
         text: str,
         *,
         limit: int = 0,
+        keymap: str | None = None,
+        delay: float | None = None,
         slow: bool = False,
         timeout: float | None = None,
     ) -> None:
@@ -69,21 +93,34 @@ class HIDResource(BaseResource):
 
         Args:
             text: Text string to type.
-            limit: Maximum characters per request (``0`` = unlimited).
+            limit: Server-side truncation: kvmd types the first ``limit``
+                characters and silently discards the rest. ``0`` disables it.
+                Always sent on the wire — kvmd's own default is 1024, so
+                omitting the parameter would cap long strings.
+            keymap: Layout used to translate the text into key events, from
+                :meth:`get_keymaps`. Defaults to the device-wide layout, which
+                is not necessarily ``en-us``.
+            delay: Seconds to sleep between key events, 0 to 5. Defaults to
+                ``0.02`` when ``slow`` is set and to ``0`` otherwise.
             slow: Enable server-side per-character delays for reliable input.
             timeout: Per-call timeout in seconds. kvmd types the whole string
-                before answering, and ``slow`` adds a delay per character.
+                before answering, so anything that stretches that out needs a
+                wider timeout than the client default: ``slow``, a large
+                ``delay``, or simply a long string, which no longer stops at
+                the first 1024 characters.
         """
-        params: dict[str, int] = {}
-        if limit > 0:
-            params["limit"] = limit
+        params: dict[str, str | int | float] = {"limit": limit}
+        if keymap is not None:
+            params["keymap"] = keymap
+        if delay is not None:
+            params["delay"] = delay
         if slow:
             params["slow"] = 1
         await self._post(
             "/api/hid/print",
             content=text.encode(),
             headers={"Content-Type": "text/plain"},
-            params=params if params else None,
+            params=params,
             timeout=timeout,
         )
 

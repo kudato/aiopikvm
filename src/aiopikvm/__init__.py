@@ -17,7 +17,15 @@ from aiopikvm._exceptions import (
 from aiopikvm._ws import PiKVMWebSocket
 from aiopikvm.models.atx import ATXLeds, ATXState
 from aiopikvm.models.gpio import GPIOChannel, GPIOInput, GPIOState
-from aiopikvm.models.hid import HIDKeyboard, HIDKeymap, HIDMouse, HIDState
+from aiopikvm.models.hid import (
+    HIDJiggler,
+    HIDKeyboard,
+    HIDKeyboardLeds,
+    HIDKeymaps,
+    HIDMouse,
+    HIDOutputs,
+    HIDState,
+)
 from aiopikvm.models.msd import MSDDrive, MSDState, MSDStorage
 from aiopikvm.models.streamer import (
     OCRInfo,
@@ -54,9 +62,12 @@ __all__ = [
     "GPIOChannel",
     "GPIOInput",
     "GPIOState",
+    "HIDJiggler",
     "HIDKeyboard",
-    "HIDKeymap",
+    "HIDKeyboardLeds",
+    "HIDKeymaps",
     "HIDMouse",
+    "HIDOutputs",
     "HIDState",
     "MSDDrive",
     "MSDState",
