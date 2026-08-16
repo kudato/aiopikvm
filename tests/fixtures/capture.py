@@ -11,8 +11,10 @@ Environment variables:
     ``PIKVM_PASSWD`` — password (required).
     ``PIKVM_TOTP`` — TOTP code, appended to the password (optional).
     ``PIKVM_SCRUB`` — extra comma-separated strings to redact, for anything
-    device-specific the built-in rules do not know about (port names,
-    a monitor serial in a captured EDID, ...).
+    device-specific the built-in rules do not know about (switch port names,
+    an internal DNS suffix, ...). Note that it is a literal text replacement:
+    a value that only appears hex-encoded, as inside an EDID blob, will not
+    be found by it — EDIDs are rewritten by :func:`scrub_edid` instead.
 
 Only read-only endpoints are requested — the script never changes device
 state. Responses are sanitized before they are written (device serial, host
@@ -35,7 +37,8 @@ from tests.fixtures import DATA_DIR, MANIFEST_PATH
 
 HOST_PLACEHOLDER = "pikvm"
 SERIAL_PLACEHOLDER = "0" * 16
-MONITOR_PLACEHOLDER = "PIKVM DUMMY"
+MONITOR_PLACEHOLDER = "DUMMY SCREEN"
+MONITOR_SERIAL_PLACEHOLDER = "0000000"
 IP_PLACEHOLDER = "192.0.2.10"  # RFC 5737 documentation range
 MAC_PLACEHOLDER = "00:00:00:00:00:00"
 REDACTED = "<redacted>"
@@ -48,20 +51,26 @@ _MAC = re.compile(r"\b(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\b")
 _ACCESS_CLIENT = re.compile(r"(\[[^\]]*?/\s*)[^\]\s]+(\])")
 """Client address field of a kvmd ``aiohttp.access`` log line."""
 
-_PATH_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+_EDID_HEX = re.compile(r"[0-9A-Fa-f]{256}(?:[0-9A-Fa-f]{256})?")
+"""An EDID blob as the switch reports it: one or two 128-byte blocks."""
+
+_PATH_RULES: tuple[tuple[tuple[str, ...], object], ...] = (
     (("platform", "serial"), SERIAL_PLACEHOLDER),
     (("server", "host"), HOST_PLACEHOLDER),
     (("node", "host"), HOST_PLACEHOLDER),
     (("HostName",), HOST_PLACEHOLDER),
     (("parsed", "monitor_name"), MONITOR_PLACEHOLDER),
-    (("parsed", "monitor_serial"), SERIAL_PLACEHOLDER),
+    (("parsed", "monitor_serial"), MONITOR_SERIAL_PLACEHOLDER),
+    (("parsed", "mfc_id"), "AAA"),
+    (("parsed", "product_id"), 0),
+    (("parsed", "serial"), 0),
 )
 """Key paths (matched on the trailing keys) replaced by a placeholder.
 
-The ``parsed`` rules cover the switch EDID catalogue, which carries the model
-and serial of whatever monitor the ports were learned from. They only reach
-the decoded block: the same strings sit in the raw ``data`` hex, where no key
-path can find them, so pass the serial in ``PIKVM_SCRUB`` as well.
+The ``parsed`` rules cover the switch EDID catalogue, which identifies
+whatever monitor the ports were learned from. They only reach the decoded
+block — the same values sit in the raw ``data`` hex, which :func:`scrub_edid`
+rewrites separately.
 """
 
 
@@ -131,6 +140,48 @@ def redactions(url: str, user: str, passwd: str, extra: str = "") -> Redactions:
     return tuple(sorted(set(pairs), key=lambda pair: (-len(pair[0]), pair[0])))
 
 
+def _edid_descriptor(tag: int, text: str) -> bytes:
+    """Build one 18-byte EDID display descriptor holding *text*."""
+    body = (text.encode("ascii") + b"\x0a").ljust(13, b"\x20")
+    return bytes([0, 0, 0, tag, 0]) + body
+
+
+def scrub_edid(blob: str) -> str:
+    """Rewrite an EDID blob so that it identifies no particular monitor.
+
+    The switch stores the EDID of whatever was plugged into a port, and the
+    manufacturer, product id, serial and monitor name all sit inside the raw
+    bytes as well as in the block kvmd decodes. Replacing them by hand would
+    leave the block-0 checksum wrong, so it is recomputed here.
+
+    Args:
+        blob: EDID as an uppercase hex string, 128 or 256 bytes.
+
+    Returns:
+        The rewritten blob, same length, checksums valid.
+    """
+    data = bytearray.fromhex(blob)
+    mfc = 0
+    for letter in "AAA":
+        mfc = (mfc << 5) | (ord(letter) - ord("A") + 1)
+    data[8:10] = mfc.to_bytes(2, "big")
+    data[10:12] = (0).to_bytes(2, "little")
+    data[12:16] = (0).to_bytes(4, "little")
+    for start in range(54, 126, 18):
+        if bytes(data[start : start + 3]) != b"\x00\x00\x00":
+            continue
+        if data[start + 3] == 0xFF:
+            data[start : start + 18] = _edid_descriptor(
+                0xFF, MONITOR_SERIAL_PLACEHOLDER
+            )
+        elif data[start + 3] == 0xFC:
+            data[start : start + 18] = _edid_descriptor(0xFC, MONITOR_PLACEHOLDER)
+    data[127] = (-sum(data[0:127])) % 256
+    if len(data) > 128:
+        data[255] = (-sum(data[128:255])) % 256
+    return data.hex().upper()
+
+
 def scrub_json(value: Any, path: tuple[str, ...] = ()) -> Any:
     """Replace device-identifying values by key path.
 
@@ -140,7 +191,8 @@ def scrub_json(value: Any, path: tuple[str, ...] = ()) -> Any:
 
     Returns:
         A copy of *value* with the values listed in ``_PATH_RULES``
-        replaced by their placeholder.
+        replaced by their placeholder, and any EDID blob rewritten by
+        :func:`scrub_edid`.
     """
     if isinstance(value, dict):
         out: dict[str, Any] = {}
@@ -149,7 +201,12 @@ def scrub_json(value: Any, path: tuple[str, ...] = ()) -> Any:
             replacement = next(
                 (new for rule, new in _PATH_RULES if sub[-len(rule) :] == rule), None
             )
-            out[key] = replacement if replacement is not None else scrub_json(item, sub)
+            if replacement is not None:
+                out[key] = replacement
+            elif key == "data" and isinstance(item, str) and _EDID_HEX.fullmatch(item):
+                out[key] = scrub_edid(item)
+            else:
+                out[key] = scrub_json(item, sub)
         return out
     if isinstance(value, list):
         return [scrub_json(item, path) for item in value]

@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import PiKVM, ResponseError
+from aiopikvm import ConfigurationError, PiKVM, ResponseError
 from tests.fixtures import load_json
 
 OK = {"ok": True, "result": {}}
@@ -62,7 +62,10 @@ async def test_get_state_reads_the_edids(
     edid = state.edids.all["default"]
     assert edid.name == "Default"
     assert edid.parsed is not None
-    assert edid.parsed.mfc_id == "DEL"
+    # The monitor identity is replaced with placeholders in the fixture; see
+    # scrub_edid() in the capture tool.
+    assert edid.parsed.mfc_id == "AAA"
+    assert edid.parsed.monitor_name == "DUMMY SCREEN"
     assert state.edids.used == []
 
 
@@ -92,17 +95,24 @@ async def test_set_active_unit_port(mock_api: respx.MockRouter, client: PiKVM) -
     assert mock_api.calls[-1].request.url.params["port"] == "1.3"
 
 
+def _edid_hex() -> str:
+    """A blob of the length kvmd accepts, taken from the capture."""
+    data: str = load_json("switch")["result"]["edids"]["all"]["default"]["data"]
+    return data
+
+
 async def test_create_edid(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/switch/edids/create").mock(
         return_value=httpx.Response(
             200, json={"ok": True, "result": {"id": "9b3c1e0a"}}
         )
     )
-    edid_id = await client.switch.create_edid("Monitor", "00FFFFFFFFFFFF00")
+    blob = _edid_hex()
+    edid_id = await client.switch.create_edid("Monitor", blob)
     assert edid_id == "9b3c1e0a"
     params = mock_api.calls[-1].request.url.params
     assert params["name"] == "Monitor"
-    assert params["data"] == "00FFFFFFFFFFFF00"
+    assert params["data"] == blob
 
 
 async def test_create_edid_without_id(
@@ -112,7 +122,7 @@ async def test_create_edid_without_id(
         return_value=httpx.Response(200, json=OK)
     )
     with pytest.raises(ResponseError, match="did not return the new EDID id"):
-        await client.switch.create_edid("Monitor", "00FFFFFFFFFFFF00")
+        await client.switch.create_edid("Monitor", _edid_hex())
 
 
 async def test_change_edid(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -177,8 +187,20 @@ async def test_set_beacon_needs_exactly_one_target(
 ) -> None:
     # kvmd checks port, then uplink, then falls through to downlink, so a
     # target-less call is a 400 rather than "all beacons off".
-    with pytest.raises(ValueError, match="exactly one of port, uplink"):
+    with pytest.raises(ConfigurationError, match="exactly one of port, uplink"):
         await client.switch.set_beacon(False, **kwargs)
+
+
+async def test_change_edid_without_changes(client: PiKVM) -> None:
+    # kvmd skips the update and still answers ok, so the call would look
+    # like it worked.
+    with pytest.raises(ConfigurationError, match="needs a new name or new data"):
+        await client.switch.change_edid("9b3c1e0a")
+
+
+async def test_set_colors_without_roles(client: PiKVM) -> None:
+    with pytest.raises(ConfigurationError, match="at least one role"):
+        await client.switch.set_colors()
 
 
 async def test_set_port_params(mock_api: respx.MockRouter, client: PiKVM) -> None:

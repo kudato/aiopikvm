@@ -77,7 +77,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   always a 400. `set_colors()` covers all five roles instead of only
   `beacon`, and `set_beacon()` raises `ValueError` unless exactly one of
   `port`/`uplink`/`downlink` is given, which is what kvmd requires; the
-  documented target-less "turn all beacons off" call does not exist (#56).
+  documented target-less "turn all beacons off" call does not exist. Calls
+  kvmd would accept and silently ignore — `set_colors()` with no role,
+  `change_edid()` with nothing to change — raise `ConfigurationError` too
+  (#56).
 - **Breaking:** the EDID methods now match kvmd. `create_edid(name, data)`
   sends query parameters and returns the id kvmd generated; `change_edid()`
   edits a stored EDID by id instead of pretending to assign one to a port
@@ -122,10 +125,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   hand-written; the models now follow a capture from kvmd 4.186 (#36).
 - `SwitchResource.get_state()` raised on every real device — the model was a
   flat `{active, ports}` shape no kvmd emits (#42).
-- The captured switch fixture carried the model and serial of the monitor the
-  EDID was learned from, in the decoded block and in the raw hex. Both are
-  replaced with placeholders, and the capture tool now redacts the decoded
-  ones on its own (the raw hex still needs `PIKVM_SCRUB`).
+- The captured switch fixture identified the monitor its EDID was learned
+  from — manufacturer, product id, serial and model name, in the decoded block
+  and again inside the raw blob. The capture tool now replaces the decoded
+  fields by key path and rewrites the blob itself, recomputing the checksums
+  so the result is still a valid EDID, and the committed fixtures were
+  regenerated through it (#42).
 - `GPIOResource.get_state()` raised on every real device: the model expected
   top-level `inputs`/`outputs`, while kvmd nests them under `state` alongside
   a `model` block. The mocked test encoded the flat shape and passed (#41).

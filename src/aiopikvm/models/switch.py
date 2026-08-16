@@ -4,14 +4,19 @@ from aiopikvm.models._base import _Base
 
 
 class SwitchFirmware(_Base):
-    """Protocol version the switch subsystem speaks."""
+    """Protocol version the switch subsystem speaks.
+
+    A constant of the kvmd build, unrelated to the firmware running on the
+    units — that one is :class:`SwitchUnitFirmware`.
+    """
 
     version: int
 
 
-class SwitchUnitFirmware(SwitchFirmware):
-    """Firmware of one physical unit."""
+class SwitchUnitFirmware(_Base):
+    """Firmware running on one physical unit."""
 
+    version: int
     devbuild: bool
 
 

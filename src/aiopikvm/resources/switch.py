@@ -3,7 +3,7 @@
 from typing import Any
 
 from aiopikvm._base_resource import BaseResource
-from aiopikvm._exceptions import ResponseError
+from aiopikvm._exceptions import ConfigurationError, ResponseError
 from aiopikvm.models.switch import EDID, SwitchState
 
 
@@ -22,10 +22,12 @@ class SwitchResource(BaseResource):
         """Set the active port.
 
         Args:
-            port: Port number. Ports are numbered from ``0`` across the whole
-                chain; on a multi-unit chain the ``unit.port`` form (``1.3``)
-                addresses the same ports. The ``id`` strings in the state
-                (``"2.3"``) are display labels and are not accepted here.
+            port: Port number, counted from ``0`` across the whole chain, or
+                the 1-based ``unit.port`` form (``2.3``). The ``id`` in the
+                state is that same 1-based label: on a chain ``float(port.id)``
+                selects the port it belongs to, but on a single unit ``id`` is
+                one greater than the index. Addressing by position in
+                ``model.ports`` avoids the difference.
         """
         await self._post("/api/switch/set_active", params={"port": port})
 
@@ -78,7 +80,16 @@ class SwitchResource(BaseResource):
                 cannot be edited.
             name: New name, if it should change.
             data: New EDID blob as hex, if it should change.
+
+        Raises:
+            ConfigurationError: If neither *name* nor *data* is given — kvmd
+                answers such a call with success and changes nothing.
         """
+        if name is None and data is None:
+            raise ConfigurationError(
+                "change_edid() needs a new name or new data; kvmd reports "
+                "success for a call that carries neither"
+            )
         params: dict[str, str] = {"id": edid_id}
         if name is not None:
             params["name"] = name
@@ -120,12 +131,13 @@ class SwitchResource(BaseResource):
         Args:
             state: Whether the beacon is lit.
             port: Port number, or ``unit.port`` on a chain.
-            uplink: Unit whose uplink beacon to control.
-            downlink: Unit whose downlink beacon to control.
+            uplink: Unit whose uplink beacon to control, counted from ``0``.
+            downlink: Unit whose downlink beacon to control, counted from
+                ``0``.
 
         Raises:
-            ValueError: If not exactly one of *port*, *uplink* or *downlink*
-                is given.
+            ConfigurationError: If not exactly one of *port*, *uplink* or
+                *downlink* is given.
         """
         targets = [
             name
@@ -137,7 +149,7 @@ class SwitchResource(BaseResource):
             if value is not None
         ]
         if len(targets) != 1:
-            raise ValueError(
+            raise ConfigurationError(
                 "set_beacon() needs exactly one of port, uplink or downlink, "
                 f"got {', '.join(targets) if targets else 'none'}"
             )
@@ -209,6 +221,9 @@ class SwitchResource(BaseResource):
             flashing: A port whose unit is being flashed.
             beacon: A port with its beacon lit.
             bootloader: A unit sitting in the bootloader.
+
+        Raises:
+            ConfigurationError: If no role is given at all.
         """
         params: dict[str, Any] = {
             role: value
@@ -221,6 +236,8 @@ class SwitchResource(BaseResource):
             )
             if value is not None
         }
+        if not params:
+            raise ConfigurationError("set_colors() needs at least one role")
         await self._post("/api/switch/set_colors", params=params)
 
     async def reset(self, unit: int, *, bootloader: bool = False) -> None:
