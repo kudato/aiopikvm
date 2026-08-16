@@ -43,6 +43,20 @@ async def test_ws_factory(mock_api: respx.MockRouter) -> None:
         assert client.ws(stream=False)._url == "wss://pikvm.local/api/ws?stream=0"
 
 
+@pytest.mark.parametrize("follow", [False, True])
+async def test_ws_inherits_follow_redirects(
+    mock_api: respx.MockRouter, follow: bool
+) -> None:
+    """A followed redirect resends the password, so the socket must not decide."""
+    async with PiKVM("https://pikvm.local", follow_redirects=follow) as client:
+        assert client.ws()._follow_redirects is follow
+
+
+async def test_ws_inherits_verify_ssl(mock_api: respx.MockRouter) -> None:
+    async with PiKVM("https://pikvm.local", verify_ssl=True) as client:
+        assert client.ws()._verify_ssl is True
+
+
 async def test_client_close(mock_api: respx.MockRouter) -> None:
     client = PiKVM("https://pikvm.local", user="admin", passwd="admin")
     async with client:

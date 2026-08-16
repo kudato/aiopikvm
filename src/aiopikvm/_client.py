@@ -19,6 +19,7 @@ from aiopikvm._exceptions import (
     ConnectError,
     ConnectionTimeoutError,
     PiKVMError,
+    RedirectError,
     _error_fields,
     _status_error,
 )
@@ -230,6 +231,13 @@ class PiKVM:
             )
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
+        except httpx.TooManyRedirects as exc:
+            # Only reachable with follow_redirects=True. httpx derives it
+            # from RequestError rather than TransportError, so the clause
+            # below does not cover it and it would escape PiKVMError.
+            raise RedirectError(
+                f"{exc} Point the client at the URL the redirects lead to."
+            ) from exc
         except httpx.UnsupportedProtocol as exc:
             raise ConfigurationError(
                 f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
@@ -261,13 +269,17 @@ class PiKVM:
         if status < 300:
             return
 
+        if status < 400:
+            # A redirect is reported from its Location alone: with stream()
+            # the body has not been read, and touching it here would raise.
+            raise _status_error(status, location=response.headers.get("location", ""))
+
         error, error_msg = cls._error_fields(response)
         raise _status_error(
             status,
             error=error,
             error_msg=error_msg,
             detail=cls._body_excerpt(response),
-            location=response.headers.get("location", ""),
         )
 
     @staticmethod
@@ -345,6 +357,13 @@ class PiKVM:
                 yield response
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
+        except httpx.TooManyRedirects as exc:
+            # Only reachable with follow_redirects=True. httpx derives it
+            # from RequestError rather than TransportError, so the clause
+            # below does not cover it and it would escape PiKVMError.
+            raise RedirectError(
+                f"{exc} Point the client at the URL the redirects lead to."
+            ) from exc
         except httpx.UnsupportedProtocol as exc:
             raise ConfigurationError(
                 f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."

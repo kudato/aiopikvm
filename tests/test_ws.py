@@ -191,7 +191,7 @@ async def test_aenter_wss_no_verify() -> None:
     mock_connect = AsyncMock(return_value=AsyncMock())
     with patch("aiopikvm._ws._Connector", mock_connect):
         await ws.__aenter__()
-        ctx = mock_connect.call_args[1]["ssl"]
+        ctx = mock_connect.call_args[1]["ssl_context"]
         assert isinstance(ctx, ssl.SSLContext)
         assert ctx.verify_mode == ssl.CERT_NONE
         assert ctx.check_hostname is False
@@ -203,7 +203,7 @@ async def test_aenter_wss_verify() -> None:
     mock_connect = AsyncMock(return_value=AsyncMock())
     with patch("aiopikvm._ws._Connector", mock_connect):
         await ws.__aenter__()
-        assert mock_connect.call_args[1]["ssl"] is True
+        assert mock_connect.call_args[1]["ssl_context"] is True
     ws._connection = None
 
 
@@ -212,7 +212,7 @@ async def test_aenter_http() -> None:
     mock_connect = AsyncMock(return_value=AsyncMock())
     with patch("aiopikvm._ws._Connector", mock_connect):
         await ws.__aenter__()
-        assert mock_connect.call_args[1]["ssl"] is None
+        assert mock_connect.call_args[1]["ssl_context"] is None
     ws._connection = None
 
 
@@ -310,10 +310,8 @@ async def test_status_mapping_matches_the_http_client(
 async def test_refusal_without_a_kvmd_envelope() -> None:
     """A proxy in front of kvmd answers with something else entirely."""
     body = b"<html>nginx</html>"
-    async with serving(response(502, "Bad Gateway", body, **{"C-T": "text/html"})) as (
-        url,
-        _,
-    ):
+    refused = response(502, "Bad Gateway", body, **{"Content-Type": "text/html"})
+    async with serving(refused) as (url, _):
         with pytest.raises(APIError) as caught:
             async with socket(url):
                 pass
@@ -335,12 +333,13 @@ async def test_refusal_with_a_json_body_that_is_not_an_envelope() -> None:
 async def test_redirect_is_reported_instead_of_followed() -> None:
     """Following it would hand the password to whatever the redirect points at."""
     async with serving() as (target, target_seen):
-        moved = response(302, "Found", Location=f"ws{target[4:]}/api/ws")
-        async with serving(moved) as (url, _):
+        location = f"ws{target[4:]}/api/ws"
+        async with serving(response(302, "Found", Location=location)) as (url, _):
             with pytest.raises(RedirectError) as caught:
                 async with socket(url):
                     pass
     assert caught.value.status_code == 302
+    assert location in str(caught.value), "the caller needs to know where to point"
     assert "follow_redirects=True" in str(caught.value)
     assert target_seen == [], "the credentials must not reach the redirect target"
 
@@ -353,6 +352,31 @@ async def test_redirect_is_followed_when_asked() -> None:
             async with socket(url, follow_redirects=True):
                 pass
     assert len(target_seen) == 1
+
+
+async def test_redirect_repeated_header_stays_in_the_hierarchy() -> None:
+    """websockets' own lookup raises a LookupError that is not a KeyError."""
+    headers = Headers()
+    headers["Location"] = "ws://one.invalid/api/ws"
+    headers["Location"] = "ws://two.invalid/api/ws"
+    headers["Content-Length"] = "0"
+    duplicated = websockets.http11.Response(302, "Found", headers, b"")
+    async with serving(duplicated) as (url, _):
+        with pytest.raises(RedirectError) as caught:
+            async with socket(url):
+                pass
+    assert "one.invalid" in str(caught.value)
+
+
+async def test_a_server_that_ignores_the_upgrade_is_not_a_redirect() -> None:
+    """Anything but 101 arrives here, and a 200 page is not a redirect."""
+    body = b"<html>captive portal</html>"
+    async with serving(response(200, "OK", body)) as (url, _):
+        with pytest.raises(APIError) as caught:
+            async with socket(url):
+                pass
+    assert not isinstance(caught.value, RedirectError)
+    assert caught.value.status_code == 200
 
 
 # --- Events --------------------------------------------------------------
@@ -428,21 +452,6 @@ async def test_events_raise_on_a_connection_that_breaks(code: int) -> None:
                 async for event in ws.events():
                     seen.append(event)
     assert [event["event_type"] for event in seen] == ["loop"]
-
-
-async def test_events_raise_when_the_connection_breaks() -> None:
-    """A 1006 close reaches the caller instead of looking like end-of-stream."""
-    ws = socket()
-    ws._connection = iterating(
-        json.dumps({"event_type": "pong", "event": {}}),
-        closed=websockets.exceptions.ConnectionClosedError(None, None),
-    )
-
-    seen = []
-    with pytest.raises(WebSocketError, match="Connection lost"):
-        async for event in ws.events():
-            seen.append(event)
-    assert len(seen) == 1
 
 
 async def test_events_require_a_connection() -> None:

@@ -40,17 +40,37 @@ class _Connector(websockets.asyncio.client.connect):
     """
 
     def __init__(
-        self, *args: Any, follow_redirects: bool = False, **kwargs: Any
+        self,
+        uri: str,
+        *,
+        follow_redirects: bool = False,
+        additional_headers: dict[str, str],
+        ssl_context: ssl.SSLContext | bool | None,
+        open_timeout: float,
+        close_timeout: float,
     ) -> None:
         """Prepare the handshake.
 
+        The arguments are spelled out rather than forwarded as ``**kwargs``
+        so that they stay type-checked; ``connect`` takes many more, and none
+        of them are used here.
+
         Args:
-            *args: Passed to :class:`websockets.asyncio.client.connect`.
+            uri: ``ws://`` or ``wss://`` URI to connect to.
             follow_redirects: Follow a redirect instead of reporting it.
-            **kwargs: Passed to :class:`websockets.asyncio.client.connect`.
+            additional_headers: Headers to add to the upgrade request.
+            ssl_context: TLS configuration, or ``None`` for a plain socket.
+            open_timeout: Seconds to wait for the handshake.
+            close_timeout: Seconds to wait for the closing handshake.
         """
         self._follow_redirects = follow_redirects
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            uri,
+            additional_headers=additional_headers,
+            ssl=ssl_context,
+            open_timeout=open_timeout,
+            close_timeout=close_timeout,
+        )
 
     def process_redirect(self, exc: Exception) -> Exception | str:
         """Decide what to do with a handshake response.
@@ -169,7 +189,7 @@ class PiKVMWebSocket:
             self._connection = await _Connector(
                 self._url,
                 additional_headers=headers,
-                ssl=ssl_context,
+                ssl_context=ssl_context,
                 open_timeout=self._open_timeout,
                 close_timeout=self._close_timeout,
                 follow_redirects=self._follow_redirects,
@@ -196,7 +216,13 @@ class PiKVMWebSocket:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        """Close the connection."""
+        """Close the connection, whatever happened inside the block.
+
+        Args:
+            exc_type: Type of the exception the block raised, if any.
+            exc_val: The exception the block raised, if any.
+            exc_tb: Traceback of that exception, if any.
+        """
         if self._connection is not None:
             try:
                 await self._connection.close()
@@ -358,7 +384,8 @@ def _handshake_error(response: websockets.http11.Response) -> APIError:
     """Build the exception for an upgrade that was refused.
 
     kvmd refuses it with the same envelope it uses everywhere else, so the
-    status is mapped exactly as the REST client maps it.
+    status goes through the same mapping the REST client uses. Anything but
+    101 arrives here, a 2xx from something that ignored the upgrade included.
 
     Args:
         response: The HTTP response that came back instead of the upgrade.
@@ -367,10 +394,14 @@ def _handshake_error(response: websockets.http11.Response) -> APIError:
         The exception to raise.
     """
     error, error_msg = _error_fields_from_bytes(response.body)
+    # Not headers.get: websockets raises MultipleValuesError — a LookupError
+    # rather than a KeyError, so Mapping.get does not absorb it — when a
+    # header arrives twice, and that would escape PiKVMError entirely.
+    location = response.headers.get_all("Location")
     return _status_error(
         response.status_code,
         error=error,
         error_msg=error_msg,
         detail=response.reason_phrase,
-        location=response.headers.get("Location", ""),
+        location=location[0] if location else "",
     )

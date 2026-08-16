@@ -148,6 +148,7 @@ async def test_websocket_stream_flag_counts_this_client(live: PiKVM) -> None:
 
         async with live.ws(stream=False):
             without_viewer = await _client_counts(watcher)
+        assert without_viewer, "kvmd broadcasts a clients count on every connect"
         assert baseline + 1 not in without_viewer, "a non-stream client is not"
 
     assert without_viewer[-1] == baseline

@@ -228,6 +228,20 @@ async def test_redirect_followed_when_enabled(mock_api: respx.MockRouter) -> Non
         assert (await kvm.atx.get_state()).enabled is True
 
 
+async def test_redirect_loop_stays_in_the_hierarchy(
+    mock_api: respx.MockRouter,
+) -> None:
+    """httpx derives TooManyRedirects from RequestError, not TransportError."""
+    mock_api.get("/api/atx").mock(
+        return_value=httpx.Response(
+            301, headers={"Location": "https://pikvm.local/api/atx"}
+        )
+    )
+    async with PiKVM("https://pikvm.local", follow_redirects=True) as kvm:
+        with pytest.raises(RedirectError, match="edirect"):
+            await kvm.atx.get_state()
+
+
 async def test_unparsable_payload(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/api/atx").mock(
         return_value=httpx.Response(200, json={"ok": True, "result": {"enabled": True}})

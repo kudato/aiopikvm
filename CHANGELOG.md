@@ -110,9 +110,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   connected. Pass `stream=False` for a client that only reads events (#79).
 - **Breaking:** a handshake kvmd refuses raises `AuthError` (401/403) or
   `APIError`, carrying the status and kvmd's error block, instead of a blanket
-  `WebSocketError` with no detail — the same exceptions the HTTP client raises
-  for the same auth chain. `WebSocketError` now means a socket that never
-  opened or that broke (#59).
+  `WebSocketError` with no detail. Both transports share one status table, so
+  409 is a `BusyError` and 503 an `UnavailableError` whichever one reported
+  it. `WebSocketError` now means a socket that never opened or that broke —
+  DNS, TLS, a timeout, or a server that does not speak WebSocket (#59).
 - **Breaking:** `events()` raises `WebSocketError` when the connection breaks
   instead of ending the iteration silently. A clean close from either side
   still ends it quietly; the old blanket `except ConnectionClosed` caught only
@@ -215,10 +216,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `PiKVMError` hierarchy. `__aenter__` could likewise let a bare `ValueError`
   through for a URI `websockets` rejects itself. Both now raise
   `WebSocketError` (#59).
-- The WebSocket handshake mapped only 401 and 403; every other status it was
-  refused with became a bare `APIError`, so a 409 or 503 meant one thing over
-  REST and another over the socket. Both transports now share one status
-  table (#59).
+- `PiKVM.request()` let `httpx.TooManyRedirects` escape when the client was
+  created with `follow_redirects=True`. httpx derives it from `RequestError`
+  rather than `TransportError`, so none of the clauses caught it; it now
+  arrives as `RedirectError`.
 - The WebSocket guide described a handshake that does not happen. kvmd does
   not send "a full state bundle" first: `loop` carries the protocol version,
   then each subsystem sends its state in no guaranteed order, and later

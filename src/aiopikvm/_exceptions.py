@@ -124,7 +124,10 @@ def _status_error(
     """Build the exception reporting an HTTP status kvmd refused with.
 
     Args:
-        status: HTTP status code, 3xx or above.
+        status: HTTP status code. Any status a caller could not use: 3xx and
+            above over REST, and over the WebSocket anything but 101 —
+            including a 2xx from something that did not understand the
+            upgrade at all.
         error: kvmd's exception class name from the response envelope.
         error_msg: kvmd's human-readable message from the envelope.
         detail: Fallback description when the envelope carried neither — the
@@ -135,7 +138,7 @@ def _status_error(
         :class:`RedirectError` for 3xx, the class registered for the status,
         or :class:`APIError` for anything else.
     """
-    if status < 400:
+    if 300 <= status < 400:
         return RedirectError(
             f"HTTP {status}: PiKVM redirected to "
             f"{location or 'an undisclosed location'}. Point the client at "
