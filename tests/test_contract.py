@@ -49,7 +49,7 @@ class Case(NamedTuple):
 
 
 CASES = (
-    Case("atx", ATXState, coverage_issue=72),
+    Case("atx", ATXState),
     Case("hid", HIDState),
     Case("hid_keymaps", HIDKeymaps, key="keymaps"),
     Case("hid_inactivity", _HIDInactivity),

@@ -39,17 +39,18 @@ All exceptions inherit from `PiKVMError`, so you can catch all aiopikvm errors w
 ## APIError details
 
 `APIError` carries the HTTP status and the error block kvmd puts in the body
-(`{"ok": false, "result": {"error": "IsBusyError", "error_msg": "..."}}`):
+(`{"ok": false, "result": {"error": "AtxIsBusyError", "error_msg": "..."}}`).
+The class name is the kvmd exception, so it is subsystem-specific:
 
 ```python
 from aiopikvm import APIError
 
 try:
-    await kvm.atx.get_state()
+    await kvm.atx.click_power()
 except APIError as exc:
     print(f"Status: {exc.status_code}")   # 409
-    print(f"Class: {exc.error}")          # IsBusyError
-    print(f"Message: {exc.error_msg}")    # Performing another operation
+    print(f"Class: {exc.error}")          # AtxIsBusyError
+    print(f"Message: {exc.error_msg}")    # Performing another ATX operation, ...
 ```
 
 `error` and `error_msg` are empty strings when the response carried no kvmd
@@ -121,13 +122,13 @@ from aiopikvm import (
 )
 
 try:
-    await kvm.atx.get_state()
+    await kvm.atx.click_power()
 except AuthError:
     print("Invalid credentials")
 except BusyError:
     print("PiKVM is busy — retry in a moment")
 except UnavailableError:
-    print("ATX is disabled on this device")
+    print("The subsystem is offline")
 except ResponseError as exc:
     print(f"Cannot parse this kvmd version: {exc}")
 except ConnectError:
@@ -141,6 +142,12 @@ except APIError as exc:
 Order matters: `BusyError`, `UnavailableError`, `ResponseError`, `AuthError`
 and `RedirectError` all inherit from `APIError`, so a bare `except APIError`
 first would swallow them.
+
+A subsystem that is disabled in the kvmd config does **not** produce
+`UnavailableError`: kvmd answers HTTP 400 with its own class name, so it
+arrives as a plain `APIError`. Tell them apart by `exc.error` — for example
+`"AtxDisabledError"` — or check the subsystem state first, where `enabled`
+says so without a failed call.
 
 ### WebSocket errors
 

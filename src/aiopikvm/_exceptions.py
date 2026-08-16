@@ -18,10 +18,11 @@ class APIError(PiKVMError):
 
     Attributes:
         status_code: HTTP status code (``0`` when parsed from the JSON body).
-        error: kvmd's exception class name, e.g. ``"IsBusyError"``. Empty
+        error: kvmd's exception class name, e.g. ``"AtxIsBusyError"``. Empty
             when the response carried no kvmd error block.
         error_msg: kvmd's human-readable message, e.g. ``"Performing another
-            operation"``. Empty when the response carried no kvmd error block.
+            ATX operation, please try again later"``. Empty when the response
+            carried no kvmd error block.
     """
 
     def __init__(
@@ -43,18 +44,22 @@ class AuthError(APIError):
 
 
 class BusyError(APIError):
-    """PiKVM is busy with another operation (HTTP 409, kvmd ``IsBusyError``).
+    """PiKVM is busy with another operation (HTTP 409).
 
     Raised by ATX, MSD and GPIO calls while an earlier operation is still
-    running; the same call usually succeeds once it finishes.
+    running; the same call usually succeeds once it finishes. ``error`` names
+    the subsystem's own kvmd class, such as ``"AtxIsBusyError"``.
     """
 
 
 class UnavailableError(APIError):
-    """The subsystem is disabled or offline (HTTP 503).
+    """The subsystem is offline (HTTP 503).
 
-    Raised for a subsystem that is switched off in the kvmd config, or for a
-    snapshot while the video source has no signal.
+    Raised for a subsystem that cannot serve the request right now — an MSD
+    that has not finished setting up, or a snapshot while the video source
+    has no signal. A subsystem switched off in the kvmd config answers
+    HTTP 400 instead, so that arrives as a plain :class:`APIError` whose
+    ``error`` names the reason, e.g. ``"AtxDisabledError"``.
     """
 
 

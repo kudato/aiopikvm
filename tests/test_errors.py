@@ -147,14 +147,17 @@ async def test_non_ascii_credentials() -> None:
 async def test_busy_error(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/atx/power").mock(
         return_value=httpx.Response(
-            409, json=_kvmd_error("IsBusyError", "Performing another operation")
+            409,
+            json=_kvmd_error(
+                "AtxIsBusyError",
+                "Performing another ATX operation, please try again later",
+            ),
         )
     )
-    with pytest.raises(BusyError, match="Performing another operation") as info:
+    with pytest.raises(BusyError, match="Performing another ATX operation") as info:
         await client.atx.power_on()
     assert info.value.status_code == 409
-    assert info.value.error == "IsBusyError"
-    assert info.value.error_msg == "Performing another operation"
+    assert info.value.error == "AtxIsBusyError"
 
 
 async def test_unavailable_error(mock_api: respx.MockRouter, client: PiKVM) -> None:
