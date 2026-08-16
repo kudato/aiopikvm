@@ -136,6 +136,34 @@ class PiKVM:
             )
         return self._client
 
+    @property
+    def cookies(self) -> httpx.Cookies:
+        """Cookies the underlying HTTP client carries.
+
+        :meth:`AuthResource.login` leaves kvmd's ``auth_token`` here, and
+        every later request sends it back.
+
+        Putting a token here is not enough to authenticate by session,
+        though. kvmd tries the ``X-KVMD-*`` headers first and, once it sees a
+        non-empty ``X-KVMD-User``, either accepts that pair or refuses the
+        request outright — it never falls through to the cookie. Since this
+        client always sends the header, the token is only ever the credential
+        for an :class:`httpx.AsyncClient` passed in as *http_client* without
+        those headers::
+
+            transport = httpx.AsyncClient(base_url=url, verify=False)
+            transport.cookies.set("auth_token", saved_token)
+            async with PiKVM(url, http_client=transport) as kvm:
+                ...
+
+        Returns:
+            The live cookie jar — mutating it affects subsequent requests.
+
+        Raises:
+            PiKVMError: If the async context has not been entered yet.
+        """
+        return self._ensure_client().cookies
+
     async def request(
         self,
         method: str,
@@ -143,6 +171,7 @@ class PiKVM:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | httpx.Timeout | None = None,
@@ -154,6 +183,9 @@ class PiKVM:
             path: URL path relative to the PiKVM base URL.
             params: Query parameters.
             json: JSON body.
+            data: Form fields, sent as ``application/x-www-form-urlencoded``.
+                kvmd reads ``/auth/login`` with aiohttp's form parser, which
+                sees nothing in a JSON body.
             content: Raw body bytes or async byte stream.
             headers: Extra HTTP headers.
             timeout: Override the client-level timeout for this request.
@@ -179,6 +211,7 @@ class PiKVM:
                 path,
                 params=params,
                 json=json,
+                data=data,
                 content=content,
                 headers=headers,
                 timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,

@@ -1,5 +1,5 @@
 {
-  "description": "Session-cookie authentication round trip against kvmd 4.186, recorded by hand with httpx (see README). Credentials are placeholders.",
+  "description": "Session-cookie authentication round trip against kvmd 4.186, plus every way the endpoints refuse one, recorded by hand with httpx (see README). Credentials are placeholders.",
   "steps": [
     {
       "name": "login_json_body",
@@ -30,14 +30,87 @@
       "sets_cookie": "auth_token"
     },
     {
+      "name": "login_wrong_passwd",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "note": "credentials the validators accept but the auth manager rejects",
+      "status": 403,
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ForbiddenError",
+          "error_msg": "Forbidden"
+        }
+      },
+      "request_content_type": "application/x-www-form-urlencoded"
+    },
+    {
+      "name": "login_invalid_user",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "note": "user name fails valid_user's regex before any lookup happens",
+      "status": 400,
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ValidatorError",
+          "error_msg": "The argument 'ADMIN!' is not a valid username characters"
+        }
+      },
+      "request_content_type": "application/x-www-form-urlencoded"
+    },
+    {
+      "name": "login_invalid_expire",
+      "method": "POST",
+      "path": "/api/auth/login",
+      "note": "expire is validated as a non-negative number",
+      "status": 400,
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ValidatorError",
+          "error_msg": "The argument 'abc' is not a valid expiration time"
+        }
+      },
+      "request_content_type": "application/x-www-form-urlencoded"
+    },
+    {
       "name": "check_with_cookie",
       "method": "GET",
       "path": "/api/auth/check",
-      "note": "session cookie accepted",
+      "note": "session cookie accepted, no X-KVMD-* headers sent",
       "status": 200,
       "body": {
         "ok": true,
         "result": {}
+      }
+    },
+    {
+      "name": "check_without_credentials",
+      "method": "GET",
+      "path": "/api/auth/check",
+      "note": "no header, cookie or basic auth at all",
+      "status": 401,
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "UnauthorizedError",
+          "error_msg": "Unauthorized"
+        }
+      }
+    },
+    {
+      "name": "logout_without_cookie",
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "note": "authorized by X-KVMD-* headers, but the handler needs the cookie to know which session to drop; the token value is hidden from the message by the validator",
+      "status": 400,
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ValidatorError",
+          "error_msg": "The argument is not a valid auth token"
+        }
       }
     },
     {

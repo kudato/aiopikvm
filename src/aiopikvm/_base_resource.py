@@ -33,6 +33,7 @@ class BaseResource:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | httpx.Timeout | None = None,
@@ -44,6 +45,7 @@ class BaseResource:
             path: URL path relative to the PiKVM base URL.
             params: Query parameters.
             json: JSON body.
+            data: Form fields, sent as ``application/x-www-form-urlencoded``.
             content: Raw body bytes or async byte stream.
             headers: Extra HTTP headers.
             timeout: Override the client-level timeout for this call.
@@ -60,6 +62,7 @@ class BaseResource:
             path,
             params=params,
             json=json,
+            data=data,
             content=content,
             headers=headers,
             timeout=timeout,
@@ -139,6 +142,7 @@ class BaseResource:
         *,
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
         content: bytes | httpx.AsyncByteStream | None = None,
         headers: dict[str, str] | None = None,
         timeout: float | httpx.Timeout | None = None,
@@ -149,6 +153,7 @@ class BaseResource:
             path,
             params=params,
             json=json,
+            data=data,
             content=content,
             headers=headers,
             timeout=timeout,

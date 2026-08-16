@@ -180,7 +180,7 @@
   "scenarios": {
     "auth_roundtrip": {
       "file": "auth_roundtrip.json",
-      "description": "POST /api/auth/login with a JSON body vs a form body, then check/logout/check with the session cookie."
+      "description": "POST /api/auth/login with a JSON body vs a form body, the session cookie round trip through check/logout/check, and every refusal the three endpoints produce: wrong password, a user name and an expire the validators reject, logout without the cookie, and check with no credentials at all."
     },
     "msd_downloading": {
       "file": "msd_downloading.json",
