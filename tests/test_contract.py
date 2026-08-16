@@ -58,7 +58,7 @@ CASES = (
     Case("msd_image", MSDState),
     Case("msd_uploading", MSDState),
     Case("msd_downloading", MSDState),
-    Case("gpio", GPIOState, parse_issue=41, coverage_issue=41),
+    Case("gpio", GPIOState),
     Case("streamer", StreamerState, coverage_issue=52),
     Case("switch", SwitchState, parse_issue=42, coverage_issue=42),
     Case("streamer_ocr", OCRInfo, key="ocr"),

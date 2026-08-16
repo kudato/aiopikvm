@@ -16,7 +16,20 @@ from aiopikvm._exceptions import (
 )
 from aiopikvm._ws import PiKVMWebSocket
 from aiopikvm.models.atx import ATXLeds, ATXState
-from aiopikvm.models.gpio import GPIOChannel, GPIOInput, GPIOState
+from aiopikvm.models.gpio import (
+    GPIOChannel,
+    GPIOHardware,
+    GPIOInput,
+    GPIOInputScheme,
+    GPIOIOState,
+    GPIOModel,
+    GPIOOutputScheme,
+    GPIOPulse,
+    GPIOScheme,
+    GPIOState,
+    GPIOView,
+    GPIOViewHeader,
+)
 from aiopikvm.models.hid import (
     HIDJiggler,
     HIDKeyboard,
@@ -69,8 +82,17 @@ __all__ = [
     "ConnectError",
     "ConnectionTimeoutError",
     "GPIOChannel",
+    "GPIOHardware",
+    "GPIOIOState",
     "GPIOInput",
+    "GPIOInputScheme",
+    "GPIOModel",
+    "GPIOOutputScheme",
+    "GPIOPulse",
+    "GPIOScheme",
     "GPIOState",
+    "GPIOView",
+    "GPIOViewHeader",
     "HIDJiggler",
     "HIDKeyboard",
     "HIDKeyboardLeds",

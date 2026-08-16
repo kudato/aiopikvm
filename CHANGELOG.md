@@ -46,6 +46,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   breaks, the second writes into a subdirectory of the storage (#39).
 - `MSDImage`, `MSDDriveImage`, `MSDPart`, `MSDUpload` and `MSDDownload` models
   for the parts of the MSD state that had no types at all (#38).
+- `wait` parameter on `GPIOResource.switch()` and `pulse()`. Without it kvmd
+  answers as soon as the action starts and writes whatever goes wrong after
+  that — an offline driver above all — to its own log only; with it the call
+  blocks until the action finishes and those failures reach the caller. A busy
+  channel raises `BusyError` either way. Both calls also take a per-call
+  `timeout`, since a waited pulse can outlast the client default (#51).
+- `GPIOModel`, `GPIOScheme`, `GPIOOutputScheme`, `GPIOInputScheme`,
+  `GPIOPulse`, `GPIOHardware`, `GPIOView`, `GPIOViewHeader` and `GPIOIOState`
+  models. The scheme is where a channel's driver, pin and pulse limits live —
+  none of it was reachable before (#41).
 
 ### Changed
 
@@ -53,6 +63,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
   `leds`. `HIDState` gains `enabled` and `jiggler`, and keeps the nullable
   top-level `connected` (#36).
+- **Breaking:** `GPIOState` follows the two-level shape kvmd sends —
+  `model {scheme, view}` and `state {inputs, outputs}` — instead of a flat
+  `inputs`/`outputs` no kvmd ever emitted. `state.inputs` and `state.outputs`
+  are also exposed as `inputs`/`outputs` properties, so code that only reads
+  channel states keeps working (#41).
 - **Breaking:** `MSDState.drive` and `MSDState.storage` are now optional, and
   both blocks follow what kvmd sends: `MSDStorage` carries `images`, `parts`,
   `downloading` and `uploading` instead of the invented `size`/`free`, and
@@ -84,6 +99,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   HID backend nests `connected` under `keyboard` or `mouse` — it exists only
   at the top level. The mocked test passed because its payload was
   hand-written; the models now follow a capture from kvmd 4.186 (#36).
+- `GPIOResource.get_state()` raised on every real device: the model expected
+  top-level `inputs`/`outputs`, while kvmd nests them under `state` alongside
+  a `model` block. The mocked test encoded the flat shape and passed (#41).
 - `MSDResource.get_state()` failed against every real device. `drive` and
   `storage` were required but kvmd nulls both while the MSD is offline;
   `MSDStorage` demanded `size` and `free`, which kvmd does not send; and
