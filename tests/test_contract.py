@@ -59,7 +59,7 @@ CASES = (
     Case("msd_uploading", MSDState),
     Case("msd_downloading", MSDState),
     Case("gpio", GPIOState),
-    Case("streamer", StreamerState, coverage_issue=52),
+    Case("streamer", StreamerState),
     Case("switch", SwitchState),
     Case("streamer_ocr", OCRInfo, key="ocr"),
 )

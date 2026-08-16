@@ -56,6 +56,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   blocks until the action finishes and those failures reach the caller. A busy
   channel raises `BusyError` either way. Both calls also take a per-call
   `timeout`, since a waited pulse can outlast the client default (#51).
+- `StreamerResource.set_params()` and `reset()`. Neither the tunable
+  parameters nor the streamer restart — the standard recovery for a frozen
+  pipeline — could be reached before (#53).
+- `save`, `load` and the preview parameters on `StreamerResource.snapshot()`.
+  `delete_snapshot()` existed with nothing able to create what it deleted, and
+  `load` is the only way to get an image while the streamer is stopped (#54).
+- OCR region cropping: `left`, `top`, `right` and `bottom` on
+  `StreamerResource.ocr()`. A full screen takes Tesseract 10-20 s on the Pi,
+  a region a fraction of that (#55).
+- `StreamerState.applied`, the parameters the running streamer ended up with.
+  Comparing it against `params` is the only way to tell whether a change took
+  effect (#52).
 - **Breaking:** `ATXState.acts` (`ATXActs`), the per-line busy flags kvmd has
   always sent, is now a declared and required field rather than an untyped
   extra. `busy` is the union of the two; `acts` says whether it is the power
@@ -77,6 +89,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
   `leds`. `HIDState` gains `enabled` and `jiggler`, and keeps the nullable
   top-level `connected` (#36).
+- **Breaking:** `StreamerResource.snapshot()` returns a `SnapshotImage`
+  instead of bare bytes. The JPEG is in `.data`, and `.online` says whether it
+  is the host screen or the "NO LIVE VIDEO" placeholder — kvmd reports that
+  only in the response headers, which the old return type discarded (#54).
+- **Breaking:** the optional halves of `StreamerState` are optional in the
+  model too. kvmd builds `params` and `limits` from what the device supports,
+  so `quality`, `resolution`, `h264_bitrate` and `h264_gop` are absent on
+  hardware without them, as is `streamer.h264`; requiring them made
+  `get_state()` raise on any device without H.264 (#52).
 - **Breaking:** every mutating `ATXResource` call now defaults to
   `wait=False`, matching kvmd. Waiting was the client's own invention and held
   the HTTP request for the length of the action — a long power click holds the
@@ -138,6 +159,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   HID backend nests `connected` under `keyboard` or `mouse` — it exists only
   at the top level. The mocked test passed because its payload was
   hand-written; the models now follow a capture from kvmd 4.186 (#36).
+- `StreamerResource.get_state()` raised on a device without H.264 or without
+  an adjustable encoder, and hid the resolution data on capture hardware that
+  has it. The captured fixture covers one flavour only, so the conditional
+  blocks are exercised by deriving the other shapes from it (#52).
 - `SwitchResource.get_state()` raised on every real device — the model was a
   flat `{active, ports}` shape no kvmd emits (#42).
 - The captured switch fixture identified the monitor its EDID was learned

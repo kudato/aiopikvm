@@ -28,6 +28,22 @@ class StreamerEncoder(_Base):
     type: str
 
 
+class SnapshotImage(_Base):
+    """A JPEG taken from the video stream, with what ustreamer said about it.
+
+    ``online`` is ``False`` when the frame is the "NO LIVE VIDEO" placeholder
+    rather than a picture of the host, which is the only way to tell the two
+    apart. The metadata is missing when the snapshot came from the cache
+    (``load=True``) rather than from the running streamer.
+    """
+
+    data: bytes
+    online: bool | None = None
+    width: int | None = None
+    height: int | None = None
+    timestamp: float | None = None
+
+
 class StreamerH264(_Base):
     """H.264 encoder runtime state."""
 
@@ -63,15 +79,16 @@ class Streamer(_Base):
 
     Present only when the streamer is active. ``StreamerState.streamer`` is
     ``None`` when no clients are subscribed and kvmd has shut the streamer
-    process down.
+    process down. ``h264`` is absent unless ustreamer was built and configured
+    with H.264 support.
     """
 
     encoder: StreamerEncoder
-    h264: StreamerH264
     instance_id: str
     sinks: StreamerSinks
     source: StreamerSource
     stream: StreamerStream
+    h264: StreamerH264 | None = None
 
 
 class StreamerLimitRange(_Base):
@@ -82,11 +99,17 @@ class StreamerLimitRange(_Base):
 
 
 class StreamerLimits(_Base):
-    """Limits for tunable streamer parameters."""
+    """Limits for the tunable streamer parameters.
+
+    Only ``desired_fps`` is always present. kvmd adds the H.264 ranges only
+    when H.264 is configured, and ``available_resolutions`` only on a device
+    whose capture hardware can switch resolution.
+    """
 
     desired_fps: StreamerLimitRange
-    h264_bitrate: StreamerLimitRange
-    h264_gop: StreamerLimitRange
+    h264_bitrate: StreamerLimitRange | None = None
+    h264_gop: StreamerLimitRange | None = None
+    available_resolutions: list[str] | None = None
 
 
 class StreamerFeatures(_Base):
@@ -98,12 +121,19 @@ class StreamerFeatures(_Base):
 
 
 class StreamerParams(_Base):
-    """Current streamer parameters."""
+    """Streamer parameters.
+
+    Mirrors what the device supports: ``quality`` is absent when the capture
+    path has no adjustable JPEG quality, ``resolution`` only exists on
+    resolution-capable hardware, and the H.264 pair only when H.264 is
+    configured. Used for both the requested parameters and the applied ones.
+    """
 
     desired_fps: int
-    h264_bitrate: int
-    h264_gop: int
-    quality: int
+    quality: int | None = None
+    resolution: str | None = None
+    h264_bitrate: int | None = None
+    h264_gop: int | None = None
 
 
 class StreamerSnapshot(_Base):
@@ -123,6 +153,7 @@ class StreamerState(_Base):
     features: StreamerFeatures
     limits: StreamerLimits
     params: StreamerParams
+    applied: StreamerParams
     snapshot: StreamerSnapshot
     streamer: Streamer | None = None
 
