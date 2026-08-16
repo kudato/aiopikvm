@@ -99,10 +99,26 @@ async def test_get_system(mock_api: respx.MockRouter, client: PiKVM) -> None:
     assert system["PowerState"] == "Off"
 
 
+def test_collection_members_are_links_not_ids() -> None:
+    """``Members`` holds ``{"@odata.id": ...}`` objects, as the guide says.
+
+    The captured Systems collection is empty — the device has ATX disabled
+    and no switch — so the shape is pinned from its sibling collection, which
+    kvmd builds with the same comprehension.
+    """
+    members = load_json("redfish_managers")["Members"]
+    assert members == [{"@odata.id": "/redfish/v1/Managers/BMC"}]
+    assert [member["@odata.id"].rsplit("/", 1)[1] for member in members] == ["BMC"]
+
+
 async def test_get_system_switch_port(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    """A switch port id is a string, and unreachable while system_id was int."""
+    """A switch port id is a string, and unreachable while system_id was int.
+
+    Only the URL is asserted: no switch was attached to the capture device,
+    so the document served here is the one for ``Systems/0``.
+    """
     route = mock_api.get("/api/redfish/v1/Systems/SwitchPort3").mock(
         return_value=httpx.Response(200, json=load_json("redfish_system_0"))
     )
@@ -229,15 +245,20 @@ def test_reset_types_match_the_device() -> None:
     assert sorted(RESET_TYPES) == sorted(allowed)
 
 
-async def test_set_default_boot_order_is_not_implemented(
-    mock_api: respx.MockRouter, client: PiKVM
-) -> None:
-    """Advertised in every system document, answered by aiohttp's plain 404."""
+def test_set_default_boot_order_is_advertised_but_missing() -> None:
+    """The action every system document offers answers a plain-text 404.
+
+    aiopikvm exposes no method for it, so this pins the pair of facts the
+    guide warns about rather than any client behaviour.
+    """
+    actions = load_json("redfish_system_0")["Actions"]
+    target = actions["#ComputerSystem.SetDefaultBootOrder"]["target"]
+    assert target.endswith("/Actions/ComputerSystem.SetDefaultBootOrder")
+
     recorded = step("set_default_boot_order")
-    mock_api.post(recorded["path"]).mock(return_value=replay("set_default_boot_order"))
-    with pytest.raises(APIError, match="404: Not Found") as info:
-        await client.redfish._send_action("POST", recorded["path"], json={})
-    assert info.value.status_code == 404
+    assert recorded["path"].endswith(target.replace("/redfish", "/api/redfish"))
+    assert recorded["status"] == 404
+    assert recorded["content_type"].startswith("text/plain")
 
 
 async def test_reset_auth_error(mock_api: respx.MockRouter, client: PiKVM) -> None:

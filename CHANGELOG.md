@@ -107,9 +107,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Breaking:** `RedfishResource.reset()` and `update_system()` return `None`.
   kvmd answers both with HTTP 204 and an empty body, so the documented `dict`
   was unreachable: `_redfish_request()` called `.json()` on nothing and every
-  call raised `APIError("Invalid JSON response")` instead of performing.
-  A reset is asynchronous besides — read the outcome from
+  call raised `APIError("Invalid JSON response")` — after the action had
+  already been dispatched, which made a performed reset look like a failed
+  one. A reset is asynchronous besides, so read the outcome from
   `get_system()["PowerState"]` or from `atx.get_state()` (#44).
+- A Redfish document that is not a JSON object raises `ResponseError`
+  instead of being handed to the caller untyped, and a non-JSON body reports
+  the path and what arrived instead of the generic
+  `APIError("Invalid JSON response")`. `ResponseError` derives from
+  `APIError`, so existing handlers keep catching both (#44).
 - **Breaking:** Redfish system ids are strings. `system_id` is typed `str` and
   defaults to `"0"`, and `reset()` takes it as a second parameter instead of
   hardcoding `Systems/0`. kvmd validates the id as the literal `"0"` or
@@ -232,9 +238,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - The Redfish guide advertised `ResetType` `GracefulRestart`, which kvmd
   refuses with HTTP 400 — the documented example could never have worked. The
   guide now lists the six values kvmd accepts, notes that they are matched
-  case-sensitively, warns that the default `ForceRestart` cuts the power, and
+  case-sensitively, and spells out what each one does: they press the front
+  panel's power or reset switch, and all but `PushPowerButton` are conditional
+  on the host's current power state, so the default `ForceRestart` is a reset
+  click that does nothing at all against a host that is already off. It also
   records that the `SetDefaultBootOrder` action every system document
-  advertises is answered by a plain-text 404 (#78).
+  advertises is answered by a plain-text 404, and that `Members` holds
+  `{"@odata.id": ...}` links rather than bare ids (#78).
 - The Prometheus guide showed `# HELP` lines the exporter does not emit, and
   documented none of its limits: the export is cached server-side for 5 s, it
   covers only ATX, GPIO, health and fan, it exports numbers only, and an

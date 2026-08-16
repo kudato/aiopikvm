@@ -51,8 +51,10 @@ differs between boards.
 
 ### GPIO channel names
 
-A channel becomes `pikvm_gpio_input_<key>_<channel>` and
-`pikvm_gpio_output_<key>_<channel>`. Two rules apply to the channel part:
+A channel lives in exactly one direction, so it produces one pair of metrics:
+`pikvm_gpio_input_online_<channel>` and `pikvm_gpio_input_state_<channel>` for
+an input, the `output` spelling for an output. Two rules apply to the channel
+part of the name:
 
 - channels whose name starts with `__` are hidden from the export;
 - every character that is not a letter, digit or underscore is replaced with

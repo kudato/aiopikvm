@@ -51,7 +51,9 @@ class RedfishResource(BaseResource):
 
         Raises:
             ResponseError: If the body is not a JSON object.
-            APIError: Whatever :meth:`PiKVM.request` raises for the status.
+            PiKVMError: Whatever :meth:`PiKVM.request` raises — an
+                :class:`APIError` subclass for the status, or a transport
+                failure such as :class:`ConnectError`.
         """
         response = await self._client.request("GET", path)
         try:
@@ -80,10 +82,12 @@ class RedfishResource(BaseResource):
             json: Optional JSON body.
 
         Raises:
-            APIError: Whatever :meth:`PiKVM.request` raises for the status.
-                A 2xx is the whole of the success signal: kvmd answers 204
-                with an empty body, and any body a later version might add
-                is ignored here rather than guessed at.
+            PiKVMError: Whatever :meth:`PiKVM.request` raises — an
+                :class:`APIError` subclass for the status, or a transport
+                failure such as :class:`ConnectError`. A 2xx is the whole of
+                the success signal: kvmd answers 204 with an empty body, and
+                any body a later version might add is ignored here rather
+                than guessed at.
         """
         await self._client.request(method, path, json=json)
 
@@ -95,25 +99,26 @@ class RedfishResource(BaseResource):
 
         Raises:
             ResponseError: If the body is not a JSON object.
-            APIError: If PiKVM refuses the request.
+            PiKVMError: If PiKVM refuses the request or is unreachable.
         """
         return await self._get_document("/api/redfish/v1")
 
     async def get_systems(self) -> dict[str, Any]:
         """Get the systems collection.
 
-        ``Members`` holds ``"0"`` when the ATX subsystem is enabled, plus one
-        ``"SwitchPort<N>"`` per port of an attached PiKVM Switch. On a device
-        with ATX disabled and no switch the collection is empty while
-        ``Systems/0`` still resolves — the collection lists what can be
-        powered, not what can be read.
+        ``Members`` is a list of ``{"@odata.id": "/redfish/v1/Systems/<id>"}``
+        links, one for ``"0"`` when the ATX subsystem is enabled and one per
+        port of an attached PiKVM Switch. The ids are the tail of those paths,
+        not the members themselves. On a device with ATX disabled and no
+        switch the collection is empty while ``Systems/0`` still resolves —
+        the collection lists what can be powered, not what can be read.
 
         Returns:
             Systems collection document.
 
         Raises:
             ResponseError: If the body is not a JSON object.
-            APIError: If PiKVM refuses the request.
+            PiKVMError: If PiKVM refuses the request or is unreachable.
         """
         return await self._get_document("/api/redfish/v1/Systems")
 
@@ -135,6 +140,7 @@ class RedfishResource(BaseResource):
             ResponseError: If the body is not a JSON object.
             APIError: If the id is not one kvmd knows (HTTP 400), or the
                 switch has no such port.
+            PiKVMError: If PiKVM is unreachable.
         """
         return await self._get_document(f"/api/redfish/v1/Systems/{system_id}")
 
@@ -153,7 +159,7 @@ class RedfishResource(BaseResource):
             **attrs: Redfish attributes, ignored by kvmd.
 
         Raises:
-            APIError: If PiKVM refuses the request.
+            PiKVMError: If PiKVM refuses the request or is unreachable.
         """
         await self._send_action(
             "PATCH", f"/api/redfish/v1/Systems/{system_id}", json=attrs
@@ -165,8 +171,22 @@ class RedfishResource(BaseResource):
         """Send a Redfish ComputerSystem.Reset action.
 
         This is the Redfish spelling of the ATX calls, and it acts on real
-        hardware: the default ``"ForceRestart"`` cuts the power and brings it
-        back, giving the host no chance to shut down cleanly.
+        hardware. Each ``ResetType`` presses one front-panel switch:
+
+        - ``"On"`` and ``"ForceOn"``: a short power click, only if the host
+          is off. The two are the same call.
+        - ``"ForceOff"``: the power switch held for 5.5 s, only if the host
+          is on.
+        - ``"GracefulShutdown"``: a short power click, only if the host is
+          on — the OS decides what to do with it.
+        - ``"ForceRestart"``: a click on the *reset* switch, only if the host
+          is on. It does not cut the power.
+        - ``"PushPowerButton"``: a short power click, unconditionally.
+
+        The default ``"ForceRestart"`` gives the host no chance to shut down
+        cleanly. Everything but ``"PushPowerButton"`` is conditional on the
+        current power state, so a ``"ForceRestart"`` sent to a host that is
+        already off does nothing and still answers 204.
 
         Returns nothing — kvmd answers HTTP 204 with an empty body, and the
         action is asynchronous besides. Read the outcome from
@@ -188,6 +208,7 @@ class RedfishResource(BaseResource):
         Raises:
             APIError: If the reset type or the id is not one kvmd accepts
                 (HTTP 400).
+            PiKVMError: If PiKVM is unreachable.
         """
         await self._send_action(
             "POST",

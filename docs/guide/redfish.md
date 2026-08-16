@@ -28,10 +28,25 @@ system = await kvm.redfish.get_system()
 print(system["PowerState"])  # "On" / "Off"
 ```
 
-`Members` holds `"0"` when the ATX subsystem is enabled, plus one
-`"SwitchPort<N>"` per port of an attached PiKVM Switch. On a device with ATX
-disabled and no switch the collection is **empty** while `Systems/0` still
-resolves — the collection lists what can be powered, not what can be read.
+`Members` is a list of links, not of ids:
+
+```python
+{"Members": [{"@odata.id": "/redfish/v1/Systems/0"},
+             {"@odata.id": "/redfish/v1/Systems/SwitchPort1"}]}
+```
+
+There is one for `"0"` when the ATX subsystem is enabled, and one per port of
+an attached PiKVM Switch. To feed them back to `get_system()`, take the tail of
+each path:
+
+```python
+systems = await kvm.redfish.get_systems()
+ids = [member["@odata.id"].rsplit("/", 1)[1] for member in systems["Members"]]
+```
+
+On a device with ATX disabled and no switch the collection is **empty** while
+`Systems/0` still resolves — the collection lists what can be powered, not what
+can be read.
 
 ### System ids
 
@@ -71,9 +86,9 @@ await kvm.redfish.update_system(IndicatorLED="Lit")
 real hardware.
 
 !!! danger
-    The default is `"ForceRestart"`: it cuts the power and brings it back,
-    giving the host no chance to shut down cleanly. Pass the reset type you
-    mean.
+    The default is `"ForceRestart"`, a press of the host's reset switch: no
+    clean shutdown, no chance to flush anything to disk. Pass the reset type
+    you mean.
 
 ```python
 await kvm.redfish.reset("GracefulShutdown")
@@ -106,14 +121,23 @@ RESET_TYPES
 #  "ForceRestart", "PushPowerButton")
 ```
 
-| ResetType | Effect |
-| --- | --- |
-| `On` | power on |
-| `ForceOn` | power on |
-| `ForceOff` | cut the power |
-| `GracefulShutdown` | short power-button press, letting the OS shut down |
-| `ForceRestart` | cut the power and restore it |
-| `PushPowerButton` | short power-button press |
+Each one presses a front-panel switch, and all but the last are conditional on
+the host's current power state:
+
+| ResetType | What kvmd does | When |
+| --- | --- | --- |
+| `On` | short power click | only if the host is off |
+| `ForceOn` | the same call as `On` | only if the host is off |
+| `ForceOff` | power switch held for 5.5 s | only if the host is on |
+| `GracefulShutdown` | short power click, for the OS to act on | only if the host is on |
+| `ForceRestart` | click on the **reset** switch | only if the host is on |
+| `PushPowerButton` | short power click | always |
+
+!!! note
+    `ForceRestart` does not cut the power — it is the reset line. And because
+    the conditional types check the power state first, `reset("ForceRestart")`
+    against a host that is already off does nothing at all and still answers
+    204.
 
 The DMTF schema defines more — `GracefulRestart`, `Nmi`, `PowerCycle` — and
 kvmd refuses all of them with HTTP 400 before taking any action, as it does a
@@ -140,14 +164,16 @@ from aiopikvm import PiKVM
 
 async def main() -> None:
     async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
-        system = await kvm.redfish.get_system()
-        print(f"Power before: {system['PowerState']}")
+        systems = await kvm.redfish.get_systems()
+        for member in systems["Members"]:
+            system_id = member["@odata.id"].rsplit("/", 1)[1]
+            system = await kvm.redfish.get_system(system_id)
+            print(f"{system_id}: {system['PowerState']}")
 
-        await kvm.redfish.reset("GracefulShutdown")
-        await asyncio.sleep(10)
-
-        system = await kvm.redfish.get_system()
-        print(f"Power after: {system['PowerState']}")
+        # Uncomment to act on the host — this shuts somebody's machine down.
+        # await kvm.redfish.reset("GracefulShutdown")
+        # await asyncio.sleep(10)
+        # print((await kvm.redfish.get_system())["PowerState"])
 
 
 asyncio.run(main())
