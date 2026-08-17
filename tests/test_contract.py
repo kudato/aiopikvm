@@ -244,8 +244,8 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
     assert names <= KEY_NAMES, sorted(names - KEY_NAMES)
 
 
-def _values(annotation: Any) -> tuple[Any, ...]:
-    """Return every literal value reachable inside *annotation*.
+def _values(annotation: Any, seen: frozenset[Any] = frozenset()) -> tuple[str, ...]:
+    """Return every literal value reachable inside *annotation*, as written.
 
     Empty for a type built out of no literals at all, which is how an
     ordinary alias — ``type Params = dict[str, Any]`` — is told apart from a
@@ -253,12 +253,30 @@ def _values(annotation: Any) -> tuple[Any, ...]:
     literals and a ``Literal[...] | None`` all read as the vocabulary they
     are: a shape this stopped seeing would stop being documented, silently,
     which is the one thing the checks below exist to prevent.
+
+    *seen* stops an alias that refers to itself — ``type Json = str | int |
+    list[Json]`` is the ordinary shape of one — from recursing forever.
+    Without it that alias is not a failing test but a ``RecursionError``
+    during collection, which takes the whole session down with it.
+
+    Values come back as text because everything they are compared against
+    is text: a regex capture out of a guide, or a cell of its table. A
+    vocabulary of numbers would otherwise be impossible to document.
+
+    Args:
+        annotation: Type to read, usually a ``type`` alias.
+        seen: Aliases already being read further up the recursion.
+
+    Returns:
+        Each literal value, in the order the type spells them.
     """
     if isinstance(annotation, TypeAliasType):
-        return _values(annotation.__value__)
+        if annotation in seen:
+            return ()
+        return _values(annotation.__value__, seen | {annotation})
     if get_origin(annotation) is Literal:
-        return get_args(annotation)
-    return tuple(value for arg in get_args(annotation) for value in _values(arg))
+        return tuple(str(value) for value in get_args(annotation))
+    return tuple(value for arg in get_args(annotation) for value in _values(arg, seen))
 
 
 _TYPED_VALUES = (
@@ -272,15 +290,17 @@ _TYPED_VALUES = (
     # in the file.
     ("ATX action", r'atx_power\([^)\n]*"([^"\n]*)"', ATXAction),
     ("ATX button", r'atx_click\([^)\n]*"([^"\n]*)"', ATXButton),
-    # Four other resources have a ``reset()`` and not one of them takes a
-    # name, which is what lets this pattern go unqualified: ``switch.reset``
-    # takes a unit number and the other four take nothing, so none of them
-    # can put a string where this looks. Qualifying it by the resource would
-    # cost the two examples that name the type without naming the resource,
-    # ``ForceRestart`` among them — the default, and the one the guide's
-    # danger block is about. The guide spells refused types out too,
+    # Four other resources have a ``reset()``, and not one of them can put a
+    # string where this looks: ``switch.reset`` takes a unit number,
+    # ``streamer.reset`` a keyword-only timeout, ``hid.reset`` and
+    # ``msd.reset`` nothing at all. That is what lets the pattern go
+    # unqualified — and going unqualified is what buys the two examples that
+    # name the type without naming the resource, ``ForceRestart`` among them:
+    # the default, and the value the guide's danger block is about. The
+    # lookbehind is the one boundary that has to be spelled out, or
+    # ``click_reset("...")`` matches. The guide spells refused types out too,
     # ``GracefulRestart`` and ``"forceoff"``, and neither is inside a call.
-    ("reset type", r'reset\(\s*"([^"\n]*)"', ResetType),
+    ("reset type", r'(?<!\w)reset\(\s*"([^"\n]*)"', ResetType),
 )
 _TYPE_TABLE = ROOT / "docs" / "guide" / "error-handling.md"
 _TYPE_HEADING = "## Values the type checker catches"
@@ -300,14 +320,17 @@ def test_documented_values_are_ones_the_type_allows(
     a rename that stops it matching fails here rather than passing on an
     empty set.
     """
-    found = {
-        value
-        for path in _prose()
-        for value in re.findall(pattern, path.read_text(encoding="utf-8"))
-    }
+    found: dict[str, set[str]] = {}
+    for path in _prose():
+        for value in re.findall(pattern, path.read_text(encoding="utf-8")):
+            found.setdefault(value, set()).add(path.name)
     assert found, f"no {what} found in the docs; the pattern stopped matching"
     allowed = set(_values(alias))
-    assert found <= allowed, sorted(found - allowed)
+    # Which file, as well as which value: the pattern reads the whole docs
+    # tree, and a bare value leaves a reader grepping for it.
+    assert set(found) <= allowed, sorted(
+        (value, sorted(found[value])) for value in set(found) - allowed
+    )
 
 
 def _modules() -> list[ModuleType]:
@@ -341,15 +364,21 @@ def _vocabularies() -> dict[str, TypeAliasType]:
     — ``type Params = dict[str, Any]`` — will turn up in a resource module
     sooner or later, and it has no vocabulary for the guide to spell out.
     """
-    aliases = {
-        name: value
-        for module in _modules()
-        for name, value in vars(module).items()
-        if not name.startswith("_")
-        and isinstance(value, TypeAliasType)
-        and value.__module__ == module.__name__
-        and _values(value)
-    }
+    aliases: dict[str, TypeAliasType] = {}
+    for module in _modules():
+        for name, value in vars(module).items():
+            if (
+                name.startswith("_")
+                or not isinstance(value, TypeAliasType)
+                or value.__module__ != module.__name__
+                or not _values(value)
+            ):
+                continue
+            # Keyed by the bare name, because that is what the guide's
+            # table names. Two modules defining one name would leave the
+            # second checked against the first one's row.
+            assert name not in aliases, f"two modules define {name}"
+            aliases[name] = value
     # Everything below compares this against the docs, so an empty side
     # would agree with an empty table and prove nothing at all.
     assert aliases, "no vocabulary type found at all; the scan stopped working"
@@ -394,6 +423,18 @@ def test_the_guide_lists_every_typed_vocabulary() -> None:
     assert set(_type_table()) == set(_vocabularies())
 
 
+def test_every_vocabulary_has_a_docs_example_scan() -> None:
+    """And a type nobody scans for is one the guides can misspell (#68).
+
+    ``_TYPED_VALUES`` is the one hand-written inventory left, and the whole
+    apparatus exists because a hand-written inventory catches only what
+    somebody remembered to add to it: ``ResetType`` shipped without a
+    scanner for exactly that reason. This is what makes the omission
+    impossible rather than merely unlikely.
+    """
+    assert {alias for _, _, alias in _TYPED_VALUES} == set(_vocabularies().values())
+
+
 @pytest.mark.parametrize("name", sorted(_vocabularies()))
 def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     """Each row of that table is its type's values, all of them (#68).
@@ -419,7 +460,7 @@ def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:
     """
     available = load_result("hid")["mouse"]["outputs"]["available"]
     assert available, "the capture advertises no mouse output to check against"
-    assert set(available) <= set(get_args(MouseOutput.__value__))
+    assert set(available) <= set(_values(MouseOutput))
 
 
 def test_the_capture_contains_a_partial_update() -> None:
