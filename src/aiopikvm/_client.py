@@ -24,7 +24,7 @@ from aiopikvm._exceptions import (
     _error_fields,
     _status_error,
 )
-from aiopikvm._ssl import VerifySSL, resolve_verify_ssl
+from aiopikvm._transport import VerifySSL, resolve_proxy, resolve_verify_ssl
 from aiopikvm._ws import PiKVMWebSocket
 
 if TYPE_CHECKING:
@@ -117,8 +117,9 @@ class PiKVM:
             trust_env: Read the proxy settings from the environment —
                 ``HTTPS_PROXY``, ``NO_PROXY`` and the rest. On by default,
                 which is what httpx and *websockets* both do on their own;
-                it also governs httpx's use of ``.netrc`` and
-                ``SSL_CERT_FILE``.
+                in httpx it also governs ``SSL_CERT_FILE`` and
+                ``SSL_CERT_DIR``, which are read only when *verify_ssl* is
+                ``True``.
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
                 :class:`RedirectError`. Off by default: a redirect resends
@@ -134,14 +135,15 @@ class PiKVM:
 
         Raises:
             ConfigurationError: *verify_ssl* names a path this machine
-                cannot load a CA bundle from.
+                cannot load a CA bundle from, or *proxy* carries a port
+                neither library can use.
         """
         self._url = url.rstrip("/")
         self._user = user
         self._passwd = passwd
         self._totp = totp
         self._verify_ssl = resolve_verify_ssl(verify_ssl)
-        self._proxy = proxy
+        self._proxy = resolve_proxy(proxy)
         self._trust_env = trust_env
         self._timeout = timeout
         self._follow_redirects = follow_redirects
@@ -553,12 +555,15 @@ class PiKVM:
                     f"PiKVM credentials travel in HTTP headers and must be ASCII: {exc}"
                 ) from exc
             except httpx.InvalidURL as exc:
+                # Only the base URL reaches here: a proxy whose port httpx
+                # would report the same way was refused in __init__, where
+                # the message could name the proxy instead of this URL.
                 raise ConfigurationError(
                     f"Invalid PiKVM URL {self._url!r}: {exc}"
                 ) from exc
             except (ImportError, ValueError) as exc:
-                # A proxy URL httpx cannot parse arrives as a ValueError and
-                # a socks:// one without the socksio package as an
+                # A proxy scheme httpx does not know arrives as a ValueError
+                # and a socks:// one without the socksio package as an
                 # ImportError, whichever of *proxy* and the environment the
                 # URL came from. Both are outside PiKVMError.
                 raise ConfigurationError(f"Cannot use the proxy: {exc}") from exc

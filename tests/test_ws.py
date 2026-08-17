@@ -356,6 +356,17 @@ async def test_a_proxy_url_websockets_cannot_parse_is_a_configuration_error() ->
             pass  # pragma: no cover - __aenter__ raises
 
 
+def test_a_bad_proxy_port_is_refused_before_the_handshake() -> None:
+    """websockets reads the port with a bare ValueError inside its parser.
+
+    That one is not an InvalidProxy, so it would have fallen through to the
+    clause that reports a dropped connection — a permanent misconfiguration
+    reported as a transient failure (#69).
+    """
+    with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
+        socket(proxy="http://proxy.local:notaport")
+
+
 @pytest.mark.skipif(
     importlib.util.find_spec("python_socks") is not None,
     reason="python-socks is installed, so websockets opens the tunnel instead",

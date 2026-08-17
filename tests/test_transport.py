@@ -1,4 +1,4 @@
-"""TLS configuration tests — one setting, understood by both transports."""
+"""Connection-setting tests — one setting, understood by both transports."""
 
 import ssl
 from pathlib import Path
@@ -7,7 +7,7 @@ import certifi
 import pytest
 
 from aiopikvm import ConfigurationError
-from aiopikvm._ssl import resolve_verify_ssl
+from aiopikvm._transport import resolve_proxy, resolve_verify_ssl
 
 
 def test_bools_pass_straight_through() -> None:
@@ -41,7 +41,10 @@ def test_a_directory_becomes_a_context_that_looks_certificates_up(
     Handing this same path to ``cafile`` would raise ``IsADirectoryError``,
     so the test passing at all is what says the two are told apart — and an
     empty store loading nothing is what says the default certificates were
-    not silently added to it.
+    not silently added to it. OpenSSL reads such a store lazily, so an empty
+    one is accepted here and only fails during a handshake; that is what the
+    docstring on ``resolve_verify_ssl`` promises, rather than the immediate
+    failure a file gets.
     """
     context = resolve_verify_ssl(tmp_path)
     assert isinstance(context, ssl.SSLContext)
@@ -63,3 +66,46 @@ def test_a_file_holding_no_certificate_is_a_configuration_error(
     junk.write_text("this file is not a certificate\n")
     with pytest.raises(ConfigurationError, match="Cannot verify TLS against"):
         resolve_verify_ssl(junk)
+
+
+def test_a_path_with_a_null_byte_is_a_configuration_error() -> None:
+    """The one CA-path failure ssl reports as ValueError, not OSError.
+
+    ``os.path.isdir`` swallows it and answers False, so the path goes to
+    ``cafile`` and ``load_verify_locations`` raises — outside the hierarchy
+    unless the catch covers more than OSError.
+    """
+    with pytest.raises(ConfigurationError, match="Cannot verify TLS against"):
+        resolve_verify_ssl("ca\x00.pem")
+
+
+def test_a_proxy_passes_through_and_none_stays_none() -> None:
+    """Nothing is rewritten; the URL is only looked at."""
+    assert resolve_proxy(None) is None
+    assert resolve_proxy("http://proxy.local:3128") == "http://proxy.local:3128"
+
+
+@pytest.mark.parametrize(
+    "proxy",
+    [
+        "http://proxy.local:notaport",
+        "http://proxy.local:99999",
+        "http://[::1:3128",
+    ],
+)
+def test_an_unusable_proxy_port_is_a_configuration_error(proxy: str) -> None:
+    """The port is the one part the two libraries report unusably (#69).
+
+    httpx accepts 99999 and websockets refuses it; a port that is not a
+    number reaches httpx as an ``InvalidURL`` that reads like a bad PiKVM
+    URL, and websockets as a bare ``ValueError`` that reads like the
+    connection dropping.
+    """
+    with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
+        resolve_proxy(proxy)
+
+
+@pytest.mark.parametrize("proxy", ["proxy.local:3128", "", "ftp://proxy.local:1"])
+def test_a_proxy_scheme_is_left_to_the_libraries(proxy: str) -> None:
+    """Both of them already refuse these in a way that names the proxy."""
+    assert resolve_proxy(proxy) == proxy

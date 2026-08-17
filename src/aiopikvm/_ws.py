@@ -40,7 +40,7 @@ from aiopikvm._exceptions import (
     _error_fields_from_bytes,
     _status_error,
 )
-from aiopikvm._ssl import VerifySSL, resolve_verify_ssl
+from aiopikvm._transport import VerifySSL, resolve_proxy, resolve_verify_ssl
 from aiopikvm.models.atx import ATXState
 from aiopikvm.models.gpio import GPIOState
 from aiopikvm.models.hid import HIDKeymaps, HIDState
@@ -295,7 +295,8 @@ class PiKVMWebSocket:
         Raises:
             ConfigurationError: If the URL scheme is not ``https`` or
                 ``http``, or *verify_ssl* names a path this machine cannot
-                load a CA bundle from.
+                load a CA bundle from, or *proxy* carries a port neither
+                library can use.
         """
         parsed = urlparse(url)
         scheme_map = {"https": "wss", "http": "ws"}
@@ -312,7 +313,7 @@ class PiKVMWebSocket:
         self._user = user
         self._passwd = passwd
         self._verify_ssl = resolve_verify_ssl(verify_ssl)
-        self._proxy = proxy
+        self._proxy = resolve_proxy(proxy)
         self._trust_env = trust_env
         self._binary = binary
         self._follow_redirects = follow_redirects
@@ -338,9 +339,11 @@ class PiKVMWebSocket:
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
-            ConfigurationError: The proxy cannot be used: *websockets* could
-                not parse its URL, or it is a ``socks5://`` one and the
-                ``python-socks`` package it needs is not installed.
+            ConfigurationError: The proxy cannot be used: its scheme or host
+                is not one *websockets* accepts, or it is a ``socks5://`` one
+                and the ``python-socks`` package it needs is not installed.
+                A proxy whose port is unusable was refused earlier, when this
+                object was built.
             RedirectError: The upgrade was redirected and *follow_redirects*
                 is off. Following it would resend the password to the target.
             APIError: kvmd rejected the upgrade for another reason, such as a

@@ -77,8 +77,9 @@ async def test_ws_inherits_the_proxy(mock_api: respx.MockRouter) -> None:
 async def test_a_ca_bundle_is_loaded_once_for_both_transports() -> None:
     """The socket verifies against the same context the requests do (#69).
 
-    Neither httpx nor websockets takes a path any more, so the bundle is
-    read here — and a bundle read twice would be two objects, not one.
+    websockets takes no path at all and httpx only takes one under a
+    deprecation warning, so the bundle is read here — and a bundle read
+    twice would be two objects, not one.
     """
     async with PiKVM("https://pikvm.local", verify_ssl=certifi.where()) as client:
         assert isinstance(client._verify_ssl, ssl.SSLContext)
@@ -298,6 +299,19 @@ async def test_a_proxy_url_httpx_cannot_parse_is_a_configuration_error() -> None
     with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
         async with PiKVM("https://pikvm.local", proxy="proxy.local:3128"):
             pass  # pragma: no cover - __aenter__ raises
+
+
+def test_a_bad_proxy_port_is_not_blamed_on_the_pikvm_url() -> None:
+    """httpx reports it as InvalidURL, the same as a bad base URL would be.
+
+    Caught before httpx sees it, so the message names the argument that is
+    actually wrong instead of accusing a URL that is fine (#69).
+    """
+    with pytest.raises(ConfigurationError) as caught:
+        PiKVM("https://pikvm.local", proxy="http://proxy.local:notaport")
+    message = str(caught.value)
+    assert "http://proxy.local:notaport" in message
+    assert "Invalid PiKVM URL" not in message
 
 
 @pytest.mark.skipif(

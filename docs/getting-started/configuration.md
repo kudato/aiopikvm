@@ -50,15 +50,19 @@ context.load_cert_chain("/etc/ssl/client.pem", "/etc/ssl/client.key")
 PiKVM("https://kvm.example.com", verify_ssl=context)
 ```
 
-A path is read into an `ssl.SSLContext` when the client is built, so a path
-that is not a CA bundle raises `ConfigurationError` there rather than at the
-first request. The result is one context for the whole client: `kvm.ws()`
-verifies the handshake against the same certificates the requests use.
+A path is read into an `ssl.SSLContext` when the client is built, so a *file*
+that is missing or holds no certificate raises `ConfigurationError` there
+rather than at the first request. A *directory* is not read: OpenSSL walks a
+hashed store one certificate at a time, so an empty or unhashed one is only
+found out about during the handshake. Either way the result is one context for
+the whole client — `kvm.ws()` verifies against the same certificates the
+requests do, unless an external `http_client` was supplied, which brings its
+own TLS settings for the requests while the socket keeps using these.
 
 !!! note
-    Neither httpx nor `websockets` accepts a path itself — httpx deprecated
-    `verify=<str>` in 0.28 and `websockets` never had it — so this is aiopikvm
-    reading the bundle, not either of them.
+    `websockets` accepts no path at all, and httpx only accepts one under a
+    `DeprecationWarning` it added in 0.28. Reading the bundle here is what
+    keeps the two from being configured differently.
 
 ## Proxies
 
@@ -72,7 +76,13 @@ async with PiKVM("https://pikvm.local", proxy="http://proxy.local:3128") as kvm:
 Without one, both libraries read the environment — `HTTPS_PROXY`, `WSS_PROXY`,
 `NO_PROXY` and the rest — which is what `trust_env=True` leaves them doing.
 Pass `trust_env=False` to connect directly whatever the environment says; in
-httpx that also switches off `.netrc` and `SSL_CERT_FILE`.
+httpx that also switches off `SSL_CERT_FILE` and `SSL_CERT_DIR`, which it
+reads only when `verify_ssl=True`.
+
+A proxy URL with an unusable port is refused when the client is built, because
+the two libraries disagree about it — httpx accepts a port above 65535 and
+`websockets` does not — and neither reports it in a way that points at the
+proxy. Everything else is left to them.
 
 A `socks5://` proxy needs a package neither library depends on: `socksio` for
 the requests, `python-socks` for the socket. Without them the client raises
