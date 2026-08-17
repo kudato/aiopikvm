@@ -97,6 +97,53 @@ async def test_send_key(mock_api: respx.MockRouter, client: PiKVM) -> None:
     assert "key=KeyA" in str(request.url)
 
 
+async def test_send_key_can_ask_kvmd_to_release_it(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """One event that presses and releases, so a death mid-script holds no key.
+
+    kvmd sends the release itself, straight after the press and before it
+    reads anything else — which is the one keystroke a lost connection
+    cannot interrupt halfway (#74).
+    """
+    mock_api.post("/api/hid/events/send_key").mock(
+        return_value=httpx.Response(200, json=OK)
+    )
+    await client.hid.send_key("KeyA", state=True, finish=True)
+    assert dict(mock_api.calls[-1].request.url.params) == {
+        "key": "KeyA",
+        "state": "1",
+        "finish": "1",
+    }
+
+
+async def test_send_key_says_nothing_about_finish_unless_asked(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """The default event is the one a client that never heard of it sends."""
+    mock_api.post("/api/hid/events/send_key").mock(
+        return_value=httpx.Response(200, json=OK)
+    )
+    await client.hid.send_key("KeyA", state=True)
+    assert set(mock_api.calls[-1].request.url.params) == {"key", "state"}
+
+
+async def test_send_key_leaves_finish_out_where_kvmd_would_not_read_it(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Without *state*, kvmd never looks at the flag (#74).
+
+    Its handler reads ``finish`` inside the branch that reads ``state``; the
+    other branch calls the same press-and-release itself. Sending it anyway
+    would put a parameter on the wire that names something kvmd ignores.
+    """
+    mock_api.post("/api/hid/events/send_key").mock(
+        return_value=httpx.Response(200, json=OK)
+    )
+    await client.hid.send_key("KeyA", finish=True)
+    assert set(mock_api.calls[-1].request.url.params) == {"key"}
+
+
 async def test_send_shortcut(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.post("/api/hid/events/send_shortcut").mock(
         return_value=httpx.Response(200, json=OK)

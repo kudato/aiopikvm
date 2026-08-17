@@ -784,6 +784,16 @@ async def test_send_key() -> None:
     assert sent(conn) == {"event_type": "key", "event": {"key": "KeyA", "state": True}}
 
 
+async def test_send_key_can_ask_kvmd_to_release_it() -> None:
+    """The socket dying is what leaves keys held, so one event does both (#74)."""
+    ws, conn = connected()
+    await ws.send_key("KeyA", state=True, finish=True)
+    assert sent(conn) == {
+        "event_type": "key",
+        "event": {"key": "KeyA", "state": True, "finish": True},
+    }
+
+
 async def test_send_mouse_move() -> None:
     ws, conn = connected()
     await ws.send_mouse_move(100, 200)
@@ -1065,6 +1075,32 @@ async def test_binary_key_name_of_the_full_length_is_sent() -> None:
     ws, conn = connected(binary=True)
     await ws.send_key("K" * 32, state=True)
     assert sent_bytes(conn) == bytes([1, 1]) + b"K" * 32
+
+
+@pytest.mark.parametrize(
+    ("state", "finish", "flags", "recorded"),
+    [
+        (False, False, 0b00, "key_release"),
+        (True, False, 0b01, "key_press"),
+        (False, True, 0b10, None),
+        (True, True, 0b11, None),
+    ],
+)
+async def test_binary_key_carries_finish_in_bit_1(
+    state: bool, finish: bool, flags: int, recorded: str | None
+) -> None:
+    """kvmd reads the state out of bit 0 and the release out of bit 1 (#74).
+
+    Leaving *finish* off has to change nothing, so the two frames without it
+    are checked against the recording a real device accepted rather than
+    against this test's own idea of the layout. The two carrying the bit
+    have no recording: no device has been asked to accept them.
+    """
+    ws, conn = connected(binary=True)
+    await ws.send_key("ControlLeft", state=state, finish=finish)
+    assert sent_bytes(conn) == bytes([1, flags]) + b"ControlLeft"
+    if recorded is not None:
+        assert sent_bytes(conn) == frame(recorded)
 
 
 async def test_json_stays_the_default() -> None:

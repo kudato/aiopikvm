@@ -285,14 +285,32 @@ class HIDResource(BaseResource):
             timeout=timeout,
         )
 
-    async def send_key(self, key: str, *, state: bool | None = None) -> None:
+    async def send_key(
+        self, key: str, *, state: bool | None = None, finish: bool = False
+    ) -> None:
         """Send a single key event.
+
+        *finish* asks kvmd to release the key itself, in the same event that
+        pressed it, so a script that dies mid-keystroke does not leave it
+        held. kvmd exempts the modifiers from that release —
+        ``ShiftLeft``, ``ShiftRight``, ``ControlLeft``, ``ControlRight``,
+        ``AltLeft``, ``AltRight``, ``MetaLeft``, ``MetaRight`` and
+        ``PrintScreen``, which it counts as one for the sake of
+        ``Alt+SysRq`` — because holding those is the whole point of pressing
+        them. Asking for it on one of the nine presses the key and leaves it
+        pressed, with no error to say so.
 
         Args:
             key: Key name, one of :data:`KEY_NAMES` and matched
                 case-sensitively.
             state: Key state (``True`` = press, ``False`` = release,
-                ``None`` = press and release).
+                ``None`` = press with the auto-release above, which is what
+                kvmd does for an event carrying no state at all — so a
+                modifier passed this way is pressed and stays down).
+            finish: Release the key straight after pressing it. Read only
+                alongside an explicit *state*, and only when that state is
+                ``True``: kvmd ignores the flag on a release. Silently
+                ignored by kvmd older than 4.33, which leaves the key held.
 
         Raises:
             APIError: If kvmd has no key by that name (HTTP 400).
@@ -300,6 +318,12 @@ class HIDResource(BaseResource):
         params: dict[str, Any] = {"key": key}
         if state is not None:
             params["state"] = int(state)
+            if finish:
+                # kvmd reads `finish` only in the branch that reads `state`.
+                # An event carrying neither already presses and releases, so
+                # sending the flag there would name something kvmd never
+                # looks at.
+                params["finish"] = 1
         await self._post("/api/hid/events/send_key", params=params)
 
     async def send_shortcut(self, *keys: str) -> None:
