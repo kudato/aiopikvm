@@ -19,16 +19,25 @@ from websockets.uri import parse_uri
 
 from aiopikvm import (
     APIError,
+    ATXState,
     AuthError,
     BusyError,
     ConfigurationError,
+    GPIOState,
+    HIDKeymaps,
+    HIDState,
     KvmdVersion,
+    MSDState,
+    OCRInfo,
     PiKVMWebSocket,
     RedirectError,
+    ResponseError,
+    StreamerState,
+    SwitchState,
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import _PENDING_LIMIT, _Connector
+from aiopikvm._ws import _PENDING_LIMIT, _Connector, _merge
 from tests.fixtures import load_json, load_jsonl
 
 
@@ -600,6 +609,165 @@ async def test_events_require_a_connection() -> None:
     ws = socket()
     with pytest.raises(WebSocketError, match="Not connected"):
         await anext(ws.events())
+
+
+# --- Typed states --------------------------------------------------------
+
+
+def replaying() -> AsyncMock:
+    """Build a connection that replays the recorded kvmd session."""
+    return iterating(*(json.dumps(line["msg"]) for line in load_jsonl("ws_events")))
+
+
+async def test_states_type_every_subsystem_kvmd_sent() -> None:
+    """The recorded session ends with each subsystem parsed by its model (#61)."""
+    ws = socket()
+    ws._connection = replaying()
+    snapshots = [state async for state in ws.states()]
+
+    final = snapshots[-1]
+    assert isinstance(final.atx, ATXState)
+    assert isinstance(final.gpio, GPIOState)
+    assert isinstance(final.hid, HIDState)
+    assert isinstance(final.hid_keymaps, HIDKeymaps)
+    assert isinstance(final.msd, MSDState)
+    assert isinstance(final.ocr, OCRInfo)
+    assert isinstance(final.streamer, StreamerState)
+    assert isinstance(final.switch, SwitchState)
+    assert final.clients == 1
+
+
+async def test_states_skip_the_events_that_are_not_state() -> None:
+    """loop and pong say nothing about the device, so nothing comes out."""
+    ws = socket()
+    ws._connection = replaying()
+    updated = [state.updated async for state in ws.states()]
+    assert "loop" not in updated
+    assert "pong" not in updated
+    assert set(updated) == {
+        "atx",
+        "clients",
+        "gpio",
+        "hid",
+        "hid_keymaps",
+        "info",
+        "msd",
+        "ocr",
+        "streamer",
+        "switch",
+    }
+
+
+async def test_states_merge_a_partial_update() -> None:
+    """kvmd's later streamer events carry one key; the rest must survive (#61).
+
+    The recorded session has exactly that: a full streamer state, then two
+    events with nothing in them but ``streamer``.
+    """
+    ws = socket()
+    ws._connection = replaying()
+    streamer = [
+        state.streamer async for state in ws.states() if state.updated == "streamer"
+    ]
+    assert len(streamer) >= 2, "the capture must contain a partial update"
+    assert all(state is not None for state in streamer)
+    first, last = streamer[0], streamer[-1]
+    assert last is not None and first is not None
+    assert last.features == first.features, "a field nobody updated stays put"
+    assert last.streamer is not None
+
+
+async def test_states_merge_the_info_subsystems() -> None:
+    """kvmd sends one /api/info key per event, never a bundle (#61)."""
+    ws = socket()
+    ws._connection = replaying()
+    info = [state.info async for state in ws.states() if state.updated == "info"]
+    assert {"auth", "fan", "node", "meta", "uptime", "health", "system", "extras"} <= (
+        info[-1].keys()
+    )
+
+
+async def test_states_do_not_change_a_snapshot_already_handed_out() -> None:
+    """A caller keeping an old snapshot must keep what it said."""
+    ws = socket()
+    ws._connection = replaying()
+    snapshots = [state async for state in ws.states()]
+    uptimes = [
+        state.info["uptime"]["total"]
+        for state in snapshots
+        if state.updated == "info" and "uptime" in state.info
+    ]
+    assert len(set(uptimes)) > 1, "the capture must contain two different uptimes"
+
+
+async def test_states_report_a_payload_no_model_can_parse() -> None:
+    """A pydantic failure would land outside the exception hierarchy."""
+    ws = socket()
+    ws._connection = iterating(
+        json.dumps({"event_type": "atx", "event": {"leds": "not an object"}})
+    )
+    with pytest.raises(ResponseError, match="atx WebSocket event"):
+        await anext(ws.states())
+
+
+async def test_states_ignore_an_event_type_they_do_not_know() -> None:
+    """A newer kvmd broadcasting something new must not stop the iteration."""
+    ws = socket()
+    ws._connection = iterating(
+        json.dumps({"event_type": "quantum", "event": {"spin": "up"}}),
+        json.dumps(recorded("atx")),
+    )
+    assert [state.updated async for state in ws.states()] == ["atx"]
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"event_type": "atx"},
+        {"event_type": "atx", "event": None},
+        {"event": {"count": 1}},
+        {"event_type": "clients", "event": {"count": "many"}},
+    ],
+)
+async def test_states_ignore_a_frame_that_is_not_shaped_like_an_event(
+    event: dict[str, Any],
+) -> None:
+    ws = socket()
+    ws._connection = iterating(json.dumps(event), json.dumps(recorded("msd")))
+    assert [state.updated async for state in ws.states()] == ["msd"]
+
+
+async def test_states_end_with_the_connection() -> None:
+    """Whatever events() does about the connection, states() does too."""
+    ws = socket()
+    ws._connection = iterating(
+        json.dumps(recorded("atx")),
+        closed=websockets.exceptions.ConnectionClosedError(None, None),
+    )
+    seen = []
+    with pytest.raises(WebSocketError, match="Connection lost"):
+        async for state in ws.states():
+            seen.append(state)
+    assert [state.updated for state in seen] == ["atx"]
+
+
+def test_merge_keeps_what_the_update_does_not_mention() -> None:
+    """The merge is the piece the partial updates hang on."""
+    base = {"keyboard": {"online": True, "leds": {"caps": False}}, "busy": False}
+    merged = _merge(base, {"keyboard": {"leds": {"caps": True}}})
+    assert merged == {
+        "keyboard": {"online": True, "leds": {"caps": True}},
+        "busy": False,
+    }
+    assert base["keyboard"] == {"online": True, "leds": {"caps": False}}, "not in place"
+
+
+def test_merge_replaces_rather_than_merges_a_value_that_is_not_an_object() -> None:
+    """kvmd nulls a whole subtree — a stopped streamer, an ejected image."""
+    assert _merge({"streamer": {"pid": 1}}, {"streamer": None}) == {"streamer": None}
+    assert _merge({"streamer": None}, {"streamer": {"pid": 2}}) == {
+        "streamer": {"pid": 2}
+    }
 
 
 # --- Sending -------------------------------------------------------------

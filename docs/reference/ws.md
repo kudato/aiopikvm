@@ -7,3 +7,7 @@
 ::: aiopikvm.KvmdVersion
     options:
       show_bases: false
+
+::: aiopikvm.DeviceState
+    options:
+      show_bases: false

@@ -151,6 +151,51 @@ Two things a consumer has to expect:
   session connects or disconnects — including this one, which is why it lands
   among the initial events and again at any time afterwards.
 
+## Typed state
+
+`events()` hands over what arrived. `states()` hands over what it adds up to:
+each event merged into what the same subsystem said before, validated against
+the same model its REST endpoint returns, and yielded as one snapshot per event
+that changed something.
+
+```python
+async with kvm.ws() as ws:
+    async for state in ws.states():
+        if state.atx:
+            print("power", state.atx.leds.power)
+        if state.streamer and state.streamer.streamer:
+            print("fps", state.streamer.streamer.source.captured_fps)
+```
+
+A field is `None` until kvmd has sent that subsystem, which it does for all of
+them when the socket opens — a device with a subsystem switched off never sends
+it at all. `state.updated` is the event type behind this particular snapshot,
+for a caller that would rather switch on it than re-read everything:
+
+| Field | Model | From the event |
+|---|---|---|
+| `atx` | `ATXState` | `atx` |
+| `gpio` | `GPIOState` | `gpio` |
+| `hid` | `HIDState` | `hid` |
+| `hid_keymaps` | `HIDKeymaps` | `hid_keymaps` |
+| `msd` | `MSDState` | `msd` |
+| `ocr` | `OCRInfo` | `ocr` |
+| `streamer` | `StreamerState` | `streamer` |
+| `switch` | `SwitchState` | `switch` |
+| `clients` | `int` | `clients` |
+| `info` | `dict` | `info` |
+
+The merge is the point of it. kvmd sends a subsystem in full once and then only
+the parts of it that change, so validating a later event on its own fails —
+most of the model is simply not in it. `info` is merged the same way but stays a
+raw dictionary; typing it is [#71](https://github.com/kudato/aiopikvm/issues/71).
+
+`loop` and `pong` produce no snapshot, since neither says anything about the
+device; the version the `loop` event carries is on `ws.version`. A payload that
+does not match its model raises `ResponseError`, and the two iterators cannot
+run over one socket at the same time — `states()` is `events()` with the states
+built on top.
+
 ### When the stream ends
 
 The iteration finishes when either side closes the connection cleanly. A

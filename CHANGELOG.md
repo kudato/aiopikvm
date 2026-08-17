@@ -18,6 +18,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `PiKVMWebSocket.version`, the kvmd version from the `loop` event as a
   comparable `KvmdVersion` tuple. It is the only version signal the socket
   carries, and the client ignored it (#82).
+- `PiKVMWebSocket.states()`, the typed view of the event stream: each event
+  merged into what the same subsystem said before and validated against the
+  same model its REST endpoint returns, yielded as a `DeviceState` snapshot per
+  event that changed something. The merge is what makes it work at all — kvmd
+  sends a subsystem in full once and then only the parts that change, so a
+  later event validated on its own fails for want of the rest of the model.
+  `info` is merged the same way and stays a raw dictionary until #71 (#61).
 - `PiKVMWebSocket.send_mouse_relative()`, the WebSocket half of relative mouse
   motion — the client had only the HTTP fallback. kvmd drops a relative event
   while the mouse is in its absolute mode and drops an absolute one while it is

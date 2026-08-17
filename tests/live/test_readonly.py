@@ -23,7 +23,16 @@ import contextlib
 
 import pytest
 
-from aiopikvm import APIError, AuthError, PiKVM, PiKVMWebSocket
+from aiopikvm import (
+    APIError,
+    ATXState,
+    AuthError,
+    HIDState,
+    MSDState,
+    PiKVM,
+    PiKVMWebSocket,
+    StreamerState,
+)
 from aiopikvm.resources.redfish import RESET_TYPES
 from tests.helpers import undeclared_fields
 
@@ -36,6 +45,9 @@ WS_TIMEOUT = 5.0
 
 WS_EXPECTED = frozenset({"loop", "atx", "msd", "streamer"})
 """Event types kvmd pushes right after the handshake, in no fixed order."""
+
+WS_STATES = frozenset({"atx", "msd", "streamer", "hid"})
+"""The same, without the events that say nothing about the device."""
 
 
 @pytest.mark.parametrize("subsystem", SUBSYSTEMS)
@@ -177,6 +189,23 @@ async def test_websocket_ping_is_answered(live: PiKVM, binary: bool) -> None:
         # Reading the pong means reading past the loop event that precedes it.
         assert ws.version is not None
         assert f"{ws.version.major}.{ws.version.minor}" == reported
+
+
+async def test_websocket_states_type_what_the_device_sends(live: PiKVM) -> None:
+    """The socket's payloads go through the REST models on a real device (#61)."""
+    seen: dict[str, object] = {}
+    async with live.ws(stream=False) as ws:
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(WS_TIMEOUT):
+                async for state in ws.states():
+                    seen[state.updated] = getattr(state, state.updated)
+                    if WS_STATES <= seen.keys():
+                        break
+    assert WS_STATES <= seen.keys()
+    assert isinstance(seen["atx"], ATXState)
+    assert isinstance(seen["msd"], MSDState)
+    assert isinstance(seen["streamer"], StreamerState)
+    assert isinstance(seen["hid"], HIDState)
 
 
 async def test_hid_mouse_reports_which_motion_it_takes(live: PiKVM) -> None:

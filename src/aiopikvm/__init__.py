@@ -14,7 +14,7 @@ from aiopikvm._exceptions import (
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import KvmdVersion, PiKVMWebSocket
+from aiopikvm._ws import DeviceState, KvmdVersion, PiKVMWebSocket
 from aiopikvm.models.atx import ATXActs, ATXLeds, ATXState
 from aiopikvm.models.gpio import (
     GPIOChannel,
@@ -108,6 +108,7 @@ __all__ = [
     "ConfigurationError",
     "ConnectError",
     "ConnectionTimeoutError",
+    "DeviceState",
     "EDIDInfo",
     "GPIOChannel",
     "GPIOHardware",
