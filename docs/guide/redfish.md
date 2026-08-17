@@ -39,8 +39,8 @@ print(system["PowerState"])  # "On" / "Off"
 ```
 
 There is one for `"0"` when the ATX subsystem is enabled, and one per port of
-an attached PiKVM Switch — four per switch unit, so the count goes 4, 8, 12 and
-not 1, 2, 3. To feed them back to `get_system()`, take the tail of
+an attached PiKVM Switch — four per switch unit, so the port count goes 4, 8,
+12 and not 1, 2, 3. To feed them back to `get_system()`, take the tail of
 each path:
 
 ```python
@@ -128,8 +128,10 @@ answers 204 and does nothing at all, so there is no error to catch — check
     `reset("ForceOff", "SwitchPort9")` on a four-port switch answers 204 and
     does nothing. `get_system("SwitchPort9")` does answer 400 — use it to
     check an id you did not build yourself. A port that is busy with an
-    earlier click drops the command silently too, where `"0"` would raise
-    `BusyError`.
+    earlier click on the same line drops the command silently too, where `"0"`
+    would raise `BusyError`. kvmd holds the power line and the reset line
+    independently, so a `ForceRestart` is not blocked by a running power
+    click.
 
 ### Reset types
 

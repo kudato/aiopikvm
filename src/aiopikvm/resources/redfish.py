@@ -225,9 +225,11 @@ class RedfishResource(BaseResource):
             APIError: If the reset type is not one kvmd accepts, or the id is
                 not of a form it knows (HTTP 400). An id whose form is valid
                 but whose port does not exist is *not* refused.
-            BusyError: If an earlier ATX action on ``"0"`` is still running
-                (HTTP 409). A busy *switch port* drops the command silently
-                instead, and still answers 204.
+            BusyError: If a click on the same line of ``"0"`` is still
+                running (HTTP 409) — the power line for every type but
+                ``"ForceRestart"``, the reset line for that one; kvmd holds
+                the two independently. A busy *switch port* drops the command
+                silently instead, and still answers 204.
             PiKVMError: If PiKVM is unreachable.
         """
         await self._send_action(
