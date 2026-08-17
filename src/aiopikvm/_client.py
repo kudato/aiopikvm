@@ -28,6 +28,7 @@ from aiopikvm._transport import (
     VerifySSL,
     httpx_environment_proxies,
     mask_proxy,
+    proxy_settings_are_environment_variables,
     resolve_proxy,
     resolve_verify_ssl,
 )
@@ -59,6 +60,32 @@ _RESOURCE_NAMES = (
     "prometheus",
     "system",
 )
+
+
+def _only_transport_failures(group: ExceptionGroup[Exception]) -> bool:
+    """Whether a group holds nothing but httpx transport failures.
+
+    A body read the caller runs inside a task group of their own comes back
+    as an ``ExceptionGroup`` even when what went wrong is the connection, and
+    a group whose every leaf is one of httpx's transport errors is a
+    connection failure however it was wrapped. One that also holds something
+    else is theirs, and folding it into a ``ConnectError`` would lose the
+    rest of what it says.
+
+    Args:
+        group: The group to look inside, however deeply it nests.
+
+    Returns:
+        ``True`` when every exception in it is an :class:`httpx.TransportError`.
+    """
+    pending: list[BaseException] = list(group.exceptions)
+    while pending:
+        exc = pending.pop()
+        if isinstance(exc, BaseExceptionGroup):
+            pending.extend(exc.exceptions)
+        elif not isinstance(exc, httpx.TransportError):
+            return False
+    return True
 
 
 class PiKVM:
@@ -421,8 +448,9 @@ class PiKVM:
         # the yield, and is caught by the clauses below. That is what maps a
         # transport failure met while the body is being read; it also means a
         # group of the caller's own making would be read as a failure to
-        # connect, so once the response is theirs, groups are left alone.
-        theirs = False
+        # connect, so once the response has been handed over, only a group
+        # made entirely of transport failures is still read as one.
+        handed_over = False
         try:
             async with client.stream(
                 method,
@@ -437,7 +465,7 @@ class PiKVM:
                     # response.text from raising httpx.ResponseNotRead.
                     await response.aread()
                 self._raise_for_status(response)
-                theirs = True
+                handed_over = True
                 yield response
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
@@ -455,7 +483,9 @@ class PiKVM:
         except httpx.TransportError as exc:
             raise ConnectError(str(exc)) from exc
         except ExceptionGroup as exc:
-            if theirs:
+            if handed_over and not _only_transport_failures(exc):
+                # Their block raised, and not about the connection. Reading
+                # it as a failure to connect would bury what they were doing.
                 raise
             raise ConnectError(self._connection_failed(exc)) from exc
 
@@ -466,9 +496,11 @@ class PiKVM:
         map comes out of the task group anyio connects in, as an
         ``ExceptionGroup`` that prints how many exceptions it holds and none
         of what they say. A proxy port outside 0-65535 arrives this way, as
-        an ``OverflowError`` from ``getaddrinfo``, so the proxy in use is
-        worth naming — by variable rather than by value, the environment's
-        being shared with every other program on the machine.
+        an ``OverflowError`` from ``getaddrinfo``. A group can also reach
+        here already carrying httpx's own exceptions, when the caller reads
+        the body inside a task group of their own; either way the proxy in
+        use is worth naming — by variable rather than by value, the
+        environment's being shared with every other program on the machine.
 
         Args:
             group: The group that came out of httpx.
@@ -489,9 +521,20 @@ class PiKVM:
             said.append(
                 f"the connection goes through the proxy {mask_proxy(self._proxy)!r}"
             )
-        elif self._trust_env and (environment := httpx_environment_proxies()):
-            names = ", ".join(f"{key.upper()}_PROXY" for key in sorted(environment))
-            said.append(f"the environment sets {names}, which httpx may read")
+        elif self._trust_env and (settings := httpx_environment_proxies()):
+            if proxy_settings_are_environment_variables():
+                names = ", ".join(f"{key.upper()}_PROXY" for key in sorted(settings))
+                said.append(f"the environment sets {names}, which httpx may read")
+            else:
+                # getproxies() answers with the system-wide settings on macOS
+                # and Windows when the environment holds nothing, and httpx
+                # reads it that way too. Naming a variable here would name one
+                # nobody set.
+                for_what = ", ".join(sorted(settings))
+                said.append(
+                    f"this machine is configured with a proxy for {for_what}, "
+                    "which httpx may read"
+                )
         return "; ".join(said)
 
     # --- Resources (lazy) ----------------------------------------------

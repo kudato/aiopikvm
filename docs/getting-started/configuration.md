@@ -66,17 +66,30 @@ own TLS settings for the requests while the socket keeps using these.
 
 !!! warning "`verify_ssl=True` is the one setting the two do not share"
     It is passed on as it came, and each library then builds its own context.
-    httpx verifies against certifi's roots, or against `SSL_CERT_FILE` and
-    `SSL_CERT_DIR` when the environment names them and `trust_env` is on;
-    `websockets` asks `ssl.create_default_context()`, which verifies against
-    the system store, or against those same two variables whenever they are
-    set — `trust_env` is httpx's idea, and OpenSSL has never heard of it.
+    httpx reads `SSL_CERT_FILE`, or `SSL_CERT_DIR` when the first is unset,
+    and certifi's roots when neither is — one source, never both, and only
+    while `trust_env` is on. `websockets` asks
+    `ssl.create_default_context()`, which takes OpenSSL's default paths: both
+    variables at once wherever they are set, and the machine's own store
+    otherwise. `trust_env` is httpx's idea, and OpenSSL has never heard of it.
 
-    So the two agree on a machine that sets them and is trusted, and part
-    company on one that sets neither, and again on one that sets them with
-    `trust_env=False`. On a device whose CA is in one store and not the other,
-    one half of the client connects and the other does not. Pass the bundle or
-    a context instead, and both verify against the same certificates.
+    | Environment | httpx verifies against | `websockets` verifies against |
+    |---|---|---|
+    | neither variable | certifi | the system store |
+    | `SSL_CERT_FILE` only | that file | that file |
+    | `SSL_CERT_DIR` only | that directory | that directory |
+    | both | the file only | the file **and** the directory |
+    | both, `trust_env=False` | certifi | the file and the directory |
+
+    On a device whose CA is in one store and not the other, one half of the
+    client connects and the other does not. Pass the bundle or a context
+    instead, and both verify against the same certificates.
+
+    An `https://` proxy is verified by none of that, and not by `verify_ssl`
+    either: httpx leaves the proxy leg to httpcore's own default — the system
+    store with certifi added — and `websockets` to its `proxy_ssl`, which
+    stays at `True` and means the system store alone. A context passed for
+    the device reaches the device, not the proxy in front of it.
 
 ## Proxies
 
@@ -89,15 +102,19 @@ async with PiKVM("https://pikvm.local", proxy="http://proxy.local:3128") as kvm:
 
 The URL is checked when the client is built, against what **both** libraries
 accept, because a setting that only one of them takes would configure the
-requests and break the socket. `websockets` is the stricter of the two, so it
-sets the bar: a URL with no host, or carrying a path, a query, a fragment or a
-username without a password is refused here, even though httpx would take it
-and quietly work around it — sending the lone username as `username:`, in that
-last case. So is a port outside 0–65535, which httpx accepts and only fails on
-when it connects.
+requests and break the socket. `websockets` is the stricter of the two on most
+counts, so it sets the bar: a URL with no host, or carrying a path, a query, a
+fragment or a username without a password is refused here, even though httpx
+would take it and quietly work around it — sending the lone username as
+`username:`, in that last case. So is a port outside 0–65535, which httpx
+accepts and only fails on when it connects.
 
-Three more are refused because the libraries would not use them alike:
+Four more are refused because the libraries would not use them alike:
 
+- a `socks4://` or `socks4a://` proxy. `websockets` 16 speaks both and httpx
+  has no transport for either, so the socket would connect through the proxy
+  and the requests would not go out at all. `socks5://` and `socks5h://` are
+  the SOCKS spellings both of them speak;
 - a `socks5://` proxy with no usable port. Left blank, or written as `:0`,
   httpcore fills in 1080 and `websockets` fills in 80, and the one setting
   reaches two different proxies without either of them saying so;
@@ -112,9 +129,12 @@ Three more are refused because the libraries would not use them alike:
   `http://user:p%40ss@proxy.local:3128` authenticates the requests as `p@ss`
   and collects a 407 on the socket.
 
-The last two are decided by asking both libraries what they would aim at, so
-only an actual disagreement is refused: an ordinary
-`http://user:pass@proxy.local:3128` goes through untouched.
+Where httpx is the stricter one — the SOCKS4 schemes, and a host it will not
+encode — the refusal is httpx's own, raised here rather than left to surface
+later as a complaint about the PiKVM URL. The last two are decided by asking
+both libraries what they would aim at, so only an actual disagreement is
+refused: an ordinary `http://user:pass@proxy.local:3128` goes through
+untouched.
 
 ### What the environment sets is left to the libraries
 

@@ -14,9 +14,10 @@ the lone username as ``username:``. A port above 65535 httpx takes and
 pick different defaults — 1080 and 80. A host that is not ASCII they spell
 differently, httpx by IDNA 2008 and *websockets* by IDNA 2003, so ``faß.de``
 is ``xn--fa-hia.de`` for one and ``fass.de`` for the other — and ``☃.net``
-httpx will not encode at all while *websockets* is happy to. And credentials
-httpx percent-decodes before sending, while *websockets* sends them as
-written.
+httpx will not encode at all while *websockets* is happy to. ``socks4://``
+and ``socks4a://`` *websockets* 16 speaks and httpx has no transport for at
+all. And credentials httpx percent-decodes before sending, while *websockets*
+sends them as written.
 
 So one proxy setting could configure the requests and break the socket, or
 quietly send the two halves of this client to two different proxies. What is
@@ -40,16 +41,23 @@ These divergences are left standing, because closing them would mean changing
 what a working setting already does:
 
 * ``verify_ssl=True`` is passed on as it came, and each library then builds
-  its own context. httpx verifies against certifi's roots, or against
-  ``SSL_CERT_FILE`` and ``SSL_CERT_DIR`` when the environment names them and
-  *trust_env* is on; *websockets* asks :func:`ssl.create_default_context`,
-  which verifies against the system store, or against those same two
-  variables whenever they are set — *trust_env* is httpx's idea and OpenSSL
-  has never heard of it. So the two agree on a machine that sets them and is
-  trusted, and part company on one that sets neither, and again on one that
-  sets them with *trust_env* off. Building a context here to settle it would
-  silently move httpx off the roots it has always used. An ``https://`` proxy
-  is verified against those same roots, so it divides the two the same way.
+  its own context. httpx reads ``SSL_CERT_FILE``, or ``SSL_CERT_DIR`` when
+  the first is unset, and certifi's roots when neither is — one source, never
+  both, and only while *trust_env* is on. *websockets* asks
+  :func:`ssl.create_default_context`, which takes OpenSSL's default paths:
+  both variables at once wherever they are set, and this machine's own store
+  otherwise. *trust_env* is httpx's idea and OpenSSL has never heard of it.
+  So the two verify against the same certificates when exactly one of the
+  variables is set, and part company on a machine that sets neither, on one
+  that sets both — httpx uses the file and ignores the directory there — and
+  on one that sets them with *trust_env* off. Building a context here to
+  settle it would silently move httpx off the roots it has always used.
+* An ``https://`` proxy is verified by neither of those, and not by
+  *verify_ssl* either. httpx leaves the proxy leg to httpcore's own default,
+  the system store with certifi added to it, and *websockets* to
+  ``proxy_ssl``, which stays at ``True`` and means the system store alone. A
+  context passed for the device reaches the device, not the proxy in front of
+  it.
 * A ``socks5://`` proxy resolves the device's name through the proxy for the
   requests and on this machine for the socket, httpcore sending the name
   itself and *websockets* asking for ``socks5`` without remote resolution.
@@ -58,6 +66,7 @@ what a working setting already does:
 """
 
 import os
+import re
 import ssl
 import urllib.parse
 import urllib.request
@@ -124,7 +133,7 @@ def resolve_verify_ssl(verify_ssl: VerifySSL) -> bool | ssl.SSLContext:
         # anything at all, TypeError included when what arrived was not a
         # path in the first place. The cause is kept, so nothing is hidden.
         raise ConfigurationError(
-            f"Cannot read a path out of {_named(verify_ssl)}: {exc}"
+            f"Cannot read a path out of {_named(verify_ssl)}: {_said(exc)}"
         ) from exc
     try:
         if os.path.isdir(path):
@@ -156,6 +165,26 @@ def _named(value: object) -> str:
         return repr(value)
     except Exception:
         return f"a {type(value).__name__} whose repr raises"
+
+
+def _said(exc: BaseException) -> str:
+    """Quote an exception that came from the caller's own code.
+
+    ``__fspath__`` can raise anything, and what it raises can carry a
+    ``__str__`` of the same making. Reading the message is therefore the last
+    step that can still fail, and failing there would let the original
+    exception out in place of the ``ConfigurationError`` built around it.
+
+    Args:
+        exc: The exception to quote.
+
+    Returns:
+        What it says, or a name for its type when saying it raises.
+    """
+    try:
+        return str(exc)
+    except Exception:
+        return f"a {type(exc).__name__} whose message raises"
 
 
 def resolve_proxy(proxy: str | None) -> str | None:
@@ -214,13 +243,44 @@ def _without_password(text: str, proxy: str) -> str:
     Returns:
         The text, with any occurrence of the password replaced.
     """
+    for password in _passwords_in(proxy):
+        text = text.replace(f":{password}@", ":***@")
+    return text
+
+
+def _passwords_in(proxy: str) -> set[str]:
+    """Every spelling of the proxy's password a message could carry.
+
+    The password is read out of the URL by hand rather than by
+    :func:`urllib.parse.urlsplit`, which refuses a malformed netloc outright
+    — an unclosed ``[::1`` among them — and left the password standing in the
+    message that was refusing it. What is left is the same rule urlsplit
+    applies, up to the last ``@`` of the authority and past the first ``:``,
+    and it cannot fail. urlsplit is asked as well, because it strips tabs and
+    newlines before parsing, so a password written with one in it reaches a
+    message in two forms: as written here, and as the libraries print it.
+
+    Args:
+        proxy: Proxy URL as it was written.
+
+    Returns:
+        The password in every form it could appear in, empty when the URL
+        carries none.
+    """
+    found: set[str] = set()
+    netloc = re.split(r"[/?#]", proxy.partition("//")[2], maxsplit=1)[0]
+    userinfo, at, _ = netloc.rpartition("@")
+    if at:
+        _, colon, written = userinfo.partition(":")
+        if colon and written:
+            found.add(written)
     try:
-        password = urllib.parse.urlsplit(proxy).password
+        parsed = urllib.parse.urlsplit(proxy).password
     except ValueError:
-        return text
-    if not password:
-        return text
-    return text.replace(f":{password}@", ":***@")
+        return found
+    if parsed:
+        found.add(parsed)
+    return found
 
 
 def httpx_environment_proxies() -> dict[str, str]:
@@ -232,22 +292,36 @@ def httpx_environment_proxies() -> dict[str, str]:
     something a failure could be about at all.
 
     Returns:
-        The applicable variables, keyed as
-        :func:`urllib.request.getproxies` keys them, and empty when the
-        environment names none.
+        The applicable settings, keyed as
+        :func:`urllib.request.getproxies` keys them, and empty when this
+        machine names none.
     """
-    environment = urllib.request.getproxies()
-    return {
-        key: environment[key] for key in _HTTPX_PROXY_ENV_KEYS if key in environment
-    }
+    settings = urllib.request.getproxies()
+    return {key: settings[key] for key in _HTTPX_PROXY_ENV_KEYS if key in settings}
+
+
+def proxy_settings_are_environment_variables() -> bool:
+    """Whether what :func:`httpx_environment_proxies` found is really the environment.
+
+    ``urllib.request.getproxies`` answers with the environment *or*, when it
+    holds nothing, with what macOS and Windows have configured system-wide.
+    httpx reads it that way too, so those settings genuinely reach it — but
+    naming them ``HTTPS_PROXY`` in a message would invent a variable nobody
+    set.
+
+    Returns:
+        ``True`` when the environment is the source, ``False`` when the
+        answer came from the machine's own settings instead.
+    """
+    return bool(urllib.request.getproxies_environment())
 
 
 def _refuse_unusable(proxy: str, source: str) -> None:
     """Refuse a proxy URL either library would turn down or read differently.
 
-    *websockets* has the stricter parser of the two, so it is the one asked.
-    Everything it accepts httpx accepts as well, apart from a ``socks4://``
-    scheme, which httpx turns down itself and names the proxy when it does.
+    *websockets* has the stricter parser of the two on most counts, so it is
+    asked first; where httpx is the stricter one — a ``socks4://`` scheme, a
+    host it will not encode — asking it is what the checks below are for.
 
     Args:
         proxy: Proxy URL to check.
@@ -276,7 +350,7 @@ def _refuse_split_target(
 ) -> None:
     """Refuse a proxy the two libraries would not reach the same way.
 
-    They spell a non-ASCII host differently — httpx by UTS 46 and
+    They spell a non-ASCII host differently — httpx by IDNA 2008 and
     *websockets* by IDNA 2003, which agree on ``münchen.de`` and part company
     over ``faß.de`` — and httpx percent-decodes the user information before
     sending it while *websockets* sends it as written, so a password holding
@@ -298,11 +372,15 @@ def _refuse_split_target(
     """
     try:
         by_httpx = httpx.Proxy(url=proxy)
-    except ValueError:
-        # A scheme httpx has no transport for, such as socks4://. It refuses
-        # that one itself, and quotes the URL when it does, so the caller is
-        # told what the message is about.
-        return
+    except ValueError as exc:
+        # A scheme httpx has no transport for. *websockets* 16 speaks socks4
+        # and socks4a and httpx speaks neither, so the socket would connect
+        # through the proxy and the requests would not go out at all.
+        raise ConfigurationError(
+            f"Cannot use {source}: {_without_password(str(exc), proxy)}. The "
+            "WebSocket would connect through it and the requests could not. "
+            "socks5:// and socks5h:// are the SOCKS spellings both speak."
+        ) from exc
     except httpx.InvalidURL as exc:
         # A host httpx will not encode and *websockets* will, ``☃.net`` among
         # them. Left to httpx this surfaces while the client is being built,
@@ -319,12 +397,22 @@ def _refuse_split_target(
             "punycode form both of them read alike."
         )
     sent_by_httpx: tuple[str | None, str | None] = by_httpx.auth or (None, None)
-    if sent_by_httpx != (parsed.username, parsed.password):
+    by_websockets = (parsed.username, parsed.password)
+    if sent_by_httpx != by_websockets:
+        # Naming the username on both sides would print the same name twice
+        # whenever it is the password that differs, and read as a message
+        # contradicting itself.
+        differs = "user name" if sent_by_httpx[0] != by_websockets[0] else "password"
+        told = (
+            f"as {sent_by_httpx[0]!r} and the WebSocket as {by_websockets[0]!r}"
+            if differs == "user name"
+            else "with one password and the WebSocket with another"
+        )
         raise ConfigurationError(
-            f"Cannot use {source}: the requests would authenticate to it as "
-            f"{sent_by_httpx[0]!r} and the WebSocket as {parsed.username!r}, "
-            "because httpx percent-decodes proxy credentials and websockets "
-            "does not. Use a proxy whose credentials need no encoding."
+            f"Cannot use {source}: the requests would authenticate to it "
+            f"{told}, because httpx percent-decodes proxy credentials and "
+            f"websockets does not, and this {differs} is written with an "
+            "escape. Use a proxy whose credentials need no encoding."
         )
 
 

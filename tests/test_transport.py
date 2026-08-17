@@ -146,6 +146,25 @@ def test_a_path_object_that_will_not_describe_itself_is_still_reported() -> None
         resolve_verify_ssl(_UnprintablePath())
 
 
+class _UnspeakableFailure(Exception):
+    """An exception that will not say what went wrong."""
+
+    def __str__(self) -> str:
+        raise RuntimeError("and the message will not be read out either")
+
+
+def test_a_failure_that_will_not_say_what_it_was_is_still_reported() -> None:
+    """Quoting the exception is the last step that can still fail (#69).
+
+    ``__fspath__`` raises whatever its author chose, and that exception's
+    ``__str__`` is theirs as well. Reading it outside the catch would let
+    their exception out in place of the ``ConfigurationError`` built to hold
+    it — the same escape ``__repr__`` had, one step further along.
+    """
+    with pytest.raises(ConfigurationError, match="whose message raises"):
+        resolve_verify_ssl(_UnspeakablePath(_UnspeakableFailure()))
+
+
 @pytest.mark.parametrize(
     "raised",
     [
@@ -295,7 +314,7 @@ def test_proxy_credentials_the_two_agree_on_pass() -> None:
 def test_a_proxy_host_the_two_would_spell_differently_is_refused() -> None:
     """One setting, two hosts, and neither library says a word (#69).
 
-    httpx encodes a host that is not ASCII by UTS 46 and *websockets* by
+    httpx encodes a host that is not ASCII by IDNA 2008 and *websockets* by
     IDNA 2003, which part company over the sharp s: the requests would reach
     ``xn--fa-hia.de`` and the socket ``fass.de``.
     """
@@ -314,6 +333,18 @@ def test_a_proxy_host_only_websockets_would_encode_is_refused() -> None:
         resolve_proxy("http://☃.net:3128")
 
 
+@pytest.mark.parametrize("scheme", ["socks4", "socks4a"])
+def test_a_socks4_proxy_only_the_socket_could_use_is_refused(scheme: str) -> None:
+    """*websockets* 16 speaks SOCKS4 and httpx has no transport for it (#69).
+
+    This is the divergence that reads as working: the socket connects
+    through the proxy and the requests never leave the machine, each half
+    reporting something that sounds like a fault of its own.
+    """
+    with pytest.raises(ConfigurationError, match=r"socks5h?://"):
+        resolve_proxy(f"{scheme}://proxy.local:1080")
+
+
 def test_a_password_does_not_travel_into_the_message() -> None:
     """An exception outlives the setting it came from, in logs and reports.
 
@@ -326,6 +357,44 @@ def test_a_password_does_not_travel_into_the_message() -> None:
     assert "s3cret" not in message
     assert "alice" in message
     assert "proxy.local:3128" in message
+
+
+@pytest.mark.parametrize(
+    "proxy",
+    [
+        "http://alice:s3cret@[::1",
+        # A fullwidth solidus, which NFKC refuses inside a netloc.
+        "http://alice:s3cret@\uff0fproxy.local:3128",
+        "http://alice:s3cret@proxy.local:99999",
+        "socks4://alice:s3cret@proxy.local:1080",
+        "http://alice:s3cret@proxy.local:3128/path",
+    ],
+)
+def test_a_password_survives_no_url_the_parsers_choke_on(proxy: str) -> None:
+    """The URLs that leak are the ones nothing can parse (#69).
+
+    Reading the password with ``urlsplit`` meant a URL it refuses outright —
+    an unclosed ``[::1``, a netloc NFKC will not normalise — left the
+    password standing in the very message that was refusing it. The password
+    is read the way urlsplit reads it, by hand, so the reading cannot fail.
+    """
+    with pytest.raises(ConfigurationError) as caught:
+        resolve_proxy(proxy)
+    assert "s3cret" not in str(caught.value)
+
+
+def test_a_password_written_with_a_newline_is_hidden_in_both_forms() -> None:
+    """urlsplit strips what the message will still be carrying (#69).
+
+    It takes tabs and newlines out of the URL before parsing, so a password
+    written with one reaches a message in two spellings: as it was written
+    here, and as the libraries print it once they have cleaned it.
+    """
+    with pytest.raises(ConfigurationError) as caught:
+        resolve_proxy("http://alice:s3c\nret@proxy.local:3128")
+    message = str(caught.value)
+    assert "s3c\nret" not in message
+    assert "s3cret" not in message
 
 
 @pytest.mark.parametrize(

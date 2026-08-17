@@ -409,10 +409,9 @@ def test_what_a_contained_group_is_made_to_say(
     credentials (#69).
     """
     group = ExceptionGroup("connecting", [OverflowError("port must be 0-65535")])
-    monkeypatch.setattr(
-        "urllib.request.getproxies",
-        lambda: {"https": "http://user:s3cret@proxy.local:3128"},
-    )
+    named = {"https": "http://user:s3cret@proxy.local:3128"}
+    monkeypatch.setattr("urllib.request.getproxies", lambda: named)
+    monkeypatch.setattr("urllib.request.getproxies_environment", lambda: named)
 
     read = PiKVM("https://pikvm.local")._connection_failed(group)
     assert "OverflowError: port must be 0-65535" in read
@@ -426,6 +425,28 @@ def test_what_a_contained_group_is_made_to_say(
         "https://pikvm.local", proxy="http://proxy.local:3128"
     )._connection_failed(group)
     assert "http://proxy.local:3128" in passed
+
+
+def test_a_proxy_no_variable_set_is_not_blamed_on_a_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``getproxies()`` answers for macOS and Windows too, and httpx reads it.
+
+    With nothing in the environment it falls back on what the machine has
+    been configured with system-wide. Those settings genuinely reach httpx,
+    so they are worth naming — but calling them ``HTTPS_PROXY`` would invent
+    a variable nobody set, and send the reader looking for it (#69).
+    """
+    monkeypatch.setattr(
+        "urllib.request.getproxies", lambda: {"https": "http://proxy.local:3128"}
+    )
+    monkeypatch.setattr("urllib.request.getproxies_environment", dict)
+
+    read = PiKVM("https://pikvm.local")._connection_failed(
+        ExceptionGroup("connecting", [OverflowError("port must be 0-65535")])
+    )
+    assert "HTTPS_PROXY" not in read
+    assert "this machine is configured with a proxy for https" in read
 
 
 async def test_a_group_the_caller_raised_is_left_alone(
@@ -444,6 +465,47 @@ async def test_a_group_the_caller_raised_is_left_alone(
             async with kvm.stream("GET", "/api/msd/read"):
                 raise ExceptionGroup("mine", [ValueError("my own failure")])
     assert caught.value.exceptions[0].args[0] == "my own failure"
+
+
+async def test_a_transport_failure_the_caller_wrapped_is_still_contained(
+    mock_api: respx.MockRouter,
+) -> None:
+    """Whose group it is does not decide what is inside it (#69).
+
+    A body read run inside a task group of the caller's own comes back
+    wrapped, and refusing every group once the response is theirs let a
+    connection failure out bare. A group whose every leaf is one of httpx's
+    transport errors is a connection failure however it was wrapped.
+    """
+    mock_api.get("/api/msd/read").respond(200, content=b"payload")
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ConnectError, match="the peer hung up"):
+            async with kvm.stream("GET", "/api/msd/read"):
+                raise ExceptionGroup(
+                    "reading", [httpx.RemoteProtocolError("the peer hung up")]
+                )
+
+
+async def test_a_group_holding_both_is_left_to_the_caller(
+    mock_api: respx.MockRouter,
+) -> None:
+    """One of the two has to survive, and theirs is the one nothing else holds.
+
+    A ``ConnectError`` can carry the transport failure and not the rest, so
+    the group goes on as it is and keeps both (#69).
+    """
+    mock_api.get("/api/msd/read").respond(200, content=b"payload")
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ExceptionGroup) as caught:
+            async with kvm.stream("GET", "/api/msd/read"):
+                raise ExceptionGroup(
+                    "reading",
+                    [
+                        httpx.RemoteProtocolError("the peer hung up"),
+                        ValueError("and my own code failed too"),
+                    ],
+                )
+    assert len(caught.value.exceptions) == 2
 
 
 def test_a_group_holding_a_group_still_says_what_went_wrong() -> None:
