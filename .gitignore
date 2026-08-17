@@ -18,3 +18,4 @@ build/
 .coverage
 coverage.xml
 site/
+.scratch/

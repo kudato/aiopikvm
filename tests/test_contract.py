@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import pkgutil
 import re
 from pathlib import Path
 from types import ModuleType
@@ -44,6 +43,46 @@ from tests.helpers import undeclared_fields
 ROOT = Path(__file__).parent.parent
 
 
+def _where(path: Path) -> str:
+    """Return *path* the way a failure message should name it.
+
+    Relative to the repository where it is inside it, absolute where it is
+    not. The package is reached through its own ``__path__``, so a
+    non-editable install puts it under ``site-packages``, and
+    ``relative_to`` answers a path outside its argument with ``ValueError``
+    rather than with a name.
+
+    Args:
+        path: File one of the scans below read a value out of.
+
+    Returns:
+        The path to print, relative where that is possible.
+    """
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def _module_files() -> list[Path]:
+    """Return every source file of the package.
+
+    Located through the package's own ``__path__`` rather than by guessing
+    at ``src``, which would go on matching an unrelated file after a move.
+
+    Returns:
+        Every ``.py`` file in the package, sorted.
+
+    Raises:
+        AssertionError: If the walk comes back empty. A package that is not
+            where it says it is looks like nothing at all from here, and a
+            scan of nothing goes on passing.
+    """
+    files = sorted(Path(aiopikvm.__path__[0]).rglob("*.py"))
+    assert files, "no module found; the package is not where it says it is"
+    return files
+
+
 def _prose() -> list[Path]:
     """Return the prose an example can be copied out of.
 
@@ -52,9 +91,7 @@ def _prose() -> list[Path]:
     little more than a ``:::`` directive — the prose a reader of the API
     reference copies from is the docstrings mkdocstrings renders out of the
     source, so an example written in one is as published as one written in
-    a guide. The package is located through its own ``__path__`` rather than
-    by guessing at ``src``, which would go on matching an unrelated file
-    after a move.
+    a guide.
 
     Reading the code alongside the docstrings is the price, and cheap for
     one reason only: every value below is matched inside a call. The
@@ -72,15 +109,12 @@ def _prose() -> list[Path]:
         Every file the scans below read, guides first.
 
     Raises:
-        AssertionError: If either glob comes back empty. A renamed docs tree
-            looks like nothing at all from here, and a scan of nothing goes
-            on passing.
+        AssertionError: If the docs tree comes back empty. A renamed one
+            looks like nothing at all from here.
     """
     guides = sorted(ROOT.joinpath("docs").rglob("*.md"))
-    modules = sorted(Path(aiopikvm.__path__[0]).rglob("*.py"))
     assert guides, "no guide found; the docs tree moved"
-    assert modules, "no module found; the package is not where it says it is"
-    return [*guides, ROOT / "README.md", *modules]
+    return [*guides, ROOT / "README.md", *_module_files()]
 
 
 class Case(NamedTuple):
@@ -260,6 +294,57 @@ def test_key_names_match_the_device_table() -> None:
     assert len(KEY_NAMES) == 115
 
 
+_QUOTED = r"""(?P<quote>["'])(?P<text>[^"'\n]*)(?P=quote)"""
+"""One string literal, in either of the quotes Python spells one with.
+
+``ruff format`` normalises the code to double quotes, but it does not touch
+a fenced block in a Markdown guide, so a single-quoted example is a
+published example — and a pattern that only knew the double quote would let
+one carry a value the parameter refuses, silently. The closing quote is a
+backreference so that an apostrophe inside a double-quoted string cannot
+end it.
+"""
+
+_ARGS = r"(?P<args>(?:[^()]|\([^()]*\))*)"
+"""The argument list of a call, one level of nesting included.
+
+For the calls whose vocabulary can appear in more than one argument — the
+key names are variadic, and the ATX pair take the name last. A plain
+``[^)]*`` stops at the first ``)`` it meets, so a nested call anywhere in
+the list hides every argument after it: the scan then reads the ones before
+it, passes, and never reports that it stopped early.
+"""
+
+
+def _scan(pattern: str, path: Path) -> list[str]:
+    """Return every value *pattern* reads out of *path*.
+
+    Two shapes of pattern, told apart by the group they capture. One with a
+    ``text`` group has found the value itself. One with an ``args`` group has
+    found a whole argument list instead, and every string literal in it is a
+    value — which holds only where no other argument of that call is a
+    string, and is why ``reset()`` is matched the other way: its second
+    argument is a system id.
+
+    Args:
+        pattern: Pattern with a ``text`` group or an ``args`` group.
+        path: File to read.
+
+    Returns:
+        Each value found, in the order the file spells them.
+    """
+    found: list[str] = []
+    for match in re.finditer(pattern, path.read_text(encoding="utf-8")):
+        if "args" in match.groupdict():
+            found += [inner["text"] for inner in re.finditer(_QUOTED, match["args"])]
+        else:
+            found.append(match["text"])
+    return found
+
+
+_KEY_CALLS = rf"(?<!def )send_(?:key|shortcut)\({_ARGS}\)"
+
+
 def test_documented_key_names_are_ones_kvmd_accepts() -> None:
     """No published example types a key that does not exist.
 
@@ -271,12 +356,10 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
     ever takes a string default is not a key name, and reading it as one
     would fail the suite for a correct change.
     """
-    calls = re.compile(r"(?<!def )send_(?:key|shortcut)\(([^)]*)\)")
     found: dict[str, set[str]] = {}
     for path in _prose():
-        for call in calls.findall(path.read_text(encoding="utf-8")):
-            for name in re.findall(r'"([^"]*)"', call):
-                found.setdefault(name, set()).add(str(path.relative_to(ROOT)))
+        for name in _scan(_KEY_CALLS, path):
+            found.setdefault(name, set()).add(_where(path))
     assert found, "no key name found at all; the pattern stopped matching"
     # Which file, as in the scan below: 115 names over three corpora leave
     # a reader nothing to grep for otherwise.
@@ -285,24 +368,33 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
     )
 
 
-def _values(annotation: Any, seen: frozenset[Any] = frozenset()) -> tuple[str, ...]:
-    """Return every literal value reachable inside *annotation*, as written.
+def _values(annotation: Any, seen: frozenset[Any] = frozenset()) -> tuple[Any, ...]:
+    """Return every literal value reachable inside *annotation*.
 
     Empty for a type built out of no literals at all, which is how an
     ordinary alias — ``type Params = dict[str, Any]`` — is told apart from a
     vocabulary below. Recursive, so that an alias for an alias, a union of
     literals and a ``Literal[...] | None`` all read as the vocabulary they
     are: a shape this stopped seeing would stop being documented, silently,
-    which is the one thing the checks below exist to prevent.
+    which is the one thing the checks below exist to prevent. A member that
+    is an alias in its own right counts too — ``Literal[Inner, "ps2"]`` is
+    legal, and ``str()`` of that first member is the string ``"Inner"``,
+    a value nothing in the library accepts and nothing here would question.
 
     *seen* stops an alias that refers to itself — ``type Json = str | int |
     list[Json]`` is the ordinary shape of one — from recursing forever.
     Without it that alias is not a failing test but a ``RecursionError``
     during collection, which takes the whole session down with it.
 
-    Values come back as text because everything they are compared against
-    is text: a regex capture out of a guide, or a cell of its table. A
-    vocabulary of numbers would otherwise be impossible to document.
+    An alias whose value will not evaluate reads as no vocabulary at all,
+    for the same reason. ``type Ports = dict[str, ATXResource]`` in a module
+    that imports ``ATXResource`` under ``TYPE_CHECKING`` — the shape the
+    style guide asks for — raises ``NameError`` on the lazy ``__value__``,
+    and that too is a collection error rather than one red test.
+
+    Members come back as the type spells them, not as text: the check that
+    a vocabulary is made of strings at all has to be able to see one that is
+    not. :func:`_texts` is what every comparison against prose reads.
 
     Args:
         annotation: Type to read, usually a ``type`` alias.
@@ -314,23 +406,55 @@ def _values(annotation: Any, seen: frozenset[Any] = frozenset()) -> tuple[str, .
     if isinstance(annotation, TypeAliasType):
         if annotation in seen:
             return ()
-        return _values(annotation.__value__, seen | {annotation})
+        try:
+            value = annotation.__value__
+        except NameError:
+            return ()
+        return _values(value, seen | {annotation})
     if get_origin(annotation) is Literal:
-        return tuple(str(value) for value in get_args(annotation))
+        return tuple(
+            member
+            for arg in get_args(annotation)
+            for member in (
+                _values(arg, seen) if isinstance(arg, TypeAliasType) else (arg,)
+            )
+        )
     return tuple(value for arg in get_args(annotation) for value in _values(arg, seen))
 
 
+def _texts(annotation: Any) -> tuple[str, ...]:
+    """Return :func:`_values` as the text every comparison here is against.
+
+    A regex capture out of a guide and a cell of its table are both text, so
+    this is the side the prose is held to.
+
+    Args:
+        annotation: Type to read, usually a ``type`` alias.
+
+    Returns:
+        Each literal value as written down.
+    """
+    return tuple(str(value) for value in _values(annotation))
+
+
 _TYPED_VALUES = (
-    ("keyboard_output", r'keyboard_output="([^"\n]*)"', KeyboardOutput),
-    ("mouse_output", r'mouse_output="([^"\n]*)"', MouseOutput),
-    ("mouse button", r'send_mouse_button\(\s*"([^"\n]*)"', MouseButton),
-    ("compression", r'compress="([^"\n]*)"', Compression),
-    # The ATX pair take the name positionally, so the match has to walk the
-    # argument list — but only as far as the end of the call, and never past
-    # the end of the line, or the capture runs on into the next quoted thing
-    # in the file.
-    ("ATX action", r'atx_power\([^)\n]*"([^"\n]*)"', ATXAction),
-    ("ATX button", r'atx_click\([^)\n]*"([^"\n]*)"', ATXButton),
+    ("keyboard_output", rf"keyboard_output={_QUOTED}", KeyboardOutput),
+    ("mouse_output", rf"mouse_output={_QUOTED}", MouseOutput),
+    # The keyword form as well as the positional one: both parameters are
+    # ordinary positional-or-keyword, so an example is free to name them,
+    # and a pattern that only knew the position would skip such a call
+    # without a word.
+    ("mouse button", rf"send_mouse_button\(\s*(?:button=)?{_QUOTED}", MouseButton),
+    ("compression", rf"compress={_QUOTED}", Compression),
+    # The ATX pair take the name last, so the whole argument list is matched
+    # and every string in it read. Nothing else either of them takes is a
+    # string — the port is a number — so there is nothing else to pick up.
+    ("ATX action", rf"atx_power\({_ARGS}\)", ATXAction),
+    ("ATX button", rf"atx_click\({_ARGS}\)", ATXButton),
+    # Not the argument list here: ``reset()`` takes a system id second, and
+    # ``reset("ForceOff", "SwitchPort0")`` is in the guide, so only the
+    # first argument is a reset type.
+    #
     # Four other resources have a ``reset()``, and not one of them can put a
     # string where this looks: ``switch.reset`` takes a unit number,
     # ``streamer.reset`` a keyword-only timeout, ``hid.reset`` and
@@ -341,7 +465,7 @@ _TYPED_VALUES = (
     # lookbehind is the one boundary that has to be spelled out, or
     # ``click_reset("...")`` matches. The guide spells refused types out too,
     # ``GracefulRestart`` and ``"forceoff"``, and neither is inside a call.
-    ("reset type", r'(?<!\w)reset\(\s*"([^"\n]*)"', ResetType),
+    ("reset type", rf"(?<!\w)reset\(\s*(?:reset_type=)?{_QUOTED}", ResetType),
 )
 _TYPE_TABLE = ROOT / "docs" / "guide" / "error-handling.md"
 _TYPE_HEADING = "## Values the type checker catches"
@@ -363,10 +487,10 @@ def test_documented_values_are_ones_the_type_allows(
     """
     found: dict[str, set[str]] = {}
     for path in _prose():
-        for value in re.findall(pattern, path.read_text(encoding="utf-8")):
-            found.setdefault(value, set()).add(str(path.relative_to(ROOT)))
+        for value in _scan(pattern, path):
+            found.setdefault(value, set()).add(_where(path))
     assert found, f"no {what} found at all; the pattern stopped matching"
-    allowed = set(_values(alias))
+    allowed = set(_texts(alias))
     # Which file, as well as which value: the pattern reads the docs tree,
     # the README and every module, and a bare value leaves a reader
     # grepping for it. The path is relative to the repository because a
@@ -380,22 +504,26 @@ def test_documented_values_are_ones_the_type_allows(
 def _modules() -> list[ModuleType]:
     """Return every module in the package, the top-level one included.
 
-    ``walk_packages`` yields the subpackages, so importing what it hands
-    back reaches ``resources/__init__.py`` and ``models/__init__.py`` on its
-    own. What it never yields is the package it was given, which is why
-    ``aiopikvm`` itself is prepended: a public name in the top-level
-    ``__init__`` would otherwise be invisible here.
+    Named off the files rather than discovered with
+    ``pkgutil.walk_packages``, which skips a directory that has no
+    ``__init__.py`` — and skips it silently, yielding not so much as the
+    directory itself. Such a directory is a PEP 420 namespace portion and
+    its modules import perfectly well, so a vocabulary in one would be
+    invisible here, and invisible here means no row and no scanner is ever
+    asked for it.
 
     Returns:
         Every module of the package, the top-level one first.
     """
-    return [
-        aiopikvm,
-        *(
-            importlib.import_module(info.name)
-            for info in pkgutil.walk_packages(aiopikvm.__path__, "aiopikvm.")
-        ),
-    ]
+    root = Path(aiopikvm.__path__[0])
+    names = ["aiopikvm"]
+    for path in _module_files():
+        parts = path.relative_to(root).with_suffix("").parts
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        if parts:
+            names.append(".".join(("aiopikvm", *parts)))
+    return [importlib.import_module(name) for name in names]
 
 
 def _vocabularies() -> dict[str, TypeAliasType]:
@@ -523,7 +651,15 @@ def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     # incomplete one would pass the equality. Behind the row lookup, that
     # never got as far as saying so, since a type nobody has documented yet
     # is the order anybody adding one works in.
-    values = _values(_vocabularies()[name])
+    members = _values(_vocabularies()[name])
+    # Both sides of every comparison here are text, so a member that is not
+    # a string is compared as ``str()`` of itself: ``Literal[1]`` would
+    # accept the ``"1"`` of an example that cannot legally pass it. Nothing
+    # kvmd takes in a query string is anything but a string, and this is
+    # what says so rather than assuming it.
+    odd = [member for member in members if not isinstance(member, str)]
+    assert not odd, f"{name} has values no example or table cell can hold: {odd}"
+    values = tuple(str(member) for member in members)
     assert len(values) == len(set(values)), f"{name} has two values that read alike"
     rows = _type_table()
     assert name in rows, f"the guide's table has no row for {name}"
@@ -547,7 +683,7 @@ def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:
     """
     available = load_result("hid")["mouse"]["outputs"]["available"]
     assert available, "the capture advertises no mouse output to check against"
-    assert set(available) <= set(_values(MouseOutput))
+    assert set(available) <= set(_texts(MouseOutput))
 
 
 def test_the_capture_contains_a_partial_update() -> None:
