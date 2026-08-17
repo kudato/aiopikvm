@@ -1,13 +1,25 @@
-"""MSD API — virtual drives and image upload."""
+"""MSD API — virtual drives and image upload.
 
+The two write endpoints answer differently from everything else in kvmd.
+``/api/msd/write`` sends the usual envelope, but with a body worth reading:
+it reports the name the image was actually stored under.
+``/api/msd/write_remote`` does not send one envelope at all — it streams
+``application/x-ndjson``, one envelope per line, and reports a failed
+download inside an HTTP 200 rather than as a status.
+"""
+
+import json
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
 from aiopikvm._base_resource import BaseResource
-from aiopikvm._exceptions import ConfigurationError
-from aiopikvm.models.msd import MSDState
+from aiopikvm._exceptions import ConfigurationError, ResponseError
+from aiopikvm.models.msd import MSDState, MSDUpload
+
+_WRITE_PATH = "/api/msd/write"
+_WRITE_REMOTE_PATH = "/api/msd/write_remote"
 
 
 class MSDResource(BaseResource):
@@ -64,11 +76,13 @@ class MSDResource(BaseResource):
         prefix: str | None = None,
         remove_incomplete: bool | None = None,
         timeout: float | None = None,
-    ) -> None:
+    ) -> MSDUpload:
         """Upload a disk image.
 
         Args:
-            name: Image file name.
+            name: Image file name. kvmd runs it through its own file-name
+                validator and stores it under the result, so read the name
+                back from the return value rather than assuming this one.
             data: Image data as bytes or an async byte iterator.
             size: Total image size in bytes. Required for an iterator and
                 ignored for bytes. kvmd reads the size from
@@ -76,15 +90,31 @@ class MSDResource(BaseResource):
                 a streamed image has to declare its length up front. It must
                 match the data exactly: an undercount makes kvmd store a
                 truncated image and mark it ``complete``.
-            prefix: Subdirectory of the storage to write into.
+            prefix: Subdirectory of the storage to write into, joined onto
+                *name* by kvmd. It has to already exist: kvmd creates the
+                image's ``.incomplete`` marker before it creates the
+                directory, so a prefix that is not there yet fails on an
+                unhandled ``FileNotFoundError`` — a plain-text HTTP 500 with
+                no error block, which reaches the caller as an
+                :class:`APIError` carrying only the status.
             remove_incomplete: Whether kvmd deletes a partially written image
-                if the connection breaks. Leave unset for the kvmd default.
+                if the connection breaks. Leave unset for the kvmd default,
+                which is to keep it, listed with ``complete=False``.
             timeout: Per-call timeout in seconds. Images are large and the
                 client default of 10 s is meant for state calls.
+
+        Returns:
+            What kvmd wrote: the stored ``name``, the ``size`` the write was
+            opened for, and how much was ``written``.
 
         Raises:
             ConfigurationError: If *data* is an iterator and *size* is
                 missing, negative, or disagrees with the bytes it yields.
+            APIError: If kvmd refuses the write — an image of that name is
+                already in storage, the name does not pass its validator, or
+                the prefix directory does not exist.
+            ResponseError: If the body is not the write info it documents.
+            PiKVMError: If PiKVM is unreachable.
         """
         if isinstance(data, bytes):
             length = len(data)
@@ -104,8 +134,8 @@ class MSDResource(BaseResource):
             params["prefix"] = prefix
         if remove_incomplete is not None:
             params["remove_incomplete"] = int(remove_incomplete)
-        await self._post(
-            "/api/msd/write",
+        result = await self._post(
+            _WRITE_PATH,
             params=params,
             content=content,
             headers={
@@ -116,21 +146,210 @@ class MSDResource(BaseResource):
             },
             timeout=timeout,
         )
+        return self._write_info(result, _WRITE_PATH)
 
-    async def upload_remote(self, url: str, *, timeout: float = 0) -> None:
-        """Upload a disk image from a remote URL.
+    async def upload_remote(
+        self,
+        url: str,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        insecure: bool | None = None,
+        remove_incomplete: bool | None = None,
+        connect_timeout: float | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> MSDUpload:
+        """Download a disk image straight into MSD storage and wait for it.
+
+        The transfer happens between PiKVM and *url*; the image never passes
+        through this client. Progress is read from kvmd's own stream, so this
+        call lasts as long as the download does — see
+        :meth:`upload_remote_progress` to watch it go by.
 
         Args:
-            url: Remote image URL.
-            timeout: Download timeout in seconds (``0`` = server default).
-                Unlike the ``timeout`` of the other calls, this one is a
-                query parameter kvmd applies to its own download; it does
-                not bound how long this client waits.
+            url: Remote image URL. kvmd's validator accepts ``http`` and
+                ``https`` only.
+            name: Name to store the image under. kvmd defaults it to the
+                remote's own: the ``filename`` of its ``Content-Disposition``
+                if it sends a usable one, otherwise the last segment of the
+                URL path — and it refuses the whole call if neither is a name
+                it will accept.
+            prefix: Subdirectory of the storage, with the same
+                already-has-to-exist caveat as in :meth:`upload`.
+            insecure: Skip TLS verification of the remote — kvmd's own fetch,
+                not this client's connection to PiKVM.
+            remove_incomplete: Whether kvmd deletes the partial image when
+                the download fails. Worth turning on here: a failed remote
+                download otherwise leaves an incomplete image occupying the
+                name, and the retry is refused for that reason.
+            connect_timeout: kvmd's ``timeout`` parameter, in seconds — how
+                long *it* waits to connect to *url*. It does not bound the
+                download: kvmd puts no limit on the total, and allows a week
+                between chunks. Defaults to kvmd's own 10 s; values below 0.1
+                are refused.
+            timeout: Override this client's timeout for the request. By
+                default the read timeout is disabled, since the response
+                stays open for the length of the download, while connect and
+                write keep their client-level values.
+
+        Returns:
+            The last progress record, whose ``name`` is what kvmd stored and
+            whose ``written`` equals ``size`` on a completed download.
+
+        Raises:
+            APIError: If kvmd refuses before it starts streaming — an
+                unusable URL, an origin that answers anything but 200 or
+                sends no ``Content-Length``, an unreachable host, or a name
+                already in storage — or if the download itself fails, which
+                kvmd reports as the last record of an HTTP 200 stream.
+            ResponseError: If a record is not the envelope it documents, or
+                the stream carries none at all.
+            PiKVMError: If PiKVM is unreachable, or the connection breaks
+                before kvmd has said why.
+        """
+        last: MSDUpload | None = None
+        async for record in self.upload_remote_progress(
+            url,
+            name=name,
+            prefix=prefix,
+            insecure=insecure,
+            remove_incomplete=remove_incomplete,
+            connect_timeout=connect_timeout,
+            timeout=timeout,
+        ):
+            last = record
+        if last is None:
+            raise ResponseError(
+                f"{_WRITE_REMOTE_PATH} answered without a single progress "
+                "record; kvmd sends one before the first byte and one when "
+                "the download ends"
+            )
+        return last
+
+    async def upload_remote_progress(
+        self,
+        url: str,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        insecure: bool | None = None,
+        remove_incomplete: bool | None = None,
+        connect_timeout: float | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> AsyncIterator[MSDUpload]:
+        """Download a disk image from a URL, reporting progress as it goes.
+
+        kvmd answers this endpoint with ``application/x-ndjson``: one
+        envelope per line, sent before the first byte arrives, about once a
+        second while the download runs, and once more when it ends. Each one
+        is yielded here as it lands, so ``written / size`` tracks a transfer
+        that can take hours.
+
+        Iterating to the end is what waits for the download. Stopping early
+        closes the connection, and kvmd gives up on the transfer as soon as
+        the next record it writes finds it gone — leaving the partial image
+        behind or deleting it, according to *remove_incomplete*. Stop through
+        ``contextlib.aclosing`` so that happens where you decide rather than
+        whenever the generator is collected.
+
+        A failed download is *not* an error status. kvmd has already sent
+        HTTP 200 by then, so it writes the failure as one last record and
+        lets the connection break without closing the body properly. This
+        raises that record as an :class:`APIError` when it arrives, which is
+        before the broken connection surfaces.
+
+        Args:
+            url: Remote image URL, ``http`` or ``https``.
+            name: Name to store the image under; defaults to the remote's.
+            prefix: Subdirectory of the storage, which has to already exist.
+            insecure: Skip TLS verification of the remote.
+            remove_incomplete: Whether kvmd deletes the partial image when
+                the download fails.
+            connect_timeout: How long kvmd waits to connect to *url*.
+            timeout: Override this client's timeout for the request; the read
+                timeout is disabled by default.
+
+        Yields:
+            One record per line kvmd sends, in order.
+
+        Raises:
+            APIError: If kvmd refuses before streaming, or reports the
+                download as failed inside the stream.
+            ResponseError: If a line is not the envelope it documents.
+            PiKVMError: If PiKVM is unreachable, or the connection breaks
+                before kvmd has said why.
         """
         params: dict[str, Any] = {"url": url}
-        if timeout > 0:
-            params["timeout"] = timeout
-        await self._post("/api/msd/write_remote", params=params)
+        if name is not None:
+            params["image"] = name
+        if prefix is not None:
+            params["prefix"] = prefix
+        if insecure is not None:
+            params["insecure"] = int(insecure)
+        if remove_incomplete is not None:
+            params["remove_incomplete"] = int(remove_incomplete)
+        if connect_timeout is not None:
+            params["timeout"] = connect_timeout
+        async with self._client.stream(
+            "POST",
+            _WRITE_REMOTE_PATH,
+            params=params,
+            headers={"Accept": "application/x-ndjson"},
+            timeout=(
+                timeout
+                if timeout is not None
+                else httpx.Timeout(self._client._timeout, read=None)
+            ),
+        ) as response:
+            async for line in response.aiter_lines():
+                if line.strip():
+                    yield self._write_record(line)
+
+    def _write_record(self, line: str) -> MSDUpload:
+        """Parse one line of the ``write_remote`` stream.
+
+        Args:
+            line: One line of the NDJSON body, without its terminator.
+
+        Returns:
+            The progress it carries.
+
+        Raises:
+            ResponseError: If the line is not a JSON object, or holds no
+                write info.
+            APIError: If the record reports the download as failed.
+        """
+        try:
+            body = json.loads(line)
+        except ValueError as exc:
+            raise ResponseError(
+                f"{_WRITE_REMOTE_PATH} sent a line that is not JSON: {line[:200]}"
+            ) from exc
+        return self._write_info(
+            self._unwrap(body, _WRITE_REMOTE_PATH), _WRITE_REMOTE_PATH
+        )
+
+    def _write_info(self, result: Any, path: str) -> MSDUpload:
+        """Pull the write info out of an unwrapped ``result`` payload.
+
+        Args:
+            result: The ``result`` field of a write response envelope.
+            path: URL path it came from, for the error message.
+
+        Returns:
+            The validated write info.
+
+        Raises:
+            ResponseError: If ``result`` holds no ``image`` block, or the
+                block does not match :class:`MSDUpload`.
+        """
+        image = result.get("image") if isinstance(result, dict) else None
+        if image is None:
+            raise ResponseError(
+                f"{path} returned no image block; kvmd answers a write with "
+                f'{{"image": {{"name": ..., "size": ..., "written": ...}}}}'
+            )
+        return self._validate(MSDUpload, image, path)
 
     async def download(
         self,
@@ -177,8 +396,20 @@ class MSDResource(BaseResource):
     async def remove(self, name: str) -> None:
         """Remove a disk image.
 
+        The file is gone when this returns, but the listing kvmd checks a
+        write against is rebuilt from the storage a moment later. Uploading
+        the same name immediately afterwards is refused as already existing;
+        poll :meth:`get_state` until ``storage.images`` has dropped it.
+
         Args:
-            name: Image file name to remove.
+            name: Image file name to remove, as it appears in
+                ``storage.images`` — including the subdirectory, if it was
+                written under one.
+
+        Raises:
+            APIError: If no image of that name is in storage, or it is in the
+                drive and cannot be removed.
+            PiKVMError: If PiKVM is unreachable.
         """
         await self._post("/api/msd/remove", params={"image": name})
 

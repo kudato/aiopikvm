@@ -130,6 +130,18 @@ async def test_redfish_refuses_an_unknown_reset_type(live: PiKVM) -> None:
     assert info.value.status_code == 400
 
 
+async def test_msd_remote_upload_refuses_an_unusable_url(live: PiKVM) -> None:
+    """A refused remote upload is a status, not a record in the stream (#40).
+
+    This is a POST, and it writes nothing: kvmd validates the URL before it
+    fetches anything, and the scheme sent here is one it never accepts.
+    """
+    with pytest.raises(APIError) as caught:
+        await live.msd.upload_remote("ftp://localhost/aiopikvm-does-not-exist.iso")
+    assert caught.value.status_code == 400
+    assert caught.value.error == "ValidatorError"
+
+
 async def test_websocket_delivers_the_initial_state(live: PiKVM) -> None:
     """Every subsystem sends its state once the socket is open, ``loop`` first."""
     seen: list[str] = []

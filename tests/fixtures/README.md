@@ -84,6 +84,22 @@ restored afterwards. Reproducing them means changing somebody's device, so ask
 first — and note that toggling the MSD recreates the USB gadget, which briefly
 disconnects the keyboard, mouse and audio the target host sees.
 
+`msd_write.json` was recorded in the same reconfigured state, and needed one
+more thing the storage does not normally have: an `isos` directory, so that
+both outcomes of the `prefix` parameter could be recorded side by side. It
+covers the write info `POST /api/msd/write` answers with, the whole NDJSON
+body of a `POST /api/msd/write_remote` that succeeded, the body of one whose
+origin died mid-transfer — where kvmd appends its error record and then breaks
+the connection without closing the body, which the `stream_broken` field
+records — and every refusal kvmd makes before it starts streaming.
+
+The remote downloads went to a throttled HTTP server running on the device's
+own loopback and serving generated zeros, so nothing was fetched from the
+internet; the sanitizer rewrote that origin's address wherever kvmd echoed it
+back in an error message. Every image was removed afterwards, the `isos`
+directory taken out again and the OTG profile restored. Re-recording it means
+writing to somebody's SD card, so ask first.
+
 `ws_handshake.json` was recorded by hand too, with the `websockets` client
 opening `GET /api/ws` once per refusal — a bad `stream` value, a wrong
 password, an unknown user, and no credentials at all. The capture tool cannot

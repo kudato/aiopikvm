@@ -101,9 +101,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Form-encoded request bodies (`data`) in `PiKVM.request()` and the resource
   helpers. The HTTP core could only send JSON, which is why `/auth/login`
   could not work at all (#34).
+- `MSDResource.upload_remote_progress()`, an async iterator over the NDJSON
+  stream `POST /msd/write_remote` answers with. kvmd sends one record before
+  the first byte, one about every second while the download runs and one when
+  it ends; nothing in the client could read them, so a transfer that takes
+  hours reported nothing at all (#40).
+- `name`, `prefix`, `insecure` and `remove_incomplete` on
+  `MSDResource.upload_remote()`. kvmd accepts all four and the client sent
+  none of them: without `name` the image is stored under whatever the remote
+  calls it, and without `remove_incomplete` a failed download leaves an
+  incomplete image occupying the name, which is then refused on the retry
+  (#40).
 
 ### Changed
 
+- **Breaking:** `MSDResource.upload()` returns `MSDUpload` instead of `None`.
+  kvmd answers a write with `{"image": {"name", "size", "written"}}`, and the
+  name in it is the one the image was actually stored under — a `prefix` is
+  joined on server-side and the whole thing goes through kvmd's file-name
+  validator, so the name to pass to `set_params()` or `remove()` afterwards
+  was unobtainable (#39).
+- **Breaking:** `timeout` on `MSDResource.upload_remote()` is this client's
+  request timeout, as everywhere else in the library, and defaults to having
+  the read timeout disabled — the response stays open for the length of the
+  download. kvmd's own `timeout` query parameter is now `connect_timeout`,
+  which is what it is: how long kvmd waits to *connect* to the URL. It never
+  bounded the download, on which kvmd puts no total limit at all (#40).
 - **Breaking:** `RedfishResource.reset()` and `update_system()` return `None`.
   kvmd answers both with HTTP 204 and an empty body, so the documented `dict`
   was unreachable: `_redfish_request()` called `.json()` on nothing and every
@@ -231,6 +254,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `MSDResource.upload_remote()` raised `APIError("Invalid JSON response")` on
+  every call, successful ones included. `POST /msd/write_remote` answers HTTP
+  200 with `application/x-ndjson` — one envelope per line, never fewer than
+  two — and the client called `.json()` on the concatenation. The download had
+  usually finished by then, so the one call that could not fail was reported
+  as the one that did (#40).
+- A remote download that fails is now raised as the reason it failed. kvmd has
+  already sent HTTP 200 by the time it knows, so it writes the failure as one
+  last record and lets the exception escape its handler — the chunked body
+  never gets its terminating chunk. Reading record by record surfaces
+  `ClientPayloadError` or whatever else kvmd names, instead of httpx's
+  "peer closed connection without sending complete message body" (#40).
+- The mocked upload tests answered `{"ok": true, "result": {}}`, which kvmd
+  never sends, so nothing noticed that the write info was being thrown away.
+  Both endpoints are now pinned to a capture recorded off a real device, the
+  NDJSON stream and its broken connection included (#39, #40).
+- Documented what `prefix` does on a directory that is not there yet: kvmd
+  creates the image's `.incomplete` marker before it creates the directory, so
+  the call fails on an unhandled `FileNotFoundError` — a plain-text HTTP 500
+  with no error block for a message to come from. The prefix has to already
+  exist (#39).
+- Documented that `remove()` returns before kvmd's storage listing catches up,
+  so re-uploading the same name immediately afterwards is refused as already
+  existing (#39).
 - `RedfishResource.update_system()` claimed to apply the attributes and return
   the updated document. kvmd's handler is a stub that answers 204, ignores the
   body and does not look at the system id; it exists so that BMC tooling which

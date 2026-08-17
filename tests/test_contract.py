@@ -9,6 +9,7 @@ fact that the contract is now satisfied.
 
 from __future__ import annotations
 
+import json
 from typing import Any, NamedTuple
 
 import pytest
@@ -20,12 +21,13 @@ from aiopikvm import (
     HIDKeymaps,
     HIDState,
     MSDState,
+    MSDUpload,
     OCRInfo,
     StreamerState,
     SwitchState,
 )
 from aiopikvm.models.hid import _HIDInactivity
-from tests.fixtures import DATA_DIR, load_jsonl, load_result, manifest
+from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
 
 
@@ -127,6 +129,35 @@ def test_manifest_device_matches_the_info_capture() -> None:
     info = load_result("info")
     assert manifest()["device"]["kvmd"] == info["system"]["kvmd"]["version"]
     assert manifest()["device"]["platform"] == info["hw"]["platform"]
+
+
+def test_write_info_parses_into_the_upload_model() -> None:
+    """Every write info the device sent parses, from both write endpoints.
+
+    ``/api/msd/write`` sends one per response and ``/api/msd/write_remote``
+    one per line of its NDJSON stream, and both go through the same model.
+    """
+    blocks: dict[str, list[Any]] = {}
+    for entry in load_json("msd_write")["steps"]:
+        if entry["status"] != 200:
+            continue
+        if "body" in entry:
+            records = [entry["body"]]
+        else:
+            records = [
+                json.loads(line)
+                for line in str(entry["body_text"]).splitlines()
+                if line
+            ]
+        found = [record["result"]["image"] for record in records if record["ok"]]
+        assert found, f"{entry['name']} answered 200 with no write info"
+        blocks[entry["name"]] = found
+
+    assert set(blocks) == {"write_ok", "write_prefix", "remote_ok", "remote_broken"}
+    for name, found in blocks.items():
+        for block in found:
+            info = MSDUpload.model_validate(block)
+            assert undeclared_fields(info) == [], name
 
 
 def test_websocket_capture_holds_event_frames() -> None:

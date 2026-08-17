@@ -27,13 +27,20 @@ the root partition is keyed by the empty string.
 
 ## Upload images
 
+Every upload answers with what kvmd wrote — the name it stored the image
+under, the total it was opened for, and how much landed. Read the name back
+rather than assuming it: kvmd runs it through its own file-name validator and
+joins any `prefix` onto it, and that stored name is what `set_params()` and
+`remove()` take.
+
 ### From bytes
 
 ```python
 with open("image.iso", "rb") as f:
     data = f.read()
 
-await kvm.msd.upload("image.iso", data)
+info = await kvm.msd.upload("image.iso", data)
+print(f"stored as {info.name}, {info.written}/{info.size} bytes")
 ```
 
 ### From async iterator
@@ -53,7 +60,7 @@ async def read_chunks(path: str, chunk_size: int = 65536):
             yield chunk
 
 path = "/path/to/image.iso"
-await kvm.msd.upload(
+info = await kvm.msd.upload(
     "large-image.iso",
     read_chunks(path),
     size=os.path.getsize(path),
@@ -63,16 +70,55 @@ await kvm.msd.upload(
 
 Pass `remove_incomplete=True` to have kvmd delete a partially written image if the
 connection breaks; otherwise the incomplete image stays in storage with
-`complete=False`.
+`complete=False` — and occupying the name, so the retry is refused as already
+existing.
+
+`prefix` writes into a subdirectory of the storage, but only one that already
+exists. kvmd creates the image's `.incomplete` marker before it creates the
+directory, so a prefix that is not there yet fails on an unhandled
+`FileNotFoundError`: a plain-text HTTP 500 with no error block, which arrives
+as an `APIError` carrying only the status.
 
 ### From remote URL
 
-```python
-await kvm.msd.upload_remote("https://example.com/image.iso")
+kvmd downloads the image itself; it never passes through this client.
 
-# With custom timeout
-await kvm.msd.upload_remote("https://example.com/image.iso", timeout=300)
+```python
+info = await kvm.msd.upload_remote(
+    "https://example.com/image.iso",
+    name="boot.iso",           # else kvmd names it after the remote
+    remove_incomplete=True,
+)
+print(f"stored as {info.name}")
 ```
+
+The endpoint streams NDJSON while it works, so progress is available without
+polling `get_state()`:
+
+```python
+async for progress in kvm.msd.upload_remote_progress(
+    "https://example.com/image.iso", remove_incomplete=True
+):
+    print(f"{progress.written} / {progress.size} bytes")
+```
+
+Iterating to the end is what waits for the download. Stopping early closes the
+connection, and kvmd gives up on the transfer as soon as the next record it
+writes finds it gone — do it through `contextlib.aclosing()` so that happens
+when you decide rather than whenever the generator is collected.
+
+Both calls raise `APIError` for a download kvmd could not finish, but note
+where that failure comes from: kvmd has already answered HTTP 200 by the time
+it knows, so it reports the reason as the last record of the stream rather
+than as a status. A refusal it can make up front — an unusable URL, an origin
+that answers anything but 200 or sends no `Content-Length`, a name already in
+storage — is an ordinary 400.
+
+`connect_timeout` is kvmd's own `timeout` parameter: how long *it* waits to
+connect to the URL, defaulting to 10 s. It does not bound the download — kvmd
+puts no limit on the total and allows a week between chunks. Use `timeout` for
+this client's side of the request, whose read timeout is disabled by default
+because the response stays open for the whole transfer.
 
 ## Select or eject an image
 
@@ -129,6 +175,12 @@ await kvm.msd.set_connected(False)
 await kvm.msd.remove("old-image.iso")
 ```
 
+The name is the one in `state.storage.images`, subdirectory included. The file
+is gone when the call returns, but the listing kvmd checks a write against is
+rebuilt a moment later — so uploading the same name straight afterwards is
+refused as already existing. Poll `get_state()` until `storage.images` has
+dropped it.
+
 ## Reset
 
 ```python
@@ -145,11 +197,12 @@ async def main():
     async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
         # Upload an ISO and connect as CD-ROM
         with open("boot.iso", "rb") as f:
-            await kvm.msd.upload("boot.iso", f.read(), timeout=3600)
+            info = await kvm.msd.upload("boot.iso", f.read(), timeout=3600)
 
         # Uploading does not select the image; without this step
-        # set_connected() fails with "The image is not selected".
-        await kvm.msd.set_params(image="boot.iso", cdrom=True)
+        # set_connected() fails with "The image is not selected". Select it
+        # by the name kvmd stored, not the one that was uploaded.
+        await kvm.msd.set_params(image=info.name, cdrom=True)
         await kvm.msd.set_connected(True)
 
         # Reboot the host to boot from the virtual CD
