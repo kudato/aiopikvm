@@ -39,9 +39,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   keys of its `WEB_TO_EVDEV` table, matched case-sensitively. Only one of the
   two transports says when a name is wrong: `send_key()` and
   `send_shortcut()` raise `APIError` with HTTP 400, while the WebSocket drops
-  the frame inside kvmd's handler and answers nothing at all. No endpoint exposes the table, so the catalogue is a copy
-  read off a device running kvmd 4.186 and pinned to that capture by a
-  contract test; nothing in the client enforces it, since a later kvmd may
+  the frame inside kvmd's handler and answers nothing at all. No endpoint
+  exposes the table, so the catalogue is a copy read off a device running
+  kvmd 4.186 and pinned to that capture by a contract test; nothing in the client enforces it, since a later kvmd may
   know more names (#77).
 - `aiopikvm.resources.redfish.RESET_TYPES`, the six `ResetType` values kvmd
   accepts. The DMTF schema defines more, and kvmd refuses every one of them

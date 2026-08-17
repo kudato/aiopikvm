@@ -222,7 +222,10 @@ async def test_hid_refuses_a_key_it_has_no_name_for(live: PiKVM) -> None:
     what tells them apart, since kvmd bumps it from inside the HID call — an
     unchanged one is the device saying nothing was pressed.
     """
+    if (await live.hid.get_state()).jiggler.active:
+        pytest.skip("the jiggler resets the inactivity counter on its own")
     before = await live.hid.get_inactivity()
+    assert before > 0, "nothing may have touched the HID just before this"
 
     with pytest.raises(APIError) as caught:
         await live.hid.send_key("NoSuchKey")

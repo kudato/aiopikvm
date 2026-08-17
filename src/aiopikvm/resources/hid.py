@@ -11,10 +11,10 @@ _LOST_IN_A_SHORTCUT = re.compile(r"[,\s]")
 """What a shortcut key cannot contain and still arrive as itself.
 
 kvmd takes the list as one string, strips it, splits it on ``[,\\t ]+`` and
-drops what comes out empty. The strip is why this is every whitespace
-character and not only the two the split names: a key of ``"\\n"`` at either
-end of the shortcut is trimmed off and then filtered away, exactly like an
-empty one.
+drops what comes out empty; then its key validator strips each item again.
+That is why this is every whitespace character and not only the two the
+split names — a key of ``"\\n"`` is trimmed away like an empty one, and a
+padded ``"KeyA\\r"`` arrives as a different key than the one asked for.
 """
 
 KEY_NAMES = frozenset({
@@ -46,8 +46,9 @@ is why they read like ``"KeyA"`` and ``"Digit1"`` rather than ``"a"`` and
 
 Only one of the two transports says so. An HTTP call raises
 :class:`APIError` with HTTP 400, and its message names the key kvmd would
-not take — unless the name runs past 16 characters, which its validator
-refuses on length before it ever looks at the name. A key sent over the
+not take — except from :meth:`HIDResource.send_key`, where a name past 16
+characters is refused on length alone and the message names nothing at all.
+A key sent over the
 WebSocket is dropped inside kvmd's handler with no answer of any kind, and
 nothing there tells a typo from a keystroke that landed. Checking a name
 that came from somewhere untrusted is what stands in for the answer the

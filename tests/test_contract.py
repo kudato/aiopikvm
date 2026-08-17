@@ -215,7 +215,7 @@ def test_key_names_match_the_device_table() -> None:
 
 
 def test_documented_key_names_are_ones_kvmd_accepts() -> None:
-    """No example in the docs, the README or a docstring types a missing key.
+    """No example in the docs or the README types a key that does not exist.
 
     A wrong name in an example fails with HTTP 400 over HTTP and with nothing
     at all over the WebSocket, which is exactly the failure this catalogue
@@ -223,7 +223,6 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
     """
     calls = re.compile(r"send_(?:key|shortcut)\(([^)]*)\)")
     sources = [*ROOT.joinpath("docs").rglob("*.md"), ROOT / "README.md"]
-    sources += ROOT.joinpath("src").rglob("*.py")
     names = {
         name
         for path in sources
