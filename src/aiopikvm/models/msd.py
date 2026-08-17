@@ -41,8 +41,8 @@ class MSDUpload(_Base):
 
     kvmd reports the same three fields in two places: under
     ``storage.uploading`` while a write is in flight, and as the body of the
-    write endpoints themselves — once for :meth:`MSDResource.upload`, once
-    per progress record for :meth:`MSDResource.upload_remote`.
+    write endpoints themselves — once from ``/api/msd/write``, once per line
+    of the stream ``/api/msd/write_remote`` answers with.
 
     ``name`` is the name kvmd stored the image under, which is not
     necessarily the one that was asked for: a ``prefix`` is joined on and the

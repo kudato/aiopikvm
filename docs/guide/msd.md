@@ -60,7 +60,7 @@ async def read_chunks(path: str, chunk_size: int = 65536):
             yield chunk
 
 path = "/path/to/image.iso"
-await kvm.msd.upload(
+info = await kvm.msd.upload(
     "large-image.iso",
     read_chunks(path),
     size=os.path.getsize(path),
