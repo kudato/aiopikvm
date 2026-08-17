@@ -47,32 +47,39 @@ ROOT = Path(__file__).parent.parent
 def _prose() -> list[Path]:
     """Return the prose an example can be copied out of.
 
-    Three corpora: the docs tree, the README, and every module under
-    ``src``. The modules are in because a page under ``docs/reference`` is
+    Three corpora: the docs tree, the README, and every module of the
+    package. The modules are in because a page under ``docs/reference`` is
     little more than a ``:::`` directive — the prose a reader of the API
     reference copies from is the docstrings mkdocstrings renders out of the
     source, so an example written in one is as published as one written in
-    a guide. Reading the code alongside them is the price, and a cheap one:
-    nothing in the library spells a vocabulary value out except an example.
+    a guide. The package is located through its own ``__path__`` rather than
+    by guessing at ``src``, which would go on matching an unrelated file
+    after a move.
+
+    Reading the code alongside the docstrings is the price, and cheap for
+    one reason only: every value below is matched inside a call. The
+    docstrings do spell vocabularies out in prose, refused values included —
+    ``GracefulRestart`` and ``"USB"`` are both in there — so a pattern
+    widened to bare quotes would fail on them.
 
     Two corpora are deliberately out, and both would fail today. ``tests/``
-    and ``CHANGELOG.md`` quote values the device refuses on purpose — a
-    ``ResetType`` from the DMTF schema, a key name that falls out empty — so
-    scanning them would fail on the examples that are correct precisely
-    because they are wrong.
+    and ``CHANGELOG.md`` put values the device refuses *into calls* on
+    purpose — ``reset("aiopikvm-does-not-exist")``, a key name that falls
+    out empty — so scanning them would fail on the examples that are correct
+    precisely because they are wrong.
 
     Returns:
         Every file the scans below read, guides first.
 
     Raises:
-        AssertionError: If either glob comes back empty. A moved package or
-            a renamed docs tree looks like nothing at all from here, and a
-            scan of nothing goes on passing.
+        AssertionError: If either glob comes back empty. A renamed docs tree
+            looks like nothing at all from here, and a scan of nothing goes
+            on passing.
     """
     guides = sorted(ROOT.joinpath("docs").rglob("*.md"))
-    modules = sorted(ROOT.joinpath("src").rglob("*.py"))
+    modules = sorted(Path(aiopikvm.__path__[0]).rglob("*.py"))
     assert guides, "no guide found; the docs tree moved"
-    assert modules, "no module found; the package moved"
+    assert modules, "no module found; the package is not where it says it is"
     return [*guides, ROOT / "README.md", *modules]
 
 
@@ -261,18 +268,21 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
     exists to prevent (#77).
 
     The lookbehind skips the definitions: a parameter of ``send_key()`` that
-    ever takes a string default would otherwise be read as a key name, and
-    blamed on a guide.
+    ever takes a string default is not a key name, and reading it as one
+    would fail the suite for a correct change.
     """
     calls = re.compile(r"(?<!def )send_(?:key|shortcut)\(([^)]*)\)")
-    names = {
-        name
-        for path in _prose()
-        for call in calls.findall(path.read_text(encoding="utf-8"))
-        for name in re.findall(r'"([^"]*)"', call)
-    }
-    assert names, "no key name found at all; the pattern stopped matching"
-    assert names <= KEY_NAMES, sorted(names - KEY_NAMES)
+    found: dict[str, set[str]] = {}
+    for path in _prose():
+        for call in calls.findall(path.read_text(encoding="utf-8")):
+            for name in re.findall(r'"([^"]*)"', call):
+                found.setdefault(name, set()).add(str(path.relative_to(ROOT)))
+    assert found, "no key name found at all; the pattern stopped matching"
+    # Which file, as in the scan below: 115 names over three corpora leave
+    # a reader nothing to grep for otherwise.
+    assert set(found) <= KEY_NAMES, sorted(
+        (name, sorted(found[name])) for name in set(found) - KEY_NAMES
+    )
 
 
 def _values(annotation: Any, seen: frozenset[Any] = frozenset()) -> tuple[str, ...]:
@@ -359,9 +369,9 @@ def test_documented_values_are_ones_the_type_allows(
     allowed = set(_values(alias))
     # Which file, as well as which value: the pattern reads the docs tree,
     # the README and every module, and a bare value leaves a reader
-    # grepping for it. The path is relative to the repository because nine
-    # basenames appear twice over — every guide has a reference page named
-    # after it.
+    # grepping for it. The path is relative to the repository because a
+    # basename says too little across three corpora — sixteen of them repeat,
+    # ``hid.md`` and ``hid.py`` and ``__init__.py`` among them.
     assert set(found) <= allowed, sorted(
         (value, sorted(found[value])) for value in set(found) - allowed
     )
@@ -375,6 +385,9 @@ def _modules() -> list[ModuleType]:
     own. What it never yields is the package it was given, which is why
     ``aiopikvm`` itself is prepended: a public name in the top-level
     ``__init__`` would otherwise be invisible here.
+
+    Returns:
+        Every module of the package, the top-level one first.
     """
     return [
         aiopikvm,
@@ -397,6 +410,13 @@ def _vocabularies() -> dict[str, TypeAliasType]:
     The style guide asks for ``type`` aliases generally, so an ordinary one
     — ``type Params = dict[str, Any]`` — will turn up in a resource module
     sooner or later, and it has no vocabulary for the guide to spell out.
+
+    Returns:
+        Every vocabulary type, keyed by the name the guide's table uses.
+
+    Raises:
+        AssertionError: If two modules define one name, or if the scan
+            comes back empty.
     """
     aliases: dict[str, TypeAliasType] = {}
     for module in _modules():
@@ -422,13 +442,22 @@ def _vocabularies() -> dict[str, TypeAliasType]:
 def _type_table() -> dict[str, list[str]]:
     """Parse the guide's table of typed values into ``{type: [value, ...]}``.
 
-    The table is the one place every value of every vocabulary is written
-    out — the row a reader copies from — and the scan above cannot see it,
-    since nothing in it is shaped like a call.
+    The table is where a reader goes to find out what a parameter takes, and
+    the scan above cannot see it, since nothing in it is shaped like a call.
+    It is not the only prose that spells a vocabulary out — six of the seven
+    alias docstrings do too — but it is the one the guides link to, so it is
+    the one held to the type.
 
     Every row of that one table is read, and no row is matched against the
     library on the way in: a row naming a type that does not exist has to
     reach the comparison to be caught by it.
+
+    Returns:
+        Each documented type, with the values its row lists, in order.
+
+    Raises:
+        AssertionError: If the section or its table is gone, or if one type
+            has two rows.
     """
     _, _, rest = _TYPE_TABLE.read_text(encoding="utf-8").partition(_TYPE_HEADING)
     assert rest, f"{_TYPE_TABLE.name} no longer has a {_TYPE_HEADING!r} section"
@@ -451,8 +480,9 @@ def _type_table() -> dict[str, list[str]]:
 def test_the_guide_lists_every_typed_vocabulary() -> None:
     """A type nobody documented is one nobody knows to use (#68).
 
-    Both halves are read off the source: add a vocabulary to a resource
-    module and this fails until the guide's table has a row for it.
+    The library half is read off the source rather than listed here: add a
+    vocabulary to a resource module and this fails until the guide's table
+    has a row for it.
     """
     documented = set(_type_table())
     defined = set(_vocabularies())
@@ -490,15 +520,19 @@ def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     # The type is read first, and checked first. A vocabulary whose members
     # read alike once written down — ``Literal[1, "1"]`` — cannot be spelled
     # out at all: the honest row trips the duplicate check below it and the
-    # incomplete one would pass the equality. Left until after the row was
-    # looked up, that never got as far as saying so — a type nobody had
-    # documented yet died on the lookup instead, which is the order anybody
-    # adding one works in.
+    # incomplete one would pass the equality. Behind the row lookup, that
+    # never got as far as saying so, since a type nobody has documented yet
+    # is the order anybody adding one works in.
     values = _values(_vocabularies()[name])
     assert len(values) == len(set(values)), f"{name} has two values that read alike"
-    listed = _type_table()[name]
+    rows = _type_table()
+    assert name in rows, f"the guide's table has no row for {name}"
+    listed = rows[name]
     assert len(listed) == len(set(listed)), f"the guide repeats a value: {listed}"
-    assert set(listed) == set(values)
+    assert set(listed) == set(values), (
+        f"the guide invents: {sorted(set(listed) - set(values))}; "
+        f"the guide omits: {sorted(set(values) - set(listed))}"
+    )
 
 
 def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:
