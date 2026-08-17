@@ -1,0 +1,235 @@
+{
+ "description": "POST /api/msd/write and POST /api/msd/write_remote against kvmd 4.186, recorded by hand: the capture tool only records GETs, and both of these change device state. write_remote answers HTTP 200 with an application/x-ndjson body, one envelope per line, so its failures arrive inside a 200 rather than as a status.",
+ "safety": "Both endpoints write to the device. This was recorded with the MSD temporarily enabled in the OTG profile (see README) against a throttled HTTP origin running on the device's own loopback, serving generated zeros -- nothing was fetched from the internet, and the sanitizer rewrote the origin's own address where kvmd echoed it. Every image written here was removed afterwards and the OTG profile restored. Re-recording it means changing somebody's device, so ask first.",
+ "steps": [
+  {
+   "name": "remote_ok",
+   "method": "POST",
+   "path": "/api/msd/write_remote",
+   "params": {
+    "url": "http://localhost:8099/slow-4m.iso",
+    "image": "test-remote.iso",
+    "remove_incomplete": "1"
+   },
+   "note": "the whole NDJSON body of a download that succeeded: one record before the first byte, one about every second while it runs, one when it ends. The origin was a throttled server on the device's own loopback, serving 4 MiB of zeros",
+   "status": 200,
+   "content_type": "application/x-ndjson",
+   "body_text": "{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 0}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 65536}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 1638400}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 3735552}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 4194304}}}\r\n"
+  },
+  {
+   "name": "remote_exists",
+   "method": "POST",
+   "path": "/api/msd/write_remote",
+   "params": {
+    "url": "http://localhost:8099/slow-4m.iso",
+    "image": "test-remote.iso",
+    "remove_incomplete": "1"
+   },
+   "note": "kvmd refuses before it streams anything, so this failure is an ordinary status and not an NDJSON record",
+   "status": 400,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": false,
+    "result": {
+     "error": "MsdImageExistsError",
+     "error_msg": "This image is already exists"
+    }
+   }
+  },
+  {
+   "name": "remote_broken",
+   "method": "POST",
+   "path": "/api/msd/write_remote",
+   "params": {
+    "url": "http://localhost:8099/truncated.iso",
+    "image": "test-broken.iso",
+    "remove_incomplete": "1"
+   },
+   "note": "the origin announced 4 MiB and closed after 256 KiB: kvmd writes the failure as the last NDJSON record and then lets the exception escape the handler, so the chunked body never gets its final chunk and the connection breaks under HTTP 200",
+   "status": 200,
+   "content_type": "application/x-ndjson",
+   "body_text": "{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 0}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 65536}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 262144}}}\r\n{\"ok\": false, \"result\": {\"error\": \"ClientPayloadError\", \"error_msg\": \"Response payload is not completed: <ContentLengthError: 400, message='Not enough data to satisfy content length header.'>\"}}\r\n",
+   "stream_broken": "RemoteProtocolError"
+  },
+  {
+   "name": "remote_no_length",
+   "method": "POST",
+   "path": "/api/msd/write_remote",
+   "params": {
+    "url": "http://localhost:8099/chunked.iso"
+   },
+   "note": "a chunked origin: kvmd sizes the image from the remote Content-Length and refuses without one",
+   "status": 400,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": false,
+    "result": {
+     "error": "ClientError",
+     "error_msg": "No Content-Length found"
+    }
+   }
+  },
+  {
+   "name": "remote_missing",
+   "method": "POST",
+   "path": "/api/msd/write_remote",
+   "params": {
+    "url": "http://localhost:8099/missing.iso"
+   },
+   "note": "the origin answered 404",
+   "status": 400,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": false,
+    "result": {
+     "error": "ClientResponseError",
+     "error_msg": "404, message='Not Found', url='http://localhost:8099/missing.iso'"
+    }
+   }
+  },
+  {
+   "name": "remote_unreachable",
+   "method": "POST",
+   "path": "/api/msd/write_remote",
+   "params": {
+    "url": "http://localhost:1/image.iso",
+    "timeout": "1"
+   },
+   "note": "nothing listening on the port; timeout is what bounds this",
+   "status": 400,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": false,
+    "result": {
+     "error": "ClientConnectorError",
+     "error_msg": "Cannot connect to host localhost:1 ssl:default [Multiple exceptions: [Errno 111] Connect call failed ('::1', 1, 0, 0), [Errno 111] Connect call failed ('192.0.2.10', 1)]"
+    }
+   }
+  },
+  {
+   "name": "remote_bad_scheme",
+   "method": "POST",
+   "path": "/api/msd/write_remote",
+   "params": {
+    "url": "ftp://localhost/image.iso"
+   },
+   "note": "the URL validator runs before anything is fetched",
+   "status": 400,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": false,
+    "result": {
+     "error": "ValidatorError",
+     "error_msg": "The argument 'ftp://localhost/image.iso' is not a valid HTTPS|HTTP URL"
+    }
+   }
+  },
+  {
+   "name": "remote_no_url",
+   "method": "POST",
+   "path": "/api/msd/write_remote",
+   "params": {},
+   "note": "url is the one required parameter",
+   "status": 400,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": false,
+    "result": {
+     "error": "ValidatorError",
+     "error_msg": "None argument is not a valid HTTPS|HTTP URL"
+    }
+   }
+  },
+  {
+   "name": "write_ok",
+   "method": "POST",
+   "path": "/api/msd/write",
+   "params": {
+    "image": "test-write.iso",
+    "remove_incomplete": "1"
+   },
+   "note": "the write info aiopikvm used to discard",
+   "status": 200,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": true,
+    "result": {
+     "image": {
+      "name": "test-write.iso",
+      "size": 1048576,
+      "written": 1048576
+     }
+    }
+   }
+  },
+  {
+   "name": "write_prefix",
+   "method": "POST",
+   "path": "/api/msd/write",
+   "params": {
+    "image": "test-write.iso",
+    "prefix": "isos"
+   },
+   "note": "prefix is joined onto the name server-side, so the image kvmd stored is not the name that was sent",
+   "status": 200,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": true,
+    "result": {
+     "image": {
+      "name": "isos/test-write.iso",
+      "size": 4096,
+      "written": 4096
+     }
+    }
+   }
+  },
+  {
+   "name": "write_prefix_missing_dir",
+   "method": "POST",
+   "path": "/api/msd/write",
+   "params": {
+    "image": "test-write.iso",
+    "prefix": "nested"
+   },
+   "note": "the same call into a subdirectory that does not exist yet: kvmd writes its .incomplete marker before it creates the directory, so this is an unhandled FileNotFoundError rather than an API error",
+   "status": 500,
+   "content_type": "text/plain; charset=utf-8",
+   "body_text": "500 Internal Server Error\n\nServer got itself in trouble"
+  },
+  {
+   "name": "write_chunked",
+   "method": "POST",
+   "path": "/api/msd/write",
+   "params": {
+    "image": "test-chunked.iso"
+   },
+   "note": "no Content-Length, because httpx frames an iterator as Transfer-Encoding: chunked; kvmd sizes the image from that header alone",
+   "status": 400,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": false,
+    "result": {
+     "error": "ValidatorError",
+     "error_msg": "None argument is not a valid int"
+    }
+   }
+  },
+  {
+   "name": "write_no_image",
+   "method": "POST",
+   "path": "/api/msd/write",
+   "params": {},
+   "note": "image is required, and the empty name fails the same validator a path traversal would",
+   "status": 400,
+   "content_type": "application/json; charset=utf-8",
+   "body": {
+    "ok": false,
+    "result": {
+     "error": "ValidatorError",
+     "error_msg": "The argument '/' is not a valid MSD image name"
+    }
+   }
+  }
+ ]
+}

@@ -37,7 +37,19 @@ class MSDPart(_Base):
 
 
 class MSDUpload(_Base):
-    """Progress of an image being written to storage."""
+    """Progress of an image being written to storage.
+
+    kvmd reports the same three fields in two places: under
+    ``storage.uploading`` while a write is in flight, and as the body of the
+    write endpoints themselves — once for :meth:`MSDResource.upload`, once
+    per progress record for :meth:`MSDResource.upload_remote`.
+
+    ``name`` is the name kvmd stored the image under, which is not
+    necessarily the one that was asked for: a ``prefix`` is joined on and the
+    whole thing goes through kvmd's file-name validator. ``size`` is the
+    total the write was opened for — the request's ``Content-Length``, or the
+    remote's — and ``written`` how much of it has landed.
+    """
 
     name: str
     size: int

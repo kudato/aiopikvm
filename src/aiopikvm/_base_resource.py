@@ -76,11 +76,35 @@ class BaseResource:
                 response.status_code,
             ) from exc
 
+        return self._unwrap(body, path, response.status_code)
+
+    @staticmethod
+    def _unwrap(body: Any, path: str, status_code: int = 0) -> Any:
+        """Unwrap one ``{"ok": ..., "result": ...}`` envelope.
+
+        Split out of :meth:`_request` because kvmd also sends envelopes that
+        are not the whole body: ``/api/msd/write_remote`` streams one per
+        line, and a failing one arrives under HTTP 200.
+
+        Args:
+            body: The already-parsed envelope.
+            path: URL path it came from, for the error message.
+            status_code: Status the envelope arrived with, recorded on a
+                :class:`ResponseError` so a caller can tell an unparsable
+                body apart from an unexpected one.
+
+        Returns:
+            The ``result`` payload.
+
+        Raises:
+            ResponseError: If *body* is not a JSON object.
+            APIError: If the envelope says ``ok: false``.
+        """
         if not isinstance(body, dict):
             raise ResponseError(
                 f"Invalid JSON response from {path}: expected an object, "
                 f"got {type(body).__name__}",
-                response.status_code,
+                status_code,
             )
 
         if not body.get("ok", False):

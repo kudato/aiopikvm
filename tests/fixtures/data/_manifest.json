@@ -198,6 +198,10 @@
       "file": "msd_uploading.json",
       "description": "GET /api/msd sampled while an image upload is in flight (storage.uploading is populated)."
     },
+    "msd_write": {
+      "file": "msd_write.json",
+      "description": "POST /api/msd/write and POST /api/msd/write_remote: the write info both answer with, the NDJSON progress stream of a remote download that succeeded and of one whose origin died mid-body, every refusal kvmd raises before it starts streaming, and the two outcomes of the prefix parameter."
+    },
     "redfish_actions": {
       "file": "redfish_actions.json",
       "description": "The one system id GET /api/redfish/v1/Systems/{sid} accepts on this device and four it refuses, the empty 204s of the PATCH stub and ComputerSystem.Reset, the ResetType values kvmd rejects, and the advertised-but-missing SetDefaultBootOrder action."
