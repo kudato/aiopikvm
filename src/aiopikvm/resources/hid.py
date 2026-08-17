@@ -74,9 +74,13 @@ class HIDResource(BaseResource):
         its microcontroller has answered with a status word that carries the
         flag, so a board that is merely offline, or whose firmware answers
         the shorter pong, looks exactly like one that cannot unplug
-        anything. Check ``HIDState.online`` alongside it, and give the change
-        a moment before reading it back — it goes to the microcontroller
-        through a queue, and this call returns as soon as it is queued.
+        anything. ``HIDState.online`` rules out the offline board; the
+        firmware that never sends the flag is not distinguishable at all.
+
+        Give the change a moment before reading it back, too: it travels to
+        the microcontroller through a queue and this call returns as soon as
+        it is queued. On the way in it empties that queue, so keystrokes sent
+        a moment earlier and not yet delivered are dropped with it.
 
         :meth:`reset` is a different matter: every backend overrides that.
 
@@ -92,12 +96,14 @@ class HIDResource(BaseResource):
         it means differs by more than the name suggests. Under ``otg`` kvmd
         drops the input still queued and releases every key and button the
         host sees as held — the way out of a modifier left stuck by a script
-        that died mid-shortcut. ``bt`` drops the queue as well and then closes
-        the Bluetooth links. An MCU backend resets the microcontroller itself,
-        through its reset pin where one is configured, and keeps the queued
-        input to deliver afterwards. Under ``ch9329``, kvmd 4.186 only marks
-        itself busy for a moment: the reset request its loop would send is
-        commented out.
+        that died mid-shortcut. ``bt`` does that and then drops its Bluetooth
+        clients, unpairing them unless ``unpair_on_close`` is turned off, so
+        the host has to pair again. An MCU backend resets the microcontroller
+        itself, through its reset pin where one is configured, and keeps the
+        queued input to deliver afterwards. Under ``ch9329`` nothing happens
+        that anything can observe: the reset request its loop would send is
+        commented out in kvmd 4.186, and all it does instead is set an
+        internal busy flag that ``get_state()`` never reports.
         """
         await self._post("/api/hid/reset")
 

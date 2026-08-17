@@ -173,10 +173,14 @@ if state.connected is not None:
 reports `None` too until its microcontroller has answered with a status word
 carrying the flag, so a board that is merely offline, or whose firmware
 answers the shorter pong, looks exactly like one that cannot unplug
-anything — check `state.online` alongside it. The change also travels to the
-microcontroller through a queue and the call returns as soon as it is
-queued, which is what the sleep above is for: back-to-back calls are a
-disconnect the host never has time to notice.
+anything. `state.online` rules out the offline board; the firmware that
+never sends the flag cannot be told apart at all.
+
+The change travels to the microcontroller through a queue and the call
+returns as soon as it is queued, which is what the sleep above is for:
+back-to-back calls are a disconnect the host never has time to notice. The
+call also empties that queue on the way in, so keystrokes sent a moment
+earlier and not yet delivered go with it.
 
 `reset()` is a different matter. Every backend overrides it, but what it
 does differs:
@@ -188,9 +192,9 @@ await kvm.hid.reset()
 | `hid.type` | What `reset()` does |
 |---|---|
 | `otg` | Drops the queued input and releases every held key and button |
-| `bt` | The same, then closes the Bluetooth links |
+| `bt` | The same, then drops the Bluetooth clients — unpaired, unless `unpair_on_close` is off, so the host has to pair again |
 | `serial`, `spi` | Resets the microcontroller; queued input survives |
-| `ch9329` | Marks itself busy for a moment — the reset request is commented out in kvmd 4.186 |
+| `ch9329` | Nothing observable: the reset request is commented out in kvmd 4.186, leaving an internal busy flag `get_state()` never reports |
 
 Under `otg` that makes it the way out of a modifier left stuck by a script
 that died mid-shortcut.
