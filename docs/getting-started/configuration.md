@@ -66,10 +66,12 @@ own TLS settings for the requests while the socket keeps using these.
 
 !!! warning "`verify_ssl=True` is the one setting the two do not share"
     It is passed on as it came, and each library then builds its own context:
-    httpx verifies against certifi's roots, `websockets` against the system
-    store. On a device whose CA is in one and not the other, one half of the
-    client connects and the other does not. Pass the bundle or a context
-    instead, and both verify against the same certificates.
+    httpx verifies against certifi's roots — or against `SSL_CERT_FILE` and
+    `SSL_CERT_DIR` when the environment names them and `trust_env` is on —
+    while `websockets` verifies against the system store. On a device whose CA
+    is in one and not the other, one half of the client connects and the other
+    does not. Pass the bundle or a context instead, and both verify against the
+    same certificates.
 
 ## Proxies
 
@@ -89,43 +91,60 @@ and quietly work around it — sending the lone username as `username:`, in that
 last case. So is a port outside 0–65535, which httpx accepts and only fails on
 when it connects.
 
-Two more are refused because the libraries would not read them alike:
+Three more are refused because the libraries would not use them alike:
 
 - a `socks5://` proxy with no usable port. Left blank, or written as `:0`,
   httpcore fills in 1080 and `websockets` fills in 80, and the one setting
   reaches two different proxies without either of them saying so;
+- a host that is not ASCII and the two spell differently. httpx encodes it by
+  UTS 46 and `websockets` by IDNA 2003, which agree on `münchen.de` and part
+  company over `faß.de` — `xn--fa-hia.de` for the requests, `fass.de` for the
+  socket. Write such a host in its punycode form and both read it alike;
 - credentials the two would send differently. httpx percent-decodes the user
   information and `websockets` sends it as written, so
   `http://user:p%40ss@proxy.local:3128` authenticates the requests as `p@ss`
-  and collects a 407 on the socket. Both libraries are asked what they would
-  send, and only an actual disagreement is refused, so an ordinary
-  `http://user:pass@proxy.local:3128` goes through untouched.
+  and collects a 407 on the socket.
 
-Without a `proxy`, both libraries read the environment — `HTTPS_PROXY`,
+The last two are decided by asking both libraries what they would aim at, so
+only an actual disagreement is refused: an ordinary
+`http://user:pass@proxy.local:3128` goes through untouched.
+
+### What the environment sets is left to the libraries
+
+Without a `proxy`, both of them read the environment — `HTTPS_PROXY`,
 `WSS_PROXY`, `NO_PROXY` and the rest — which is what `trust_env=True` leaves
 them doing. Pass `trust_env=False` to connect directly whatever the
 environment says; in httpx that also switches off `SSL_CERT_FILE` and
 `SSL_CERT_DIR`, which it reads only when `verify_ssl=True`.
 
-What the environment holds is checked less strictly, because it is shared with
-every other program on the machine: only the port is read, and only on the way
-into the `async with`, which is where the libraries read it themselves. That
-port is the one fault that would otherwise surface as an `OverflowError` from
-httpx wrapped in an `ExceptionGroup`, or from `websockets` as something
-indistinguishable from the connection dropping. The rest `websockets` refuses
-during the handshake, as a `ConfigurationError` naming the proxy, which is
-already the right answer in the right place.
+Those variables are **not** held to the bar above, and the one-proxy-for-both
+promise does not extend to them. Deciding which variable each library reads
+for a given URL, and whether `NO_PROXY` exempts the host, would mean
+reproducing two sets of rules that disagree with each other:
 
-A host `NO_PROXY` covers is skipped entirely — no proxy variable would have
-been read for it, so refusing one would fail a client that had nothing wrong
-with it. A broken `FTP_PROXY` is likewise no concern of ours, reaching neither
-library. `HTTP_PROXY` is read even for an `https://` device, because httpx
-mounts it whatever the base URL is and a redirect followed down to `http://`
-would go through it.
+| | httpx | `websockets` |
+|---|---|---|
+| `NO_PROXY=pikvm.local:8443` for `https://pikvm.local:8443` | bypasses | bypasses |
+| `NO_PROXY=.example.com` for `https://example.com` | uses the proxy | bypasses |
+| `WS_PROXY` | never read | read for a `ws://` socket |
+| `HTTP_PROXY` behind an `https://` device | mounted anyway | not read |
+
+A guess at that lands wrong in both directions — refusing a setting that was
+working, or missing one that was not — so no guess is made. What the client
+does promise is that neither library's complaint escapes `PiKVMError`: a port
+outside 0–65535 arrives from httpx as an `OverflowError` inside an
+`ExceptionGroup` and becomes a `ConnectError` naming the variable, and from
+`websockets` as a bare `ValueError` that becomes a `WebSocketError`.
 
 A `socks5://` proxy also needs a package neither library depends on: `socksio`
 for the requests, `python-socks` for the socket. Without them the client raises
 `ConfigurationError` and names the missing one.
+
+!!! note
+    `socks5://` still resolves the device's name in two places: httpcore sends
+    the name to the proxy, and `websockets` resolves it on this machine before
+    connecting. On a name only the proxy's DNS knows, the requests work and the
+    socket does not. `socks5h://` is the spelling both resolve remotely.
 
 ## TOTP authentication
 

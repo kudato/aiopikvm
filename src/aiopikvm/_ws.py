@@ -40,12 +40,7 @@ from aiopikvm._exceptions import (
     _error_fields_from_bytes,
     _status_error,
 )
-from aiopikvm._transport import (
-    VerifySSL,
-    refuse_unusable_environment_proxies,
-    resolve_proxy,
-    resolve_verify_ssl,
-)
+from aiopikvm._transport import VerifySSL, resolve_proxy, resolve_verify_ssl
 from aiopikvm.models.atx import ATXState
 from aiopikvm.models.gpio import GPIOState
 from aiopikvm.models.hid import HIDKeymaps, HIDState
@@ -301,9 +296,9 @@ class PiKVMWebSocket:
             ConfigurationError: If the URL scheme is not ``https`` or
                 ``http``, or *verify_ssl* names a path this machine cannot
                 load a CA bundle from, or *proxy* is one the two libraries
-                would not use alike. A proxy the environment sets is checked
-                when the socket is entered, which is where *websockets*
-                reads it.
+                would not use alike. A proxy the *environment* sets is left
+                to *websockets*, whose rules for reading it are its own; what
+                it raises about one is reported when the socket is entered.
         """
         parsed = urlparse(url)
         scheme_map = {"https": "wss", "http": "ws"}
@@ -346,20 +341,22 @@ class PiKVMWebSocket:
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
-            ConfigurationError: A proxy the environment set cannot be used —
-                it carries an unusable port, or its scheme, host, path, query
-                or credentials are not what *websockets* accepts — or the
-                proxy is a ``socks5://`` one and the ``python-socks`` package
-                it needs is not installed. A proxy passed to the constructor
-                was already held to what both transports accept, when this
-                object was built.
+            ConfigurationError: A proxy the environment set is not one
+                *websockets* accepts — its scheme, host, path, query or
+                credentials — or it is a ``socks5://`` one and the
+                ``python-socks`` package it needs is not installed. A proxy
+                passed to the constructor was already held to what both
+                transports accept, when this object was built.
             RedirectError: The upgrade was redirected and *follow_redirects*
                 is off. Following it would resend the password to the target.
             APIError: kvmd rejected the upgrade for another reason, such as a
                 query parameter its validators do not accept, or a proxy in
                 front of it answered instead.
             WebSocketError: The connection could not be established: DNS,
-                TLS, timeout, or a server that does not speak WebSocket.
+                TLS, timeout, a server that does not speak WebSocket, or a
+                port outside 0-65535 on a proxy the environment names, which
+                *websockets* reads at this moment and reports as a bare
+                :class:`ValueError`.
         """
         ssl_context: ssl.SSLContext | bool | None = None
         if self._url.startswith("wss://"):
@@ -373,15 +370,13 @@ class PiKVMWebSocket:
                 ssl_context.verify_mode = ssl.CERT_NONE
 
         # websockets spells "read the environment" as True, which is also
-        # what it does when nothing is passed.
+        # what it does when nothing is passed. Which variable it then reads,
+        # and whether NO_PROXY exempts this host, is left to it: the rules
+        # are its own and do not match httpx's, and the clauses below keep
+        # what it raises about them inside PiKVMError.
         proxy: str | Literal[True] | None = self._proxy
         if proxy is None:
             proxy = True if self._trust_env else None
-            if proxy is True:
-                # Checked here rather than in __init__ because this is where
-                # websockets reads it, and the environment can change in
-                # between.
-                refuse_unusable_environment_proxies(self._url)
 
         headers = {
             "X-KVMD-User": self._user,
@@ -416,7 +411,9 @@ class PiKVMWebSocket:
         ) as exc:
             # ValueError covers the URIs websockets rejects itself, which a
             # redirect can produce even though this one is built from a
-            # checked scheme.
+            # checked scheme, and the port it reads off a proxy the
+            # environment names, which it reports through urlsplit's own
+            # exception rather than InvalidProxy.
             raise WebSocketError(f"Failed to connect: {exc}") from exc
 
         self._version = None

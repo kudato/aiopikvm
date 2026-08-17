@@ -11,7 +11,7 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import ConfigurationError, PiKVM, PiKVMError
+from aiopikvm import ConfigurationError, ConnectError, PiKVM, PiKVMError
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._client import _RESOURCE_NAMES
 
@@ -344,24 +344,97 @@ def test_a_bad_proxy_port_is_not_blamed_on_the_pikvm_url() -> None:
     assert "PiKVM URL" not in message
 
 
-async def test_a_bad_proxy_port_in_the_environment_is_refused_too(
+async def test_a_connect_failure_httpx_has_no_name_for_stays_in_the_hierarchy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The argument was only one way in; the environment is the other (#69).
+    """httpx maps what it knows and lets the rest out as a group (#69).
 
-    httpx builds a client with a port above 65535 and fails at connect time
-    with an ``OverflowError`` wrapped in an ``ExceptionGroup``, which no
-    clause in this package catches and nothing in the hierarchy covers.
-    Checked on the way in rather than in the constructor, because that is
-    where httpx reads the environment and the two moments can differ.
+    A proxy port above 65535 is one it builds a client with and only fails
+    on at connect time, inside the task group anyio connects in, as an
+    ``ExceptionGroup`` that prints how many exceptions it holds and none of
+    what they say. Which variable httpx reads for a given URL, and whether
+    ``NO_PROXY`` exempts the host, is its own business — reproducing those
+    rules from outside gets them wrong both ways round. What is owed here is
+    that the group does not reach the caller, and that the message says
+    enough to find the variable.
     """
-    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:99999")
-    with pytest.raises(ConfigurationError) as caught:
-        async with PiKVM("https://pikvm.local"):
-            pass  # pragma: no cover - __aenter__ raises
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:99999")
+    async with PiKVM("https://127.0.0.1:9") as kvm:
+        with pytest.raises(ConnectError) as caught:
+            await kvm.request("GET", "/api/atx")
     message = str(caught.value)
-    assert "http://proxy.local:99999" in message
-    assert "PiKVM URL" not in message
+    assert "0-65535" in message
+    assert "HTTPS_PROXY" in message
+
+
+async def test_a_streaming_connect_failure_stays_in_the_hierarchy_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stream()`` opens its own connection, so it meets the same group.
+
+    An MSD image download is the call that goes through it, and a group
+    escaping there would be no less outside ``PiKVMError`` (#69).
+    """
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:99999")
+    async with PiKVM("https://127.0.0.1:9") as kvm:
+        with pytest.raises(ConnectError, match="0-65535"):
+            async with kvm.stream("GET", "/api/msd/read"):
+                pass  # pragma: no cover - the connection never opens
+
+
+async def test_an_ordinary_connect_failure_reads_as_it_always_did(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A refused connection is a ``TransportError``, mapped by httpx itself.
+
+    It never reaches the group clause, and the message stays httpx's own
+    rather than gaining a paragraph about proxy variables (#69).
+    """
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.setattr("urllib.request.getproxies", dict)
+    async with PiKVM("https://127.0.0.1:9") as kvm:
+        with pytest.raises(ConnectError) as caught:
+            await kvm.request("GET", "/api/atx")
+    assert "PROXY" not in str(caught.value)
+
+
+def test_what_a_contained_group_is_made_to_say(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The group prints its own count and nothing else, so this says it all.
+
+    Where a proxy could be standing in the way is worth naming, and the
+    environment is named by variable and never by value: it is shared with
+    every other program on the machine and the URL in it can carry
+    credentials (#69).
+    """
+    group = ExceptionGroup("connecting", [OverflowError("port must be 0-65535")])
+    monkeypatch.setattr(
+        "urllib.request.getproxies",
+        lambda: {"https": "http://user:s3cret@proxy.local:3128"},
+    )
+
+    read = PiKVM("https://pikvm.local")._connection_failed(group)
+    assert "OverflowError: port must be 0-65535" in read
+    assert "HTTPS_PROXY" in read
+    assert "s3cret" not in read
+
+    ignored = PiKVM("https://pikvm.local", trust_env=False)._connection_failed(group)
+    assert "PROXY" not in ignored
+
+    passed = PiKVM(
+        "https://pikvm.local", proxy="http://proxy.local:3128"
+    )._connection_failed(group)
+    assert "http://proxy.local:3128" in passed
+
+
+def test_a_group_holding_a_group_still_says_what_went_wrong() -> None:
+    """anyio nests one task group inside another, and only leaves talk."""
+    nested = ExceptionGroup(
+        "outer", [ExceptionGroup("inner", [ValueError("the port was hopeless")])]
+    )
+    said = PiKVM("https://pikvm.local")._connection_failed(nested)
+    assert "ValueError: the port was hopeless" in said
 
 
 async def test_an_unusable_ca_bundle_in_the_environment_is_a_configuration_error(

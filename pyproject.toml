@@ -18,7 +18,10 @@ classifiers = [
 dependencies = [
     "httpx>=0.28",
     "pydantic>=2.10",
-    "websockets>=15.0",
+    # 16.0 is where the proxy parser aiopikvm holds a proxy URL to lives in
+    # websockets.proxy; 15.x keeps it in websockets.uri, so importing this
+    # package against one raises ModuleNotFoundError.
+    "websockets>=16.0",
 ]
 
 [project.urls]

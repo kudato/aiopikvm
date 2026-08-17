@@ -11,23 +11,43 @@ host, with a path, a query, a fragment, or a username and no password; httpx
 takes every one of those, ignoring the parts it has no use for and sending
 the lone username as ``username:``. A port above 65535 httpx takes and
 *websockets* refuses. For a ``socks5://`` URL with no usable port the two
-pick different defaults — 1080 and 80. So one proxy setting could configure
-the requests and break the socket, or quietly send the two halves of this
-client to two different proxies.
+pick different defaults — 1080 and 80. A host that is not ASCII they spell
+differently, httpx by UTS 46 and *websockets* by IDNA 2003, so ``faß.de`` is
+``xn--fa-hia.de`` for one and ``fass.de`` for the other. And credentials
+httpx percent-decodes before sending, while *websockets* sends them as
+written.
 
-Both settings are therefore reduced here, once, before either library sees
-them: a CA path becomes one context object that reaches both transports, and
-a proxy is measured against what both of them will take, rather than failing
-later as whatever the first library to look at it calls the problem.
+So one proxy setting could configure the requests and break the socket, or
+quietly send the two halves of this client to two different proxies. What is
+reduced here is therefore what the *caller* passes: a CA path becomes one
+context object that reaches both transports, and a proxy is measured against
+what both libraries would take and refused when the two would not use it
+alike.
 
-Two divergences are left standing, because closing them would mean changing
-what a working setting already does. ``verify_ssl=True`` is passed on as it
-came, and httpx then verifies against certifi's roots while *websockets*
-verifies against the system store; building a context here to settle it
-would silently move httpx off the store it has always used. And percent-
-encoded proxy credentials httpx decodes before sending, while *websockets*
-sends them as written — refusing them would refuse the only way to write a
-password containing a delimiter.
+What the *environment* names is left to the libraries themselves. Deciding
+which variable each of them reads for a given URL, and whether ``NO_PROXY``
+exempts it, means reimplementing two sets of rules that disagree: for a host
+of ``example.invalid`` an entry of ``.example.invalid`` exempts the socket
+and not the requests, ``WS_PROXY`` is read for a plain socket and never by
+httpx, and ``urllib``'s own answer — the one *websockets* asks — differs from
+both unless it is given the port as well. A guess that lands wrong either
+refuses a setting that was working or misses one that was not, so no guess is
+made: the libraries read the environment as they always have, and this
+package's part is to keep what they raise about it inside ``PiKVMError``.
+
+Three divergences are left standing, because closing them would mean changing
+what a working setting already does:
+
+* ``verify_ssl=True`` is passed on as it came. httpx then verifies against
+  certifi's roots — or against ``SSL_CERT_FILE`` and ``SSL_CERT_DIR`` when the
+  environment names them and is trusted — and *websockets* against the system
+  store. Building a context here to settle it would silently move httpx off
+  the roots it has always used.
+* A ``socks5://`` proxy resolves the device's name through the proxy for the
+  requests and on this machine for the socket, httpcore sending the name
+  itself and *websockets* asking for ``socks5`` without remote resolution.
+  ``socks5h://`` is the spelling both resolve remotely.
+* Anything the environment sets, as above.
 """
 
 import os
@@ -55,14 +75,13 @@ a client certificate is supplied, through
 _SOCKS_SCHEMES = ("socks5", "socks5h")
 """Schemes the two libraries give different default ports to."""
 
-_PROXY_ENV_KEYS = ("all", "http", "https", "socks", "ws", "wss")
-"""Keys :func:`urllib.request.getproxies` files a proxy under that could be
-read by either library.
+_HTTPX_PROXY_ENV_KEYS = ("all", "http", "https")
+"""Keys :func:`urllib.request.getproxies` files a proxy under that httpx reads.
 
-Not narrowed to the scheme of the device: httpx builds an ``http://`` mount
-out of ``HTTP_PROXY`` whatever the base URL is, and a redirect followed down
-to ``http://`` would then go through it. Everything else the environment may
-hold, ``ftp_proxy`` and the rest, reaches neither library and is left alone.
+It builds an ``http://``, an ``https://`` and an ``all://`` mount out of them
+whatever the base URL's scheme is. The ``ws``, ``wss`` and ``socks`` keys are
+*websockets*' business alone, and the rest — ``ftp`` and whatever else the
+machine holds — reach neither library.
 """
 
 
@@ -115,20 +134,20 @@ def resolve_proxy(proxy: str | None) -> str | None:
     """Hold an explicit proxy to what *both* transports will do with it.
 
     It was written for this client, so it has to work for both halves of it:
-    a URL only httpx takes would configure the requests and break the
-    socket, and one the two would reach on different ports would quietly be
-    two proxies rather than one.
+    a URL only httpx takes would configure the requests and break the socket,
+    and one the two would not read alike would quietly be two proxies rather
+    than one.
 
     Args:
         proxy: Proxy URL as the caller wrote it, or ``None`` to leave the
-            choice to the environment.
+            choice to the environment, which is left to the libraries.
 
     Returns:
         The URL unchanged, or ``None``.
 
     Raises:
-        ConfigurationError: The proxy is one of the two would refuse, or one
-            they would not read alike.
+        ConfigurationError: The proxy is one either library would refuse, or
+            one they would not use alike.
     """
     if proxy is None:
         return None
@@ -136,68 +155,27 @@ def resolve_proxy(proxy: str | None) -> str | None:
     return proxy
 
 
-def refuse_unusable_environment_proxies(url: str) -> None:
-    """Refuse an environment proxy that would escape the error hierarchy.
+def httpx_environment_proxies() -> dict[str, str]:
+    """The proxies the environment holds that httpx could read.
 
-    Called where the environment is read rather than where the client is
-    built, because between those two moments it can change.
-
-    What the environment holds is judged more leniently than what the caller
-    passed, since it is shared with every other program on the machine: only
-    the port is read, that being the one fault that would otherwise leave
-    ``PiKVMError`` altogether — as an ``OverflowError`` from httpx deep
-    inside a task group, or from *websockets* as something indistinguishable
-    from the connection dropping. The rest of what *websockets* refuses it
-    refuses during the handshake, as a ``ConfigurationError`` naming the
-    proxy, which is already the right answer in the right place.
-
-    A host ``NO_PROXY`` covers is left alone entirely. Neither library would
-    read a proxy for it, so refusing one would fail a client that had
-    nothing wrong with it.
-
-    Args:
-        url: URL this connection is for, to ask whether the environment
-            exempts its host from proxying at all.
-
-    Raises:
-        ConfigurationError: A variable either library reads holds a port
-            outside 0-65535, one that is not a number, or none at all where
-            the two would fill the blank in differently.
-    """
-    try:
-        host = urllib.parse.urlsplit(url).hostname or ""
-    except ValueError:
-        # A URL neither library will accept either. Whatever it is wrong
-        # about, it is not the proxies, so they are still worth checking and
-        # the transport gets to report the URL itself.
-        host = ""
-    if host and urllib.request.proxy_bypass(host):
-        return
-    for key, env_proxy in environment_proxies().items():
-        _refuse_unusable_port(
-            # A variable holding no scheme is one httpx fills in, and until
-            # it is filled in the port is not in the netloc where urlsplit
-            # looks for it.
-            env_proxy if "://" in env_proxy else f"http://{env_proxy}",
-            f"the {key} proxy {env_proxy!r} the environment sets",
-        )
-
-
-def environment_proxies() -> dict[str, str]:
-    """The proxies the environment holds that either library could read.
+    Whether it reads any of them for a given URL is its own business, decided
+    by mounts and ``NO_PROXY`` rules this package does not reproduce. What
+    this answers is the weaker question worth answering: whether a proxy is
+    something a failure could be about at all.
 
     Returns:
         The applicable variables, keyed as
-        :func:`urllib.request.getproxies` keys them. Empty when the
-        environment names none, which is what makes it possible to say that
-        a proxy is not what a later failure could be about.
+        :func:`urllib.request.getproxies` keys them, and empty when the
+        environment names none.
     """
     environment = urllib.request.getproxies()
-    return {key: environment[key] for key in _PROXY_ENV_KEYS if key in environment}
+    return {
+        key: environment[key] for key in _HTTPX_PROXY_ENV_KEYS if key in environment
+    }
 
 
 def _refuse_unusable(proxy: str, source: str) -> None:
-    """Refuse a proxy URL either library would turn down.
+    """Refuse a proxy URL either library would turn down or read differently.
 
     *websockets* has the stricter parser of the two, so it is the one asked.
     Everything it accepts httpx accepts as well, apart from a ``socks4://``
@@ -208,8 +186,8 @@ def _refuse_unusable(proxy: str, source: str) -> None:
         source: How to name it in the message, e.g. ``"the proxy 'x'"``.
 
     Raises:
-        ConfigurationError: The URL is one of the two would refuse, or one
-            they would read as two different proxies.
+        ConfigurationError: The URL is one either library would refuse, or
+            one they would read as two different proxies.
     """
     try:
         parsed = websockets.proxy.parse_proxy(proxy)
@@ -220,41 +198,24 @@ def _refuse_unusable(proxy: str, source: str) -> None:
     # parse_proxy fills a missing port in with its own default, so the raw
     # one has to be read again to see that there was none.
     _refuse_split_socks_port(parsed.scheme, urllib.parse.urlsplit(proxy).port, source)
-    _refuse_split_credentials(parsed, proxy, source)
+    _refuse_split_target(parsed, proxy, source)
 
 
-def _refuse_unusable_port(proxy: str, source: str) -> None:
-    """Refuse a proxy URL carrying a port nothing could connect to.
-
-    Args:
-        proxy: Proxy URL to check, with a scheme.
-        source: How to name it in the message.
-
-    Raises:
-        ConfigurationError: The port is not a number, is outside 0-65535, or
-            is missing from a socks URL.
-    """
-    split = urllib.parse.urlsplit(proxy)
-    try:
-        # The port is parsed by the property rather than by urlsplit itself,
-        # so reading it is the check.
-        port = split.port
-    except ValueError as exc:
-        raise ConfigurationError(f"Cannot use {source}: {exc}") from exc
-    _refuse_split_socks_port(split.scheme, port, source)
-
-
-def _refuse_split_credentials(
+def _refuse_split_target(
     parsed: websockets.proxy.Proxy, proxy: str, source: str
 ) -> None:
-    """Refuse credentials the two libraries would not send the same way.
+    """Refuse a proxy the two libraries would not reach the same way.
 
-    httpx percent-decodes the user information before sending it and
-    *websockets* sends it as written, so a password holding a delimiter —
-    which has to be encoded to appear in a URL at all — authenticates the
-    requests and fails the socket with a 407 nothing explains. Rather than
-    decide which spellings diverge, both libraries are asked what they would
-    send, and only an actual disagreement is refused.
+    They spell a non-ASCII host differently — httpx by UTS 46 and
+    *websockets* by IDNA 2003, which agree on ``münchen.de`` and part company
+    over ``faß.de`` — and httpx percent-decodes the user information before
+    sending it while *websockets* sends it as written, so a password holding
+    a delimiter, which has to be encoded to appear in a URL at all,
+    authenticates the requests and collects a 407 on the socket that nothing
+    explains.
+
+    Rather than decide which spellings diverge, both libraries are asked what
+    they would aim at, and only an actual disagreement is refused.
 
     Args:
         parsed: What *websockets* made of the URL.
@@ -262,15 +223,24 @@ def _refuse_split_credentials(
         source: How to name it in the message.
 
     Raises:
-        ConfigurationError: The two would authenticate as different users.
+        ConfigurationError: The two would reach different hosts, or
+            authenticate as different users.
     """
     try:
-        by_httpx = httpx.Proxy(url=proxy).auth
+        by_httpx = httpx.Proxy(url=proxy)
     except (ValueError, httpx.InvalidURL):
         # A URL httpx will not have at all, such as a socks4:// one. It
         # refuses it itself, and names the proxy when it does.
         return
-    sent_by_httpx: tuple[str | None, str | None] = by_httpx or (None, None)
+    host_by_httpx = by_httpx.url.raw_host.decode()
+    if host_by_httpx != parsed.host:
+        raise ConfigurationError(
+            f"Cannot use {source}: the requests would go to {host_by_httpx!r} "
+            f"and the WebSocket to {parsed.host!r}, because the two encode a "
+            "host that is not ASCII by different rules. Write the host in the "
+            "punycode form both of them read alike."
+        )
+    sent_by_httpx: tuple[str | None, str | None] = by_httpx.auth or (None, None)
     if sent_by_httpx != (parsed.username, parsed.password):
         raise ConfigurationError(
             f"Cannot use {source}: the requests would authenticate to it as "

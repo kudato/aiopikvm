@@ -371,19 +371,18 @@ async def test_a_proxy_from_the_environment_is_refused_at_the_handshake(
             pass  # pragma: no cover - __aenter__ raises
 
 
-async def test_a_bad_proxy_port_in_the_environment_is_refused_on_the_way_in(
+async def test_a_bad_proxy_port_in_the_environment_stays_in_the_hierarchy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """websockets reads the port with a bare ValueError inside its parser.
 
-    That one is not an InvalidProxy, so it would fall through to the clause
-    that reports a dropped connection — a permanent misconfiguration
-    reported as a transient failure. Checked here rather than in the
-    constructor, because this is where *websockets* reads the environment
-    and it can change in between (#69).
+    Which variable it reads for this socket, and whether ``NO_PROXY``
+    exempts the host, is left to it — the rules are its own and do not match
+    httpx's — so the port is not read here first. What this package owes the
+    caller is that the ValueError does not reach them (#69).
     """
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:99999")
-    with pytest.raises(ConfigurationError, match="the https proxy"):
+    with pytest.raises(WebSocketError, match="Port out of range"):
         async with socket():
             pass  # pragma: no cover - __aenter__ raises
 

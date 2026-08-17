@@ -32,7 +32,7 @@ docs = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "pydantic", specifier = ">=2.10" },
-    { name = "websockets", specifier = ">=15.0" },
+    { name = "websockets", specifier = ">=16.0" },
 ]
 
 [package.metadata.requires-dev]

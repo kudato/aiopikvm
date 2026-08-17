@@ -1,7 +1,9 @@
 """Connection-setting tests — one setting, understood by both transports."""
 
 import os
+import re
 import ssl
+import tomllib
 from pathlib import Path
 
 import certifi
@@ -9,10 +11,34 @@ import pytest
 
 from aiopikvm import ConfigurationError
 from aiopikvm._transport import (
-    refuse_unusable_environment_proxies,
+    httpx_environment_proxies,
     resolve_proxy,
     resolve_verify_ssl,
 )
+
+
+def test_the_websockets_floor_covers_the_module_this_package_imports() -> None:
+    """``parse_proxy`` moved into ``websockets.proxy`` in 16.0 (#69).
+
+    Until then it lived in ``websockets.uri``, so a pin that allowed 15.x
+    allowed a version where importing this package raises
+    ``ModuleNotFoundError`` before anything else can happen. Resolvers pick
+    the newest release, so neither the suite nor CI would ever meet the
+    version the pin promised to work with — which is why the floor is
+    asserted here rather than left to be found by whoever installs it.
+    """
+    pyproject = tomllib.loads(
+        (Path(__file__).parent.parent / "pyproject.toml").read_text()
+    )
+    pins = [
+        pin
+        for pin in pyproject["project"]["dependencies"]
+        if pin.startswith("websockets")
+    ]
+    assert len(pins) == 1, pins
+    floor = re.fullmatch(r"websockets>=\s*(\d+)\.(\d+)", pins[0])
+    assert floor is not None, pins[0]
+    assert (int(floor[1]), int(floor[2])) >= (16, 0)
 
 
 def test_bools_pass_straight_through() -> None:
@@ -192,77 +218,30 @@ def test_a_socks_proxy_without_a_port_is_refused(proxy: str) -> None:
         resolve_proxy(proxy)
 
 
-def test_an_environment_proxy_with_an_unusable_port_is_refused(
+def test_only_the_variables_httpx_reads_are_reported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Otherwise it leaves the hierarchy from httpx as an OverflowError.
+    """They are what a connection failure could be blamed on (#69).
 
-    A port above 65535 is one httpx builds a client with and only fails on
-    at connect time, inside a task group, as an ``ExceptionGroup`` no clause
-    in this package catches.
+    ``WS_PROXY`` is *websockets*' alone and httpx never looks at it, so
+    naming it in a message about the requests would send the reader after
+    the wrong variable. ``FTP_PROXY`` reaches neither library.
     """
-    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:99999")
-    with pytest.raises(ConfigurationError, match="the https proxy"):
-        refuse_unusable_environment_proxies("https://pikvm.local")
+    monkeypatch.setenv("HTTP_PROXY", "http://plain.local:3128")
+    monkeypatch.setenv("HTTPS_PROXY", "http://secure.local:3128")
+    monkeypatch.setenv("WS_PROXY", "http://socket.local:3128")
+    monkeypatch.setenv("FTP_PROXY", "http://files.local:3128")
+    assert sorted(httpx_environment_proxies()) == ["http", "https"]
 
 
-def test_an_environment_proxy_no_library_would_read_is_left_alone(
+def test_no_proxy_variables_at_all_is_an_empty_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Refusing it would fail a client that had nothing wrong with it.
-
-    ``ftp_proxy`` reaches neither transport, whatever the device's scheme.
-    """
-    monkeypatch.setenv("FTP_PROXY", "http://proxy.local:99999")
-    refuse_unusable_environment_proxies("https://pikvm.local")
-
-
-def test_a_plain_http_environment_proxy_is_read_even_behind_https(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """httpx mounts HTTP_PROXY whatever the base URL's scheme is (#69).
-
-    A redirect followed down to ``http://`` would then go through it, so
-    narrowing the check to the device's own scheme would leave the same
-    ``OverflowError`` reachable by a longer road.
-    """
-    monkeypatch.setenv("HTTP_PROXY", "http://proxy.local:99999")
-    with pytest.raises(ConfigurationError, match="the http proxy"):
-        refuse_unusable_environment_proxies("https://pikvm.local")
-
-
-def test_a_portless_socks_proxy_in_the_environment_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The 1080-against-80 split is a fault of the port, so it is checked
-    here too — the two would reach different proxies in silence (#69)."""
-    monkeypatch.setenv("HTTPS_PROXY", "socks5://proxy.local")
-    with pytest.raises(ConfigurationError, match="needs an explicit port"):
-        refuse_unusable_environment_proxies("https://pikvm.local")
-
-
-def test_an_environment_proxy_keeps_the_rest_of_its_faults(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """It is shared with every other program on the machine, so only the
-    port — the part that would escape the hierarchy — is read here.
-
-    A path is something httpx ignores and *websockets* refuses during the
-    handshake, as a ``ConfigurationError`` that names the proxy. That is
-    already the right answer in the right place.
-    """
-    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:3128/path")
-    refuse_unusable_environment_proxies("https://pikvm.local")
-
-
-def test_a_scheme_less_environment_proxy_still_has_its_port_read(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """httpx fills the scheme in, and until it is filled in urlsplit reads
-    the host as the scheme and never looks at the port at all."""
-    monkeypatch.setenv("HTTPS_PROXY", "proxy.local:99999")
-    with pytest.raises(ConfigurationError, match="the https proxy"):
-        refuse_unusable_environment_proxies("https://pikvm.local")
+    """Which is what lets a message say a proxy is not what went wrong."""
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr("urllib.request.getproxies", dict)
+    assert httpx_environment_proxies() == {}
 
 
 @pytest.mark.parametrize(
@@ -292,32 +271,29 @@ def test_proxy_credentials_the_two_agree_on_pass() -> None:
     assert resolve_proxy(proxy) == proxy
 
 
-def test_an_environment_proxy_is_left_alone_for_a_host_no_proxy_covers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Neither library would use it, so refusing it would break a caller.
+def test_a_proxy_host_the_two_would_spell_differently_is_refused() -> None:
+    """One setting, two hosts, and neither library says a word (#69).
 
-    That is what requirement 9 asks for: the defaults leave an existing
-    caller with what they had. With the host exempted, a broken variable
-    beside it was never going to be read (#69).
+    httpx encodes a host that is not ASCII by UTS 46 and *websockets* by
+    IDNA 2003, which part company over the sharp s: the requests would reach
+    ``xn--fa-hia.de`` and the socket ``fass.de``.
     """
-    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:99999")
-    monkeypatch.setenv("NO_PROXY", "pikvm.local")
-    refuse_unusable_environment_proxies("https://pikvm.local")
-
-    monkeypatch.setenv("NO_PROXY", "somewhere.else")
-    with pytest.raises(ConfigurationError, match="the https proxy"):
-        refuse_unusable_environment_proxies("https://pikvm.local")
+    with pytest.raises(ConfigurationError, match="punycode"):
+        resolve_proxy("http://faß.de:3128")
 
 
-def test_an_unparsable_url_does_not_stop_the_environment_being_checked(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Asking about the bypass means parsing the URL, which can fail.
+@pytest.mark.parametrize(
+    ("proxy", "why"),
+    [
+        ("http://münchen.de:3128", "the two encodings agree on this one"),
+        ("http://xn--fa-hia.de:3128", "already punycode, so nothing to encode"),
+        ("http://[::1]:3128", "an address rather than a name"),
+    ],
+)
+def test_a_proxy_host_the_two_agree_on_passes(proxy: str, why: str) -> None:
+    """Refusing every non-ASCII host would refuse working proxies too.
 
-    Whatever such a URL is wrong about, it is not the proxies, and the
-    transport reports the URL itself soon enough.
+    The two are asked what they would aim at, so only a real disagreement is
+    refused, and a name both encode alike is left alone.
     """
-    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:99999")
-    with pytest.raises(ConfigurationError, match="the https proxy"):
-        refuse_unusable_environment_proxies("http://[::1")
+    assert resolve_proxy(proxy) == proxy

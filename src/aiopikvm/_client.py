@@ -26,8 +26,7 @@ from aiopikvm._exceptions import (
 )
 from aiopikvm._transport import (
     VerifySSL,
-    environment_proxies,
-    refuse_unusable_environment_proxies,
+    httpx_environment_proxies,
     resolve_proxy,
     resolve_verify_ssl,
 )
@@ -146,9 +145,10 @@ class PiKVM:
         Raises:
             ConfigurationError: *verify_ssl* names a path this machine
                 cannot load a CA bundle from, or *proxy* is one the two
-                libraries would not use alike. A proxy the environment sets
-                is checked when the client is entered, which is where httpx
-                reads it.
+                libraries would not use alike. A proxy the *environment*
+                sets is left to httpx, whose rules for reading it are its
+                own; what it raises about one is reported as a
+                :class:`ConnectError` when the request goes out.
         """
         self._url = url.rstrip("/")
         self._user = user
@@ -318,6 +318,8 @@ class PiKVM:
             # RemoteProtocolError kvmd raises at every restart, which drops
             # in-flight connections after a one-second shutdown timeout.
             raise ConnectError(str(exc)) from exc
+        except ExceptionGroup as exc:
+            raise ConnectError(self._connection_failed(exc)) from exc
 
         self._raise_for_status(response)
         return response
@@ -443,6 +445,41 @@ class PiKVM:
             ) from exc
         except httpx.TransportError as exc:
             raise ConnectError(str(exc)) from exc
+        except ExceptionGroup as exc:
+            raise ConnectError(self._connection_failed(exc)) from exc
+
+    def _connection_failed(self, group: ExceptionGroup[Exception]) -> str:
+        """Spell out a connect failure httpcore had no name for.
+
+        httpx maps what it knows into its own exceptions; what it does not
+        map comes out of the task group anyio connects in, as an
+        ``ExceptionGroup`` that prints how many exceptions it holds and none
+        of what they say. A proxy port outside 0-65535 arrives this way, as
+        an ``OverflowError`` from ``getaddrinfo``, so the proxy in use is
+        worth naming — by variable rather than by value, the environment's
+        being shared with every other program on the machine.
+
+        Args:
+            group: The group that came out of httpx.
+
+        Returns:
+            What every exception in it said, and where a proxy could be
+            standing in the way.
+        """
+        pending: list[BaseException] = list(group.exceptions)
+        said: list[str] = []
+        while pending:
+            exc = pending.pop(0)
+            if isinstance(exc, BaseExceptionGroup):
+                pending.extend(exc.exceptions)
+            else:
+                said.append(f"{type(exc).__name__}: {exc}")
+        if self._proxy is not None:
+            said.append(f"the connection goes through the proxy {self._proxy!r}")
+        elif self._trust_env and (environment := httpx_environment_proxies()):
+            names = ", ".join(f"{key.upper()}_PROXY" for key in sorted(environment))
+            said.append(f"the environment sets {names}, which httpx reads")
+        return "; ".join(said)
 
     # --- Resources (lazy) ----------------------------------------------
 
@@ -550,11 +587,6 @@ class PiKVM:
                 "would close the connection the outer one is still using."
             )
         if self._client is None:
-            if self._proxy is None and self._trust_env:
-                # Checked here rather than in __init__ because this is where
-                # httpx reads it, and the environment can change in between.
-                # An explicit proxy means httpx never looks at it at all.
-                refuse_unusable_environment_proxies(self._url)
             try:
                 self._client = httpx.AsyncClient(
                     base_url=self._url,
@@ -580,7 +612,11 @@ class PiKVM:
                 # tab, so the blame is shared only when there is one to
                 # share it with.
                 blamed = f"the PiKVM URL {self._url!r}"
-                if self._proxy is None and self._trust_env and environment_proxies():
+                if (
+                    self._proxy is None
+                    and self._trust_env
+                    and httpx_environment_proxies()
+                ):
                     blamed += " or a proxy the environment sets"
                 raise ConfigurationError(f"httpx refused {blamed}: {exc}") from exc
             except (ImportError, ValueError) as exc:
