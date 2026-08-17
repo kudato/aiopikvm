@@ -371,6 +371,23 @@ async def test_a_proxy_from_the_environment_is_refused_at_the_handshake(
             pass  # pragma: no cover - __aenter__ raises
 
 
+async def test_a_bad_proxy_port_in_the_environment_is_refused_on_the_way_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """websockets reads the port with a bare ValueError inside its parser.
+
+    That one is not an InvalidProxy, so it would fall through to the clause
+    that reports a dropped connection — a permanent misconfiguration
+    reported as a transient failure. Checked here rather than in the
+    constructor, because this is where *websockets* reads the environment
+    and it can change in between (#69).
+    """
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:99999")
+    with pytest.raises(ConfigurationError, match="the https proxy"):
+        async with socket():
+            pass  # pragma: no cover - __aenter__ raises
+
+
 def test_a_bad_proxy_port_is_refused_before_the_handshake() -> None:
     """websockets reads the port with a bare ValueError inside its parser.
 

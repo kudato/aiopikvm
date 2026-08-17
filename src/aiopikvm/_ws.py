@@ -40,7 +40,12 @@ from aiopikvm._exceptions import (
     _error_fields_from_bytes,
     _status_error,
 )
-from aiopikvm._transport import VerifySSL, resolve_proxy, resolve_verify_ssl
+from aiopikvm._transport import (
+    VerifySSL,
+    refuse_unusable_environment_proxies,
+    resolve_proxy,
+    resolve_verify_ssl,
+)
 from aiopikvm.models.atx import ATXState
 from aiopikvm.models.gpio import GPIOState
 from aiopikvm.models.hid import HIDKeymaps, HIDState
@@ -296,8 +301,9 @@ class PiKVMWebSocket:
             ConfigurationError: If the URL scheme is not ``https`` or
                 ``http``, or *verify_ssl* names a path this machine cannot
                 load a CA bundle from, or *proxy* is one the two libraries
-                would not use alike, or *trust_env* is on and the environment
-                sets a proxy with an unusable port.
+                would not use alike. A proxy the environment sets is checked
+                when the socket is entered, which is where *websockets*
+                reads it.
         """
         parsed = urlparse(url)
         scheme_map = {"https": "wss", "http": "ws"}
@@ -314,7 +320,7 @@ class PiKVMWebSocket:
         self._user = user
         self._passwd = passwd
         self._verify_ssl = resolve_verify_ssl(verify_ssl)
-        self._proxy = resolve_proxy(proxy, self._url, trust_env)
+        self._proxy = resolve_proxy(proxy)
         self._trust_env = trust_env
         self._binary = binary
         self._follow_redirects = follow_redirects
@@ -341,11 +347,12 @@ class PiKVMWebSocket:
                 when none reached it, 403 when the ones that did were
                 rejected.
             ConfigurationError: A proxy the environment set cannot be used —
-                its scheme, host, path, query or credentials are not what
-                *websockets* accepts — or the proxy is a ``socks5://`` one
-                and the ``python-socks`` package it needs is not installed.
-                A proxy passed to the constructor was already held to what
-                both transports accept, when this object was built.
+                it carries an unusable port, or its scheme, host, path, query
+                or credentials are not what *websockets* accepts — or the
+                proxy is a ``socks5://`` one and the ``python-socks`` package
+                it needs is not installed. A proxy passed to the constructor
+                was already held to what both transports accept, when this
+                object was built.
             RedirectError: The upgrade was redirected and *follow_redirects*
                 is off. Following it would resend the password to the target.
             APIError: kvmd rejected the upgrade for another reason, such as a
@@ -370,6 +377,11 @@ class PiKVMWebSocket:
         proxy: str | Literal[True] | None = self._proxy
         if proxy is None:
             proxy = True if self._trust_env else None
+            if proxy is True:
+                # Checked here rather than in __init__ because this is where
+                # websockets reads it, and the environment can change in
+                # between.
+                refuse_unusable_environment_proxies(self._url)
 
         headers = {
             "X-KVMD-User": self._user,

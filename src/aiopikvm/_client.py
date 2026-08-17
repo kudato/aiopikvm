@@ -27,6 +27,7 @@ from aiopikvm._exceptions import (
 from aiopikvm._transport import (
     VerifySSL,
     environment_proxies,
+    refuse_unusable_environment_proxies,
     resolve_proxy,
     resolve_verify_ssl,
 )
@@ -133,23 +134,28 @@ class PiKVM:
                 to ``https://`` — has already exposed the password in
                 cleartext by then.
             http_client: Pre-built httpx client. When given, this client
-                does not close it and the arguments above are ignored —
-                except by :meth:`ws`, which does not go through httpx and
-                keeps reading *verify_ssl*, *proxy* and *trust_env* from
-                here.
+                does not close it and the arguments above reach no request,
+                since the caller configured those on the client they built.
+                :meth:`ws` is the exception: it does not go through httpx at
+                all, and goes on reading *url*, *user*, *passwd*, *totp*,
+                *verify_ssl*, *proxy*, *trust_env*, *timeout* and
+                *follow_redirects* from here. So with an external client
+                these arguments configure the socket alone, and the two
+                halves can end up set up differently.
 
         Raises:
             ConfigurationError: *verify_ssl* names a path this machine
                 cannot load a CA bundle from, or *proxy* is one the two
-                libraries would not use alike, or *trust_env* is on and the
-                environment sets a proxy with an unusable port.
+                libraries would not use alike. A proxy the environment sets
+                is checked when the client is entered, which is where httpx
+                reads it.
         """
         self._url = url.rstrip("/")
         self._user = user
         self._passwd = passwd
         self._totp = totp
         self._verify_ssl = resolve_verify_ssl(verify_ssl)
-        self._proxy = resolve_proxy(proxy, self._url, trust_env)
+        self._proxy = resolve_proxy(proxy)
         self._trust_env = trust_env
         self._timeout = timeout
         self._follow_redirects = follow_redirects
@@ -544,6 +550,11 @@ class PiKVM:
                 "would close the connection the outer one is still using."
             )
         if self._client is None:
+            if self._proxy is None and self._trust_env:
+                # Checked here rather than in __init__ because this is where
+                # httpx reads it, and the environment can change in between.
+                # An explicit proxy means httpx never looks at it at all.
+                refuse_unusable_environment_proxies(self._url)
             try:
                 self._client = httpx.AsyncClient(
                     base_url=self._url,
@@ -569,7 +580,7 @@ class PiKVM:
                 # tab, so the blame is shared only when there is one to
                 # share it with.
                 blamed = f"the PiKVM URL {self._url!r}"
-                if self._trust_env and environment_proxies(self._url):
+                if self._proxy is None and self._trust_env and environment_proxies():
                     blamed += " or a proxy the environment sets"
                 raise ConfigurationError(f"httpx refused {blamed}: {exc}") from exc
             except (ImportError, ValueError) as exc:
@@ -654,9 +665,11 @@ class PiKVM:
         Returns:
             A *PiKVMWebSocket* async context manager. It inherits this
             client's *verify_ssl*, *proxy*, *trust_env* and
-            *follow_redirects*; with an external *http_client* it still uses
-            the credentials and URL passed to this constructor, since it does
-            not go through httpx at all.
+            *follow_redirects*, and this client's *timeout* stands in for
+            whichever of the two timeouts below was left out; with an
+            external *http_client* it still uses the credentials and URL
+            passed to this constructor, since it does not go through httpx
+            at all.
 
         Raises:
             ConfigurationError: If this client has been closed, or the URL it

@@ -344,7 +344,7 @@ def test_a_bad_proxy_port_is_not_blamed_on_the_pikvm_url() -> None:
     assert "PiKVM URL" not in message
 
 
-def test_a_bad_proxy_port_in_the_environment_is_refused_too(
+async def test_a_bad_proxy_port_in_the_environment_is_refused_too(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The argument was only one way in; the environment is the other (#69).
@@ -352,10 +352,13 @@ def test_a_bad_proxy_port_in_the_environment_is_refused_too(
     httpx builds a client with a port above 65535 and fails at connect time
     with an ``OverflowError`` wrapped in an ``ExceptionGroup``, which no
     clause in this package catches and nothing in the hierarchy covers.
+    Checked on the way in rather than in the constructor, because that is
+    where httpx reads the environment and the two moments can differ.
     """
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:99999")
     with pytest.raises(ConfigurationError) as caught:
-        PiKVM("https://pikvm.local")
+        async with PiKVM("https://pikvm.local"):
+            pass  # pragma: no cover - __aenter__ raises
     message = str(caught.value)
     assert "http://proxy.local:99999" in message
     assert "PiKVM URL" not in message
