@@ -16,9 +16,12 @@ instead, and ``"reset_hard"`` presses the reset switch.
 Every one of the four is conditional on the power state kvmd reads from
 the host's power LED: ``"on"`` acts only on a host it believes to be off,
 the other three only on one it believes to be on. A command that fails
-the test is dropped and the call still succeeds, so where that LED is
-miswired or unread none of these does anything.
-:meth:`SwitchResource.atx_click` presses a switch unconditionally.
+the test is dropped and the call still answers success, so where that LED
+is miswired or unread all four are unpredictable — a stuck-on reading
+lets the three off-and-reset actions fire at any moment, and a stuck-off
+one lets ``"on"``. :meth:`SwitchResource.atx_click` presses a switch
+unconditionally, which is the way to reach a host whose LED kvmd cannot
+read.
 
 This is kvmd's ATX vocabulary rather than the switch's own: the same
 validator serves ``/api/atx/power``, where :class:`ATXResource` spells each
@@ -32,8 +35,7 @@ type ATXButton = Literal["power", "power_long", "reset"]
 ``"power"`` is a short press and ``"power_long"`` the same switch held down
 for several seconds; ``"reset"`` is the other front-panel switch. Unlike
 every value of :data:`ATXAction`, none of these looks at what state the
-host is in — which is what makes them the way to reach a host whose power
-LED kvmd cannot read.
+host is in.
 
 Shared with ``/api/atx/click`` and lowercased on the way in, exactly as
 :data:`ATXAction` is.

@@ -9,10 +9,11 @@ fact that the contract is now satisfied.
 
 from __future__ import annotations
 
+import importlib
 import json
 import re
 from pathlib import Path
-from typing import Any, NamedTuple, get_args
+from typing import Any, NamedTuple, TypeAliasType, get_args
 
 import pytest
 from pydantic import BaseModel
@@ -32,7 +33,6 @@ from aiopikvm._ws import _STATE_MODELS, _as_state, _merge
 from aiopikvm.models.hid import _HIDInactivity
 from aiopikvm.resources.hid import KEY_NAMES, KeyboardOutput, MouseButton, MouseOutput
 from aiopikvm.resources.msd import Compression
-from aiopikvm.resources.redfish import ResetType
 from aiopikvm.resources.switch import ATXAction, ATXButton
 from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
@@ -279,15 +279,23 @@ def test_documented_values_are_ones_the_type_allows(
     assert found <= allowed, sorted(found - allowed)
 
 
-_ALIASES = {
-    "KeyboardOutput": KeyboardOutput,
-    "MouseOutput": MouseOutput,
-    "MouseButton": MouseButton,
-    "Compression": Compression,
-    "ATXAction": ATXAction,
-    "ATXButton": ATXButton,
-    "ResetType": ResetType,
-}
+def _aliases() -> dict[str, TypeAliasType]:
+    """Return every vocabulary type the resource modules define, by name.
+
+    Read out of the modules rather than listed here: a hand-written
+    inventory only catches a type somebody remembered to add to *it*, which
+    is not the thing worth catching.
+    """
+    modules = [
+        importlib.import_module(f"aiopikvm.resources.{name}")
+        for name in ("hid", "msd", "switch", "redfish")
+    ]
+    return {
+        name: value
+        for module in modules
+        for name, value in vars(module).items()
+        if isinstance(value, TypeAliasType) and value.__module__ == module.__name__
+    }
 
 
 def _type_table() -> dict[str, list[str]]:
@@ -297,12 +305,15 @@ def _type_table() -> dict[str, list[str]]:
     out — the row a reader copies from — and the scan above cannot see it,
     since nothing in it is shaped like a call.
     """
+    aliases = _aliases()
     rows: dict[str, list[str]] = {}
     for line in _TYPE_TABLE.read_text(encoding="utf-8").splitlines():
         cells = [cell.strip() for cell in line.split("|")[1:-1]]
-        if len(cells) != 3 or cells[1].strip("`") not in _ALIASES:
+        if len(cells) != 3 or cells[1].strip("`") not in aliases:
             continue
-        rows[cells[1].strip("`")] = [
+        name = cells[1].strip("`")
+        assert name not in rows, f"the guide has two rows for {name}"
+        rows[name] = [
             # The empty compression mode is spelled `""` in the table.
             "" if value == '""' else value
             for value in re.findall(r"`([^`]*)`", cells[2])
@@ -311,11 +322,15 @@ def _type_table() -> dict[str, list[str]]:
 
 
 def test_the_guide_lists_every_typed_vocabulary() -> None:
-    """A type nobody documented is one nobody knows to use (#68)."""
-    assert set(_type_table()) == set(_ALIASES)
+    """A type nobody documented is one nobody knows to use (#68).
+
+    Both halves are read off the source: add a vocabulary to a resource
+    module and this fails until the guide's table has a row for it.
+    """
+    assert set(_type_table()) == set(_aliases())
 
 
-@pytest.mark.parametrize("name", sorted(_ALIASES))
+@pytest.mark.parametrize("name", sorted(_aliases()))
 def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     """Each row of that table is its type's values, all of them (#68).
 
@@ -325,7 +340,7 @@ def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     """
     listed = _type_table()[name]
     assert len(listed) == len(set(listed)), f"the guide repeats a value: {listed}"
-    assert set(listed) == set(get_args(_ALIASES[name].__value__))
+    assert set(listed) == set(get_args(_aliases()[name].__value__))
 
 
 def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:

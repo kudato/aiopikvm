@@ -149,9 +149,10 @@ await kvm.hid.send_mouse_button("left", state=False)
 await kvm.hid.send_mouse_button("right")
 ```
 
-kvmd knows five buttons, and `MouseButton` is the type that holds them:
-`left`, `right`, `middle`, and `up`/`down` — the side buttons a browser
-reports as back and forward, not wheel directions.
+The names are the `MouseButton` type
+([the values](error-handling.md#values-the-type-checker-catches)). Two of
+them read oddly: `up` and `down` are the side buttons a browser reports as
+back and forward, not wheel directions — the wheel is below.
 
 ### Mouse wheel
 
@@ -179,13 +180,13 @@ await kvm.hid.set_params(mouse_output="usb_rel")
 await kvm.hid.set_params(jiggler=True)
 ```
 
-The output names are typed — `KeyboardOutput` is `usb`, `ps2` or `disabled`,
-`MouseOutput` adds `usb_win98` and `usb_rel` — so a typo is a type error
-rather than an HTTP 400. That is kvmd's validator, though, and passing it is
-not the same as taking effect. kvmd checks the name against the fixed list
-whatever backend is running, and then hands it to a backend that may have no
-use for it. Of the four in kvmd 4.186 only the MCU ones act on
-`keyboard_output` at all; `otg`, `ch9329` and `bt` discard it and answer 200.
+The output names are typed as `KeyboardOutput` and `MouseOutput`
+([the values](error-handling.md#values-the-type-checker-catches)), so a typo
+is a type error rather than an HTTP 400. That is kvmd's validator, though,
+and passing it is not the same as taking effect. kvmd checks the name against
+the fixed list whatever backend is running, and then hands it to a backend
+that may have no use for it: only the MCU backends act on `keyboard_output`
+at all, while `otg`, `ch9329` and `bt` discard it and answer 200.
 
 What the running backend offers is in the state:
 `state.keyboard.outputs.available` and `state.mouse.outputs.available`.

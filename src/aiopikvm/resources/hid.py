@@ -113,11 +113,11 @@ forward — not wheel directions, which are
 :meth:`HIDResource.send_mouse_wheel`. kvmd lowercases the name before it
 looks it up, so only the canonical spelling is typed.
 
-Unlike the output names, these reach the same validator whichever way they
-are sent, and are dropped rather than reported when the socket is the way:
-:meth:`HIDResource.send_mouse_button` answers HTTP 400 on a name kvmd does
-not know, while ``PiKVMWebSocket.send_mouse_button()`` gets no answer of
-any kind.
+This is the only one of these vocabularies with two ways in, and they
+report a wrong name differently: :meth:`HIDResource.send_mouse_button`
+raises :class:`APIError` with HTTP 400, while
+``PiKVMWebSocket.send_mouse_button()`` gets no answer of any kind — the
+frame is dropped inside kvmd's handler, as a bad key name is.
 """
 
 
