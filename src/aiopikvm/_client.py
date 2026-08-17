@@ -561,6 +561,7 @@ class PiKVM:
         self,
         *,
         stream: bool = True,
+        binary: bool = False,
         open_timeout: float | None = None,
         close_timeout: float | None = None,
     ) -> PiKVMWebSocket:
@@ -577,6 +578,9 @@ class PiKVM:
                 :meth:`StreamerResource.snapshot` then answers HTTP 503
                 unless something else is watching. Pass ``False`` only for a
                 client that reads events and never looks at the picture.
+            binary: Send HID input over kvmd's binary channel instead of as
+                JSON events, the way kvmd's own web UI does. Both reach the
+                same handlers; see :class:`PiKVMWebSocket`.
             open_timeout: Timeout for opening the connection (defaults to
                 the client *timeout*).
             close_timeout: Timeout for closing the connection (defaults to
@@ -603,6 +607,7 @@ class PiKVM:
             passwd=self._password,
             verify_ssl=self._verify_ssl,
             stream=stream,
+            binary=binary,
             follow_redirects=self._follow_redirects,
             open_timeout=open_timeout if open_timeout is not None else self._timeout,
             close_timeout=close_timeout if close_timeout is not None else self._timeout,

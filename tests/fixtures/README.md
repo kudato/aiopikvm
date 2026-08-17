@@ -108,6 +108,24 @@ getting one. Unlike the other scenarios it records HTTP responses rather than
 kvmd envelopes, since the upgrade is refused before the socket exists, so each
 step carries the `status`, `reason_phrase` and `content_type` a client sees.
 
+`ws_binary.json` is the other half of that socket: kvmd's binary channel, where
+the first byte of a frame is an operation number rather than JSON. Every frame
+in it is one this client built and sent, and every one is recorded with
+`/api/hid/inactivity` read before and after — kvmd bumps that counter from
+inside the handler, so a reset to 0 is the device confirming it decoded the
+frame, and an unchanged counter is it dropping one its validators refused.
+Alongside the input frames it holds both ping exchanges (the JSON `pong` event
+and binary op `255`), and an operation kvmd has no handler for, which it
+answers with nothing at all.
+
+Input frames reach the HID, so this one was recorded with the USB gadget not
+attached to any host — `keyboard.online` and `mouse.online` both `false` — and
+with frames that do nothing even where a host is listening: a lone `ControlLeft`
+press and release, a wheel of zero, a move to the centre of the screen, a
+middle-button release. The socket was opened with `stream=0`, so the video
+pipeline was untouched. Nothing needs undoing afterwards, but re-recording it
+sends input to somebody's device, so ask first.
+
 `redfish_actions.json` is hand-recorded for the same reason: the capture tool
 only records GETs that succeed, and everything interesting about the Redfish
 actions is either an empty 204 or a refusal. It holds the one system id this

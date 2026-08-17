@@ -5,14 +5,25 @@ subsystem broadcasts its state on, and it takes HID input in the other
 direction. The upgrade goes through the same auth chain as the REST API, so a
 refused handshake arrives as a plain HTTP response and is reported with the
 same exceptions.
+
+Two encodings share that socket. Text frames are the JSON events, ``{"event_type":
+..., "event": ...}`` in both directions. Binary frames are kvmd's compact input
+channel: the first byte is an operation number, and the rest is that operation's
+payload. kvmd's own web UI sends every keystroke and mouse move that way, and
+only ever answers on it with one operation of its own — the pong. This client
+speaks JSON by default and switches the input direction to binary when built
+with ``binary=True``; incoming frames of either kind are understood regardless.
 """
 
+import asyncio
 import json
 import logging
 import ssl
+import struct
+from collections import deque
 from collections.abc import AsyncIterator
 from types import TracebackType
-from typing import Any, Self
+from typing import Any, NamedTuple, Self
 from urllib.parse import urlparse, urlunparse
 
 import websockets
@@ -28,6 +39,51 @@ from aiopikvm._exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+_OP_PING = 0
+_OP_KEY = 1
+_OP_MOUSE_BUTTON = 2
+_OP_MOUSE_MOVE = 3
+_OP_MOUSE_WHEEL = 5
+_OP_PONG = 255
+"""kvmd's binary operations, as dispatched by ``exposed_ws(<int>)``."""
+
+_NAME_LIMIT = 32
+"""kvmd reads a key or button name out of ``data[1:33]``; longer is truncated."""
+
+_MOVE_MIN = -32768
+_MOVE_MAX = 32767
+"""kvmd's absolute pointer range, clamped by ``valid_hid_mouse_move``."""
+
+_DELTA_MIN = -127
+_DELTA_MAX = 127
+"""kvmd's wheel and relative step range, clamped by ``valid_hid_mouse_delta``."""
+
+_PENDING_LIMIT = 1024
+"""How many events :meth:`PiKVMWebSocket.ping` may buffer for :meth:`events`."""
+
+_POLL_INTERVAL = 0.02
+"""How often a waiting ping rechecks whether another reader took the socket."""
+
+
+class KvmdVersion(NamedTuple):
+    """The kvmd protocol version from the ``loop`` event.
+
+    kvmd sends it as the first thing on every connection, and it is the only
+    version signal the socket carries. Being a tuple, it compares the way a
+    version should: ``ws.version >= (4, 100)``.
+
+    Attributes:
+        major: Major version, ``4`` for the kvmd 4.x series.
+        minor: Minor version, e.g. ``186`` for kvmd 4.186.
+    """
+
+    major: int
+    minor: int
+
+
+class _Finished(Exception):
+    """Internal signal: the server closed the connection cleanly."""
 
 
 class _Connector(websockets.asyncio.client.connect):
@@ -114,6 +170,7 @@ class PiKVMWebSocket:
         passwd: str,
         verify_ssl: bool = True,
         stream: bool = True,
+        binary: bool = False,
         follow_redirects: bool = False,
         open_timeout: float = 10.0,
         close_timeout: float = 10.0,
@@ -132,6 +189,14 @@ class PiKVMWebSocket:
                 ``StreamerResource.snapshot()`` then answers HTTP 503 unless
                 something else is watching. Off only makes sense for a client
                 that reads events and never looks at the picture.
+            binary: Send input over kvmd's binary channel instead of as JSON
+                events. Both reach the same handlers and the same validators;
+                the binary frames are a few bytes each instead of a JSON
+                object kvmd has to parse, which is why its own web UI uses
+                them for every keystroke and mouse move. Off by default,
+                since JSON is what this client has always sent and the
+                encoding a packet capture can be read in. The binary channel
+                was verified against kvmd 4.186.
             follow_redirects: Follow a redirected handshake instead of
                 raising :class:`RedirectError`. Off by default: the upgrade
                 carries the password in a header, and following the redirect
@@ -157,10 +222,19 @@ class PiKVMWebSocket:
         self._user = user
         self._passwd = passwd
         self._verify_ssl = verify_ssl
+        self._binary = binary
         self._follow_redirects = follow_redirects
         self._open_timeout = open_timeout
         self._close_timeout = close_timeout
         self._connection: websockets.asyncio.client.ClientConnection | None = None
+        self._version: KvmdVersion | None = None
+        # Only one task may read the socket at a time, and whichever one holds
+        # the lock routes what it reads for everybody: an event another task
+        # buffered is still an event this connection received.
+        self._read_lock = asyncio.Lock()
+        self._pending: deque[dict[str, Any]] = deque()
+        self._overflowed = False
+        self._pong_waiters: list[asyncio.Future[float]] = []
 
     async def __aenter__(self) -> Self:
         """Open the connection.
@@ -217,6 +291,9 @@ class PiKVMWebSocket:
             # checked scheme.
             raise WebSocketError(f"Failed to connect: {exc}") from exc
 
+        self._version = None
+        self._pending.clear()
+        self._overflowed = False
         return self
 
     async def __aexit__(
@@ -226,6 +303,9 @@ class PiKVMWebSocket:
         exc_tb: TracebackType | None,
     ) -> None:
         """Close the connection, whatever happened inside the block.
+
+        A :meth:`ping` still waiting for its answer fails here rather than
+        waiting out its timeout: the socket it was waiting on is gone.
 
         Args:
             exc_type: Type of the exception the block raised, if any.
@@ -238,20 +318,31 @@ class PiKVMWebSocket:
             finally:
                 self._connection = None
 
-    def _ensure_connected(self) -> websockets.asyncio.client.ClientConnection:
-        """Return the active connection or raise."""
-        if self._connection is None:
-            raise WebSocketError("Not connected")
-        return self._connection
+    @property
+    def version(self) -> KvmdVersion | None:
+        """The kvmd version this connection reported, once it has been read.
+
+        kvmd sends the ``loop`` event carrying it before anything else, so
+        this is set as soon as one frame has been read off the socket —
+        by :meth:`events`, or by a :meth:`ping` waiting for its answer. It is
+        ``None`` before that, and on a connection whose ``loop`` event carried
+        no usable version.
+        """
+        return self._version
 
     async def events(self) -> AsyncIterator[dict[str, Any]]:
         """Iterate over incoming events.
 
-        Every frame is a ``{"event_type": ..., "event": ...}`` object. The
+        Every event is a ``{"event_type": ..., "event": ...}`` object. The
         first one is always ``loop``, carrying the kvmd version; after it
         each subsystem sends its current state once, interleaved with the
         broadcasts other clients trigger, so nothing but ``loop`` arrives in
         a guaranteed order. See the WebSocket guide for the full list.
+
+        Binary frames do not appear here. The only one kvmd sends is the
+        answer to :meth:`ping`, which that method consumes; anything else on
+        that channel is logged and dropped, since a binary frame is an
+        operation number and a payload, not an event.
 
         The iteration ends when either side closes the connection cleanly. A
         connection that breaks instead — the device rebooting, the network
@@ -266,25 +357,248 @@ class PiKVMWebSocket:
             WebSocketError: The client is not connected, or the connection
                 broke instead of closing cleanly.
         """
+        while True:
+            while self._pending:
+                yield self._pending.popleft()
+            # The lock is held for one frame at a time, so a ping in another
+            # task gets its turn between events instead of after the last one.
+            async with self._read_lock:
+                try:
+                    event = await self._read_one()
+                except _Finished:
+                    return
+            if event is not None:
+                yield event
+
+    async def ping(self, *, timeout: float = 10.0) -> float:
+        """Ask kvmd for a pong, and wait for it.
+
+        This is kvmd's application-level ping, not the protocol one: the
+        request goes through the same event loop that dispatches HID input and
+        broadcasts state, so the answer means that loop is running, not merely
+        that something on the other end still holds a TCP socket open.
+        Keeping the connection alive needs neither — *websockets* sends a
+        protocol ping every 20 seconds by itself and drops the connection when
+        one goes unanswered for another 20, which is what turns a silently
+        dead link into a :class:`WebSocketError` out of :meth:`events`.
+
+        The answer arrives on the socket like everything else, so this waits
+        for whoever is reading it. When :meth:`events` is being iterated in
+        another task, that iteration hands the pong over; otherwise this reads
+        the socket itself and keeps the events it finds on the way for the
+        next :meth:`events` call. Either way the round trip is measured from
+        the frame going out to the pong being read, so a consumer of
+        :meth:`events` that takes its time between frames adds its own delay to
+        the number — the pong waits behind whatever it is doing.
+
+        Args:
+            timeout: Seconds to wait for the answer.
+
+        Returns:
+            The round trip in seconds.
+
+        Raises:
+            WebSocketError: The client is not connected, the connection broke
+                or closed before the answer arrived, or kvmd did not answer
+                within *timeout*.
+        """
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[float] = loop.create_future()
+        self._pong_waiters.append(waiter)
+        try:
+            sent_at = loop.time()
+            if self._binary:
+                await self._send_bin(_OP_PING, b"", "ping")
+            else:
+                await self._send_event("ping", {})
+            async with asyncio.timeout(timeout):
+                await self._wait_pong(waiter)
+            return waiter.result() - sent_at
+        except TimeoutError as exc:
+            raise WebSocketError(
+                f"kvmd did not answer the ping within {timeout} s"
+            ) from exc
+        finally:
+            if waiter in self._pong_waiters:
+                self._pong_waiters.remove(waiter)
+
+    async def _wait_pong(self, waiter: asyncio.Future[float]) -> None:
+        """Read the socket, or wait for whoever is reading it, until *waiter*.
+
+        Args:
+            waiter: Future resolved with the moment a pong was read.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke or closed before the answer arrived.
+        """
+        while not waiter.done():
+            if self._read_lock.locked():
+                # Another task is reading; it resolves the waiter when the
+                # pong turns up. The poll only exists for the case where that
+                # task stops reading without ever seeing one.
+                await asyncio.wait([waiter], timeout=_POLL_INTERVAL)
+                continue
+            async with self._read_lock:
+                if waiter.done():
+                    return
+                try:
+                    event = await self._read_one()
+                except _Finished as exc:
+                    raise WebSocketError(
+                        "The connection closed before kvmd answered the ping"
+                    ) from exc
+                if event is not None:
+                    self._buffer(event)
+
+    def _buffer(self, event: dict[str, Any]) -> None:
+        """Keep an event read while waiting for something else.
+
+        The buffer is bounded, because a caller that only ever pings never
+        collects what those pings read: kvmd broadcasts its state whether or
+        not anyone iterates :meth:`events`.
+
+        Args:
+            event: The event to hand to the next :meth:`events` call.
+        """
+        if len(self._pending) >= _PENDING_LIMIT:
+            if not self._overflowed:
+                logger.warning(
+                    "Dropping WebSocket events: %d are buffered and nothing "
+                    "is reading events()",
+                    _PENDING_LIMIT,
+                )
+                self._overflowed = True
+            self._pending.popleft()
+        self._pending.append(event)
+
+    async def _read_one(self) -> dict[str, Any] | None:
+        """Read one frame off the socket and route it.
+
+        Returns:
+            The event to hand to a caller, or ``None`` when the frame was
+            consumed here — a pong, or something unusable.
+
+        Raises:
+            _Finished: The server closed the connection cleanly.
+            WebSocketError: The client is not connected, or the connection
+                broke instead of closing cleanly.
+        """
         conn = self._ensure_connected()
         try:
-            async for message in conn:
-                try:
-                    if isinstance(message, str):
-                        yield json.loads(message)
-                    else:
-                        yield json.loads(message.decode())
-                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                    logger.warning("Skipping malformed WebSocket message: %s", exc)
+            message = await conn.recv()
+        except websockets.exceptions.ConnectionClosedOK as exc:
+            raise _Finished from exc
         except websockets.exceptions.ConnectionClosed as exc:
-            # websockets ends the iteration itself on a clean close, so
-            # anything arriving here is a broken connection.
             raise WebSocketError(
                 f"Connection lost while reading events: {exc}"
             ) from exc
+        except websockets.exceptions.WebSocketException as exc:
+            raise WebSocketError(f"Failed to read from the socket: {exc}") from exc
+        if isinstance(message, str):
+            return self._route_text(message)
+        self._route_binary(message)
+        return None
+
+    def _route_text(self, message: str) -> dict[str, Any] | None:
+        """Parse a JSON frame and note what it says.
+
+        Args:
+            message: The text frame as it arrived.
+
+        Returns:
+            The parsed event, or ``None`` when it was not one.
+        """
+        try:
+            event = json.loads(message)
+        except json.JSONDecodeError as exc:
+            logger.warning("Skipping malformed WebSocket message: %s", exc)
+            return None
+        if not isinstance(event, dict):
+            logger.warning(
+                "Skipping a WebSocket message that is not an event object: %s",
+                type(event).__name__,
+            )
+            return None
+        event_type = event.get("event_type")
+        if event_type == "pong":
+            self._resolve_pongs()
+        elif event_type == "loop":
+            self._note_version(event.get("event"))
+        return event
+
+    def _route_binary(self, data: bytes) -> None:
+        """Handle a frame from kvmd's binary channel.
+
+        Nothing comes back: no binary frame kvmd sends is an event. The only
+        operation it has on this channel is the pong.
+
+        Args:
+            data: The binary frame, the operation number first.
+        """
+        if not data:
+            logger.warning("Skipping an empty binary WebSocket frame")
+        elif data[0] == _OP_PONG:
+            self._resolve_pongs()
+        else:
+            logger.warning(
+                "Skipping a binary WebSocket frame with unknown op %d", data[0]
+            )
+
+    def _resolve_pongs(self) -> None:
+        """Hand the moment a pong arrived to everything waiting for one."""
+        now = asyncio.get_running_loop().time()
+        for waiter in self._pong_waiters:
+            if not waiter.done():
+                waiter.set_result(now)
+        self._pong_waiters.clear()
+
+    def _note_version(self, event: Any) -> None:
+        """Remember the kvmd version from a ``loop`` event.
+
+        Args:
+            event: The event payload, whatever arrived in it.
+        """
+        version = event.get("version") if isinstance(event, dict) else None
+        if not isinstance(version, dict):
+            return
+        major = version.get("major")
+        minor = version.get("minor")
+        if isinstance(major, int) and isinstance(minor, int):
+            self._version = KvmdVersion(major, minor)
+
+    def _ensure_connected(self) -> websockets.asyncio.client.ClientConnection:
+        """Return the active connection or raise.
+
+        Returns:
+            The connection.
+
+        Raises:
+            WebSocketError: The client is not connected.
+        """
+        if self._connection is None:
+            raise WebSocketError("Not connected")
+        return self._connection
+
+    async def _send_frame(self, frame: str | bytes, what: str) -> None:
+        """Send one frame, whichever encoding it is in.
+
+        Args:
+            frame: The frame to send; text if it is a string, binary if not.
+            what: Name of the event for the error message.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
+        conn = self._ensure_connected()
+        try:
+            await conn.send(frame)
+        except websockets.exceptions.WebSocketException as exc:
+            raise WebSocketError(f"Failed to send {what!r}: {exc}") from exc
 
     async def _send_event(self, event_type: str, event: dict[str, Any]) -> None:
-        """Send one event frame.
+        """Send one JSON event frame.
 
         Args:
             event_type: kvmd event name.
@@ -294,11 +608,23 @@ class PiKVMWebSocket:
             WebSocketError: The client is not connected, or the connection
                 broke before the frame could be sent.
         """
-        conn = self._ensure_connected()
-        try:
-            await conn.send(json.dumps({"event_type": event_type, "event": event}))
-        except websockets.exceptions.WebSocketException as exc:
-            raise WebSocketError(f"Failed to send {event_type!r}: {exc}") from exc
+        await self._send_frame(
+            json.dumps({"event_type": event_type, "event": event}), event_type
+        )
+
+    async def _send_bin(self, op: int, payload: bytes, what: str) -> None:
+        """Send one binary frame.
+
+        Args:
+            op: kvmd operation number, the first byte of the frame.
+            payload: The rest of the frame, that operation's own encoding.
+            what: Name of the event for the error message.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
+        await self._send_frame(bytes([op]) + payload, what)
 
     async def send_key(self, key: str, *, state: bool) -> None:
         """Send a keyboard key event.
@@ -310,10 +636,19 @@ class PiKVMWebSocket:
                 key until the release arrives.
 
         Raises:
+            ConfigurationError: The key name cannot go into a binary frame,
+                being empty, non-ASCII, or longer than 32 bytes. kvmd has no
+                such name, and the frame would be dropped without a word.
             WebSocketError: The client is not connected, or the connection
                 broke before the frame could be sent.
         """
-        await self._send_event("key", {"key": key, "state": state})
+        if self._binary:
+            flags = 0b01 if state else 0
+            await self._send_bin(
+                _OP_KEY, bytes([flags]) + _name_bytes(key, "Key"), "key"
+            )
+        else:
+            await self._send_event("key", {"key": key, "state": state})
 
     async def send_mouse_move(self, to_x: int, to_y: int) -> None:
         """Move the mouse to an absolute position.
@@ -324,7 +659,8 @@ class PiKVMWebSocket:
         hair right of and below it — not 500 pixels from the corner. Convert
         from pixels with ``round(x / (width - 1) * 65535) - 32768``.
 
-        Values outside the range are clamped by kvmd, not rejected.
+        Values outside the range are clamped, by kvmd for a JSON event and
+        here for a binary one, which has nowhere to put them.
 
         Args:
             to_x: Horizontal position, -32768 to 32767.
@@ -334,7 +670,15 @@ class PiKVMWebSocket:
             WebSocketError: The client is not connected, or the connection
                 broke before the frame could be sent.
         """
-        await self._send_event("mouse_move", {"to": {"x": to_x, "y": to_y}})
+        if self._binary:
+            packed = struct.pack(
+                ">hh",
+                _clamp(to_x, _MOVE_MIN, _MOVE_MAX),
+                _clamp(to_y, _MOVE_MIN, _MOVE_MAX),
+            )
+            await self._send_bin(_OP_MOUSE_MOVE, packed, "mouse_move")
+        else:
+            await self._send_event("mouse_move", {"to": {"x": to_x, "y": to_y}})
 
     async def send_mouse_button(self, button: str, state: bool) -> None:
         """Send a mouse button event.
@@ -345,20 +689,32 @@ class PiKVMWebSocket:
             state: ``True`` for press, ``False`` for release.
 
         Raises:
+            ConfigurationError: The button name cannot go into a binary frame,
+                being empty, non-ASCII, or longer than 32 bytes. kvmd has no
+                such name, and the frame would be dropped without a word.
             WebSocketError: The client is not connected, or the connection
                 broke before the frame could be sent.
         """
-        await self._send_event("mouse_button", {"button": button, "state": state})
+        if self._binary:
+            flags = 0b01 if state else 0
+            await self._send_bin(
+                _OP_MOUSE_BUTTON,
+                bytes([flags]) + _name_bytes(button, "Mouse button"),
+                "mouse_button",
+            )
+        else:
+            await self._send_event("mouse_button", {"button": button, "state": state})
 
     async def send_mouse_wheel(self, delta_x: int, delta_y: int) -> None:
         """Send a mouse wheel event.
 
         Deltas are steps in kvmd's own range, -127 to 127, clamped rather
-        than rejected, and passed straight into the USB HID wheel field.
-        They are not the browser's pixel deltas: kvmd's own web UI sends one
-        step per gesture, sized by its scroll-rate setting (1 to 25,
-        5 by default) and negated, so a scroll-down gesture leaves it as
-        ``delta_y = -5``.
+        than rejected — by kvmd for a JSON event and here for a binary one,
+        which has nowhere to put a larger number — and passed straight into
+        the USB HID wheel field. They are not the browser's pixel deltas:
+        kvmd's own web UI sends one step per gesture, sized by its scroll-rate
+        setting (1 to 25, 5 by default) and negated, so a scroll-down gesture
+        leaves it as ``delta_y = -5``.
 
         Args:
             delta_x: Horizontal step, -127 to 127.
@@ -369,24 +725,62 @@ class PiKVMWebSocket:
             WebSocketError: The client is not connected, or the connection
                 broke before the frame could be sent.
         """
-        await self._send_event("mouse_wheel", {"delta": {"x": delta_x, "y": delta_y}})
+        if self._binary:
+            # The leading byte is kvmd's squash flag, which only means
+            # anything for a batch of deltas; one step is one step.
+            packed = b"\x00" + struct.pack(
+                ">bb",
+                _clamp(delta_x, _DELTA_MIN, _DELTA_MAX),
+                _clamp(delta_y, _DELTA_MIN, _DELTA_MAX),
+            )
+            await self._send_bin(_OP_MOUSE_WHEEL, packed, "mouse_wheel")
+        else:
+            await self._send_event(
+                "mouse_wheel", {"delta": {"x": delta_x, "y": delta_y}}
+            )
 
-    async def ping(self) -> None:
-        """Ask kvmd for a ``pong`` event.
 
-        This is kvmd's application-level ping, not the protocol one — the
-        answer arrives through :meth:`events` like any other frame, and this
-        call does not wait for it. Keeping the socket alive needs neither:
-        *websockets* sends a protocol ping every 20 seconds by itself and
-        drops the connection when one goes unanswered for another 20, which
-        is what turns a silently dead link into a :class:`WebSocketError`
-        out of :meth:`events`.
+def _clamp(value: int, low: int, high: int) -> int:
+    """Fit a value into the range kvmd's validator would have forced it into.
 
-        Raises:
-            WebSocketError: The client is not connected, or the connection
-                broke before the frame could be sent.
-        """
-        await self._send_event("ping", {})
+    Args:
+        value: The value as the caller gave it.
+        low: Lowest value kvmd accepts.
+        high: Highest value kvmd accepts.
+
+    Returns:
+        The value, moved to the nearest end of the range if it was outside.
+    """
+    return min(max(low, value), high)
+
+
+def _name_bytes(name: str, what: str) -> bytes:
+    """Encode a key or button name for a binary frame.
+
+    Args:
+        name: The name as the caller gave it.
+        what: What it names, for the error message.
+
+    Returns:
+        The name as the ASCII bytes kvmd decodes out of the frame.
+
+    Raises:
+        ConfigurationError: The name is empty, not ASCII, or longer than the
+            32 bytes kvmd reads.
+    """
+    try:
+        encoded = name.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ConfigurationError(
+            f"{what} name {name!r} is not ASCII; kvmd reads these names as "
+            "ASCII out of the binary frame and has none like it"
+        ) from exc
+    if not 0 < len(encoded) <= _NAME_LIMIT:
+        raise ConfigurationError(
+            f"{what} name {name!r} does not fit a binary frame: kvmd reads "
+            f"1 to {_NAME_LIMIT} bytes and has no name of that length"
+        )
+    return encoded
 
 
 def _handshake_error(response: websockets.http11.Response) -> APIError:

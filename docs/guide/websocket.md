@@ -17,6 +17,7 @@ async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
 ```python
 async with kvm.ws(
     stream=True,           # count as a video viewer (default, same as kvmd's)
+    binary=False,          # send input as JSON events (default) or binary ops
     open_timeout=10.0,     # connection timeout
     close_timeout=10.0,    # close timeout
 ) as ws:
@@ -88,7 +89,20 @@ Every frame is a `{"event_type": ..., "event": ...}` dictionary.
 There is no single "initial state" message. kvmd sends:
 
 1. `loop` — always first, carrying the kvmd version:
-   `{"version": {"major": 4, "minor": 186}}`.
+   `{"version": {"major": 4, "minor": 186}}`. The client keeps it, so there is
+   no need to catch the event to read it:
+
+   ```python
+   async with kvm.ws() as ws:
+       await ws.ping()                 # or read one event; either fills it in
+       print(ws.version)               # KvmdVersion(major=4, minor=186)
+       if ws.version >= (4, 100):      # it compares like a version
+           ...
+   ```
+
+   It is `None` until a frame has been read, since kvmd sends the event over
+   the connection rather than in the handshake. This is the only version signal
+   the socket carries; `GET /api/info` reports the full one.
 2. one event per subsystem with its current state, in **no guaranteed order** —
    broadcasts meant for every client interleave with them.
 3. updates from then on, whenever anything changes.
@@ -125,7 +139,7 @@ async with kvm.ws() as ws:
 | `switch` | PiKVM Switch model, port state and summary |
 | `info` | the `/api/info` subsystems, one at a time |
 | `clients` | `{"count": N}` — how many connected sessions asked for video |
-| `pong` | answer to [`ping()`](#ping) |
+| `pong` | answer to [`ping()`](#ping) on a JSON socket |
 
 Two things a consumer has to expect:
 
@@ -232,17 +246,92 @@ rejected — not the browser's pixel deltas. kvmd's web UI sends a single step p
 gesture, sized by its scroll-rate setting (1 to 25, `5` by default) and negated,
 so a scroll-down gesture reaches the device as `delta_y = -5`.
 
+## The binary channel
+
+kvmd accepts HID input in two encodings over the same socket. The JSON events
+above are one; the other is a compact binary frame whose first byte is an
+operation number — `1` key, `2` mouse button, `3` absolute move, `5` wheel, and
+`0` ping, which kvmd answers with `255`. Both reach the same handlers and the
+same validators, and kvmd's own web UI uses the binary one for every keystroke
+and mouse move, since it is a few bytes instead of a JSON object to parse.
+
+```python
+async with kvm.ws(binary=True) as ws:
+    await ws.send_key("KeyA", state=True)   # b"\x01\x01KeyA"
+    await ws.send_key("KeyA", state=False)  # b"\x01\x00KeyA"
+```
+
+Everything else is unchanged: the same methods, the same arguments, and events
+still arrive as JSON — that direction has nothing else in it. Two details only
+apply to the binary encoding:
+
+- A key or button name goes on the wire as ASCII, and kvmd reads at most 32
+  bytes of it. A name that is empty, not ASCII, or longer raises
+  `ConfigurationError` instead of being sent as a frame kvmd would drop without
+  a word.
+- Coordinates and wheel steps are clamped before packing, since the fields they
+  go into cannot hold anything else. kvmd clamps the JSON ones the same way, so
+  the device ends up with the same values either way.
+
+It is off by default because JSON is what this client has always sent, and it
+is the encoding a packet capture can be read in. The binary channel is verified
+against kvmd 4.186 — every frame in the `ws_binary` fixture was sent to that
+device and accepted by it.
+
+Whichever encoding you use, kvmd drops what it cannot decode without telling
+the client: a key name its validator refuses, a frame too short to unpack, an
+operation it has no handler for. It writes a line to its own log — `Unknown
+websocket binary event: b'\xc8'` for an operation, `Unknown websocket event`
+for a JSON one — and the sender hears nothing either way. Nothing about the
+input path is acknowledged, so a caller that needs to know an event landed has
+to look at the device: `kvm.hid.get_inactivity()` returns to 0 for every event
+kvmd accepted, and keeps counting for one it dropped.
+
 ## Ping
 
 ```python
 async with kvm.ws() as ws:
-    await ws.ping()
+    latency = await ws.ping()       # round trip in seconds
 ```
 
-This is kvmd's application-level ping: the answer comes back as a `pong` event
-through `events()`, and `ping()` does not wait for it.
+This is kvmd's application-level ping, and it waits for the answer. The request
+goes through the same event loop that dispatches HID input and broadcasts
+state, so a pong means that loop is running — not merely that something on the
+other end still holds a TCP socket open. `WebSocketError` is raised if the
+answer does not arrive within `timeout` (10 seconds by default), or if the
+connection breaks or closes first.
 
-Keeping the socket alive needs neither. The underlying library sends a
+The answer arrives on the socket like everything else, so `ping()` waits for
+whoever is reading it. Both arrangements work:
+
+```python
+# Nobody else reading: ping() reads the socket itself, and keeps the events it
+# finds on the way for the next events() call.
+async with kvm.ws() as ws:
+    if await ws.ping() > 0.5:
+        print("the device is struggling")
+
+# Reading in another task: that iteration hands the pong over.
+async def watch(ws):
+    async for event in ws.events():
+        handle(event)
+
+async with kvm.ws() as ws:
+    reader = asyncio.create_task(watch(ws))
+    while True:
+        await asyncio.sleep(5)
+        print(await ws.ping())
+```
+
+The round trip is measured from the frame going out to the pong being read, so
+a consumer of `events()` that takes its time between frames adds its own delay
+to the number — the pong waits behind whatever it is doing.
+
+On a JSON socket the answer is also a `pong` event, and `events()` yields it
+like any other. On a binary one it is operation `255`, which is not an event and
+does not appear there.
+
+Keeping the socket alive needs none of this. The underlying library sends a
 protocol-level ping every 20 seconds and closes the connection if one goes
 unanswered for another 20, which is how a link that dies without a close frame
 surfaces as `WebSocketError` from `events()` rather than hanging forever.
@@ -260,6 +349,7 @@ ws = PiKVMWebSocket(
     passwd="admin",
     verify_ssl=False,
     stream=True,
+    binary=False,
     open_timeout=10.0,
     close_timeout=10.0,
 )

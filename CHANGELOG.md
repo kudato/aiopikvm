@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `binary` option on `PiKVM.ws()` and `PiKVMWebSocket`: HID input goes out as
+  kvmd's binary operations (`1` key, `2` mouse button, `3` absolute move, `5`
+  wheel) instead of JSON events. Both reach the same handlers and the same
+  validators; the binary frames are a few bytes each instead of a JSON object
+  to parse, which is why kvmd's own web UI uses them for every keystroke and
+  mouse move. Off by default: JSON is what the client has always sent, and is
+  the encoding a packet capture can be read in (#81).
+- `PiKVMWebSocket.version`, the kvmd version from the `loop` event as a
+  comparable `KvmdVersion` tuple. It is the only version signal the socket
+  carries, and the client ignored it (#82).
 - `aiopikvm.resources.redfish.RESET_TYPES`, the six `ResetType` values kvmd
   accepts. The DMTF schema defines more, and kvmd refuses every one of them
   before taking any action (#78).
@@ -115,6 +125,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** `PiKVMWebSocket.ping()` waits for the answer and returns the
+  round trip in seconds, raising `WebSocketError` when none arrives within
+  `timeout`. It used to send the frame and return, which made it useless as
+  the liveness check it looks like: a socket whose kvmd had stopped
+  dispatching answered it just as happily as a healthy one. When `events()` is
+  being iterated in another task, that iteration hands the pong over;
+  otherwise `ping()` reads the socket itself and keeps the events it finds on
+  the way for the next `events()` call (#82).
+- **Breaking:** `PiKVMWebSocket.events()` no longer parses binary frames as
+  JSON. kvmd sends exactly one thing on that channel — operation `255`, the
+  answer to a binary ping — which `ping()` consumes; anything else there is
+  logged and dropped, as is a text frame whose JSON is not an event object.
+  kvmd sends its events as text, so nothing it broadcasts is affected (#81).
 - **Breaking:** `PiKVM.aclose()` is final, and leaves the client closed
   whoever owns the underlying HTTP client. With an external `http_client` the
   reference was kept, so every resource went on working after the block that

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import ssl
+import struct
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -21,13 +22,14 @@ from aiopikvm import (
     AuthError,
     BusyError,
     ConfigurationError,
+    KvmdVersion,
     PiKVMWebSocket,
     RedirectError,
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import _Connector
-from tests.fixtures import load_json
+from aiopikvm._ws import _PENDING_LIMIT, _Connector
+from tests.fixtures import load_json, load_jsonl
 
 
 def socket(url: str = "https://pikvm.local", **kwargs: Any) -> PiKVMWebSocket:
@@ -44,22 +46,50 @@ def connected(**kwargs: Any) -> tuple[PiKVMWebSocket, AsyncMock]:
 
 
 def sent(conn: AsyncMock) -> dict[str, Any]:
-    """Return the last frame handed to the connection."""
+    """Return the last frame handed to the connection, parsed as JSON."""
     frame: dict[str, Any] = json.loads(conn.send.call_args[0][0])
     return frame
 
 
+def sent_bytes(conn: AsyncMock) -> bytes:
+    """Return the last frame handed to the connection, as it went out."""
+    frame: bytes = conn.send.call_args[0][0]
+    return frame
+
+
+def recorded(event_type: str) -> dict[str, Any]:
+    """Return the first recorded event of that type.
+
+    Args:
+        event_type: kvmd event name, such as ``"loop"`` or ``"pong"``.
+
+    Returns:
+        The event as kvmd sent it, envelope included.
+
+    Raises:
+        KeyError: If the recorded session contains no such event.
+    """
+    for line in load_jsonl("ws_events"):
+        if line["msg"]["event_type"] == event_type:
+            event: dict[str, Any] = line["msg"]
+            return event
+    raise KeyError(f"No {event_type!r} event in the recorded session")
+
+
 def iterating(*messages: str | bytes, closed: BaseException | None = None) -> AsyncMock:
-    """Build a mock connection that yields *messages*, then optionally raises."""
+    """Build a mock connection whose ``recv`` hands out *messages*.
+
+    Args:
+        messages: Frames to hand out, in order.
+        closed: What to raise once they run out; a clean close by default,
+            which is how *websockets* reports a server that said goodbye.
+
+    Returns:
+        The mock connection.
+    """
     conn = AsyncMock()
-
-    async def _aiter(_: object) -> AsyncIterator[str | bytes]:
-        for message in messages:
-            yield message
-        if closed is not None:
-            raise closed
-
-    conn.__aiter__ = _aiter
+    ending = closed or websockets.exceptions.ConnectionClosedOK(None, None)
+    conn.recv = AsyncMock(side_effect=[*messages, ending])
     return conn
 
 
@@ -115,6 +145,25 @@ Handler = Callable[[websockets.asyncio.server.ServerConnection], Awaitable[None]
 async def _hold(connection: websockets.asyncio.server.ServerConnection) -> None:
     """Keep the connection open until the client is done with it."""
     await connection.wait_closed()
+
+
+async def answering(connection: websockets.asyncio.server.ServerConnection) -> None:
+    """Answer pings the way kvmd does, on the channel they arrived on.
+
+    kvmd sends the ``loop`` event first, replies to the ``ping`` event with a
+    ``pong`` event, and replies to binary op 0 with binary op 255. Everything
+    it is sent here is a frame this client built.
+
+    Args:
+        connection: The accepted connection.
+    """
+    await connection.send(json.dumps(recorded("loop")))
+    async for message in connection:
+        if isinstance(message, bytes):
+            if message[:1] == bytes([0]):
+                await connection.send(bytes([255]))
+        elif json.loads(message)["event_type"] == "ping":
+            await connection.send(json.dumps(recorded("pong")))
 
 
 @asynccontextmanager
@@ -425,32 +474,76 @@ async def test_refusal_with_a_body_that_is_not_utf8() -> None:
 
 async def test_events_yields_parsed_frames() -> None:
     ws = socket()
-    ws._connection = iterating(json.dumps({"event_type": "loop", "event": {}}))
-    assert [event async for event in ws.events()] == [
-        {"event_type": "loop", "event": {}}
-    ]
-
-
-async def test_events_binary_message() -> None:
-    ws = socket()
-    ws._connection = iterating(json.dumps({"event_type": "state", "data": {}}).encode())
-    assert [event async for event in ws.events()] == [
-        {"event_type": "state", "data": {}}
-    ]
+    ws._connection = iterating(json.dumps(recorded("loop")))
+    assert [event async for event in ws.events()] == [recorded("loop")]
 
 
 async def test_events_skips_malformed_json(caplog: pytest.LogCaptureFixture) -> None:
     ws = socket()
+    ws._connection = iterating("not valid json", json.dumps(recorded("atx")))
+
+    with caplog.at_level(logging.WARNING, logger="aiopikvm._ws"):
+        events = [event async for event in ws.events()]
+
+    assert events == [recorded("atx")]
+    assert "Skipping malformed WebSocket message" in caplog.text
+
+
+async def test_events_skip_json_that_is_not_an_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """kvmd's own parser refuses these too; the annotation says dict."""
+    ws = socket()
+    ws._connection = iterating("[1, 2]", json.dumps(recorded("atx")))
+
+    with caplog.at_level(logging.WARNING, logger="aiopikvm._ws"):
+        events = [event async for event in ws.events()]
+
+    assert events == [recorded("atx")]
+    assert "not an event object: list" in caplog.text
+
+
+async def test_events_yield_the_json_pong() -> None:
+    """kvmd sends it as an ordinary event, so it stays one (#81)."""
+    ws = socket()
+    ws._connection = iterating(json.dumps(recorded("pong")))
+    assert [event async for event in ws.events()] == [recorded("pong")]
+
+
+async def test_events_drop_the_binary_pong() -> None:
+    """The answer to a binary ping is an op, not an event (#81)."""
+    ws = socket()
+    ws._connection = iterating(bytes([255]), json.dumps(recorded("atx")))
+    assert [event async for event in ws.events()] == [recorded("atx")]
+
+
+async def test_events_drop_an_unknown_binary_op(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A binary frame is an operation and a payload, never JSON (#81)."""
+    ws = socket()
     ws._connection = iterating(
-        "not valid json", json.dumps({"event_type": "state", "data": {}})
+        json.dumps(recorded("atx")).encode(), json.dumps(recorded("atx"))
     )
 
     with caplog.at_level(logging.WARNING, logger="aiopikvm._ws"):
         events = [event async for event in ws.events()]
 
-    assert len(events) == 1
-    assert events[0]["event_type"] == "state"
-    assert "Skipping malformed WebSocket message" in caplog.text
+    assert events == [recorded("atx")]
+    assert "unknown op 123" in caplog.text
+
+
+async def test_events_drop_an_empty_binary_frame(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ws = socket()
+    ws._connection = iterating(b"", json.dumps(recorded("atx")))
+
+    with caplog.at_level(logging.WARNING, logger="aiopikvm._ws"):
+        events = [event async for event in ws.events()]
+
+    assert events == [recorded("atx")]
+    assert "empty binary WebSocket frame" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -493,6 +586,14 @@ async def test_events_raise_on_a_connection_that_breaks(code: int) -> None:
                 async for event in ws.events():
                     seen.append(event)
     assert [event["event_type"] for event in seen] == ["loop"]
+
+
+async def test_events_report_a_read_that_fails_for_another_reason() -> None:
+    """Whatever websockets raises, the caller sees a PiKVMError."""
+    ws = socket()
+    ws._connection = iterating(closed=websockets.exceptions.ProtocolError("bad frame"))
+    with pytest.raises(WebSocketError, match="Failed to read from the socket"):
+        await anext(ws.events())
 
 
 async def test_events_require_a_connection() -> None:
@@ -542,18 +643,349 @@ async def test_send_mouse_wheel() -> None:
     }
 
 
-async def test_ping() -> None:
-    ws, conn = connected()
-    await ws.ping()
-    assert sent(conn) == {"event_type": "ping", "event": {}}
-
-
 async def test_send_on_a_broken_connection() -> None:
     """A dead socket must not leak the websockets exception to the caller."""
     ws, conn = connected()
     conn.send.side_effect = websockets.exceptions.ConnectionClosedError(None, None)
     with pytest.raises(WebSocketError, match="Failed to send 'key'"):
         await ws.send_key("KeyA", state=True)
+
+
+# --- Sending over the binary channel -------------------------------------
+#
+# The frames these build were sent to a real device and accepted by it: the
+# ws_binary scenario records each one with kvmd's inactivity counter read
+# before and after, and kvmd only bumps that counter for a frame it decoded.
+
+
+def binary_step(name: str) -> dict[str, Any]:
+    """Return one step of the recorded binary session.
+
+    Args:
+        name: Step name from the ``ws_binary`` scenario.
+
+    Returns:
+        The recorded step.
+
+    Raises:
+        KeyError: If the scenario has no such step.
+    """
+    for recorded_step in load_json("ws_binary")["steps"]:
+        if recorded_step["name"] == name:
+            found: dict[str, Any] = recorded_step
+            return found
+    raise KeyError(f"No {name!r} step in the recorded binary session")
+
+
+def frame(name: str) -> bytes:
+    """Return the frame the device accepted under that name.
+
+    Args:
+        name: Step name from the ``ws_binary`` scenario.
+
+    Returns:
+        The frame as it went out.
+    """
+    recorded_step = binary_step(name)
+    assert recorded_step["accepted"] is recorded_step["expected_accepted"], (
+        f"the device disagreed about {name!r} when this was recorded"
+    )
+    return bytes.fromhex(recorded_step["frame"])
+
+
+@pytest.mark.parametrize(
+    ("state", "step_name"),
+    [(True, "key_press"), (False, "key_release")],
+)
+async def test_binary_key(state: bool, step_name: str) -> None:
+    """kvmd reads the state out of bit 0 and the name out of data[1:33]."""
+    ws, conn = connected(binary=True)
+    await ws.send_key("ControlLeft", state=state)
+    assert sent_bytes(conn) == frame(step_name)
+
+
+async def test_binary_mouse_button() -> None:
+    """The same layout as a key, with a button name in place of the key."""
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_button("middle", False)
+    assert sent_bytes(conn) == frame("mouse_button")
+
+
+async def test_binary_mouse_button_press() -> None:
+    """Only the recorded release went to the device; the bit is the same one."""
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_button("middle", True)
+    assert sent_bytes(conn) == bytes([2, 0b01]) + b"middle"
+
+
+async def test_binary_mouse_move() -> None:
+    """kvmd unpacks the position as two big-endian signed shorts."""
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_move(0, 0)
+    assert sent_bytes(conn) == frame("mouse_move")
+    assert sent_bytes(conn) == bytes([3]) + struct.pack(">hh", 0, 0)
+
+
+async def test_binary_mouse_move_corner() -> None:
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_move(-32768, 32767)
+    assert sent_bytes(conn) == bytes([3]) + struct.pack(">hh", -32768, 32767)
+
+
+async def test_binary_mouse_move_clamps() -> None:
+    """A JSON event is clamped by kvmd; a binary one has no room for it."""
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_move(99999, -99999)
+    assert sent_bytes(conn) == bytes([3]) + struct.pack(">hh", 32767, -32768)
+
+
+async def test_binary_mouse_wheel() -> None:
+    """The byte after the op is kvmd's squash flag, then one signed pair."""
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_wheel(0, 0)
+    assert sent_bytes(conn) == frame("mouse_wheel")
+
+
+async def test_binary_mouse_wheel_step() -> None:
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_wheel(0, -5)
+    assert sent_bytes(conn) == bytes([5, 0]) + struct.pack(">bb", 0, -5)
+
+
+async def test_binary_mouse_wheel_clamps() -> None:
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_wheel(1000, -1000)
+    assert sent_bytes(conn) == bytes([5, 0]) + struct.pack(">bb", 127, -127)
+
+
+async def test_binary_ping_frame() -> None:
+    """op 0 is the whole frame, and the device answered it with op 255."""
+    ws = socket(binary=True)
+    conn = iterating()
+    ws._connection = conn
+    with pytest.raises(WebSocketError, match="closed before kvmd answered"):
+        await ws.ping(timeout=1)
+    assert sent_bytes(conn) == bytes.fromhex(binary_step("ping_binary")["sent"])
+    assert binary_step("pong_binary")["received"] == "ff"
+
+
+@pytest.mark.parametrize("key", ["", "KeyÄ", "K" * 33])
+async def test_binary_key_names_kvmd_could_not_read(key: str) -> None:
+    """kvmd decodes ASCII out of 32 bytes and drops what it cannot map."""
+    ws, conn = connected(binary=True)
+    with pytest.raises(ConfigurationError, match="Key name"):
+        await ws.send_key(key, state=True)
+    conn.send.assert_not_called()
+
+
+async def test_binary_button_names_kvmd_could_not_read() -> None:
+    ws, conn = connected(binary=True)
+    with pytest.raises(ConfigurationError, match="Mouse button name"):
+        await ws.send_mouse_button("leftÄ", True)
+    conn.send.assert_not_called()
+
+
+async def test_binary_key_name_of_the_full_length_is_sent() -> None:
+    """32 bytes is what kvmd reads, so 32 bytes has to go through."""
+    ws, conn = connected(binary=True)
+    await ws.send_key("K" * 32, state=True)
+    assert sent_bytes(conn) == bytes([1, 1]) + b"K" * 32
+
+
+async def test_json_stays_the_default() -> None:
+    """Nothing changes for a client that did not ask for the binary channel."""
+    ws, conn = connected()
+    await ws.send_key("KeyA", state=True)
+    assert sent(conn) == {"event_type": "key", "event": {"key": "KeyA", "state": True}}
+
+
+# --- Ping ----------------------------------------------------------------
+
+
+async def test_ping_measures_the_round_trip() -> None:
+    """The JSON ping is answered by the pong event kvmd sends back (#82)."""
+    async with serving(handler=answering) as (url, _):
+        async with socket(url) as ws:
+            latency = await ws.ping()
+    assert 0 <= latency < 1
+
+
+async def test_ping_over_the_binary_channel() -> None:
+    """op 0 out, op 255 back — the exchange kvmd's web UI runs every second."""
+    async with serving(handler=answering) as (url, _):
+        async with socket(url, binary=True) as ws:
+            latency = await ws.ping()
+    assert 0 <= latency < 1
+
+
+async def test_ping_keeps_the_events_it_reads() -> None:
+    """Waiting for the pong must not swallow the events that arrive first."""
+    async with serving(handler=answering) as (url, _):
+        async with socket(url, binary=True) as ws:
+            await ws.ping()
+            seen = []
+            async for event in ws.events():
+                seen.append(event)
+                break
+    assert seen == [recorded("loop")]
+
+
+async def test_ping_while_events_are_being_read() -> None:
+    """The iterating task hands the pong over instead of racing for it (#82)."""
+    async with serving(handler=answering) as (url, _):
+        async with socket(url) as ws:
+            seen: list[dict[str, Any]] = []
+            reader = asyncio.create_task(_collect(ws, seen))
+            await asyncio.sleep(0.05)
+            latency = await ws.ping()
+            await asyncio.sleep(0.05)
+            reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+    assert 0 <= latency < 1
+    assert [event["event_type"] for event in seen] == ["loop", "pong"]
+
+
+async def test_ping_gives_up_on_a_server_that_never_answers() -> None:
+    async with serving() as (url, _):
+        async with socket(url) as ws:
+            with pytest.raises(WebSocketError, match="did not answer the ping"):
+                await ws.ping(timeout=0.1)
+
+
+async def test_ping_on_a_connection_that_closes() -> None:
+    """The close ends the wait; it is not something to sit out the timeout on."""
+
+    async def close_after_the_ping(
+        connection: websockets.asyncio.server.ServerConnection,
+    ) -> None:
+        await connection.recv()
+        await connection.close()
+
+    async with serving(handler=close_after_the_ping) as (url, _):
+        async with socket(url) as ws:
+            with pytest.raises(WebSocketError, match="closed before kvmd answered"):
+                await ws.ping(timeout=5)
+
+
+async def test_ping_on_a_connection_that_breaks() -> None:
+    async def drop_after_the_ping(
+        connection: websockets.asyncio.server.ServerConnection,
+    ) -> None:
+        await connection.recv()
+        connection.transport.abort()
+
+    async with serving(handler=drop_after_the_ping) as (url, _):
+        async with socket(url, close_timeout=1.0) as ws:
+            with pytest.raises(WebSocketError, match="Connection lost"):
+                await ws.ping(timeout=5)
+
+
+async def test_ping_requires_a_connection() -> None:
+    with pytest.raises(WebSocketError, match="Not connected"):
+        await socket().ping()
+
+
+async def test_ping_does_not_outlive_the_socket() -> None:
+    """Closing the socket ends a ping in flight instead of leaving it hanging."""
+    async with serving() as (url, _):
+        ws = socket(url)
+        await ws.__aenter__()
+        pinging = asyncio.create_task(_ping(ws))
+        await asyncio.sleep(0.05)
+        await ws.__aexit__(None, None, None)
+        with pytest.raises(WebSocketError, match="closed before kvmd answered"):
+            await pinging
+
+
+async def test_ping_answered_while_it_waits_for_its_turn_reads_nothing() -> None:
+    """The pong can land between the check and the socket becoming free.
+
+    Two tasks reading and one pong is enough for it: the ping has to notice
+    that its answer already arrived, or it blocks on a frame nobody wants.
+    """
+
+    class _ContendedLock(asyncio.Lock):
+        """A lock whose acquire yields, the way a contended one does."""
+
+        async def acquire(self) -> bool:
+            await asyncio.sleep(0)
+            return await super().acquire()
+
+    ws = socket()
+    conn = iterating()
+    ws._connection = conn
+    ws._read_lock = _ContendedLock()
+    waiter: asyncio.Future[float] = asyncio.get_running_loop().create_future()
+    ws._pong_waiters.append(waiter)
+
+    waiting = asyncio.create_task(ws._wait_pong(waiter))
+    await asyncio.sleep(0)
+    ws._resolve_pongs()
+    await waiting
+
+    conn.recv.assert_not_called()
+    assert not ws._read_lock.locked()
+
+
+async def test_ping_buffers_only_so_much(caplog: pytest.LogCaptureFixture) -> None:
+    """A caller that only ever pings must not accumulate a day of broadcasts."""
+    ws = socket()
+    with caplog.at_level(logging.WARNING, logger="aiopikvm._ws"):
+        for index in range(_PENDING_LIMIT + 2):
+            ws._buffer({"event_type": "info", "event": {"index": index}})
+    assert len(ws._pending) == _PENDING_LIMIT
+    assert ws._pending[0]["event"]["index"] == 2, "the oldest went first"
+    assert caplog.text.count("Dropping WebSocket events") == 1, "warned once"
+
+
+async def _collect(ws: PiKVMWebSocket, into: list[dict[str, Any]]) -> None:
+    """Read events into a list until cancelled."""
+    async for event in ws.events():
+        into.append(event)
+
+
+async def _ping(ws: PiKVMWebSocket) -> float:
+    """Ping with a timeout long enough that only a failure ends it."""
+    return await ws.ping(timeout=30)
+
+
+# --- The kvmd version ----------------------------------------------------
+
+
+async def test_version_is_unknown_before_anything_is_read() -> None:
+    assert socket().version is None
+
+
+async def test_version_comes_from_the_loop_event() -> None:
+    """kvmd sends it first, and it is the only version the socket carries."""
+    ws = socket()
+    ws._connection = iterating(json.dumps(recorded("loop")))
+    async for _ in ws.events():
+        break
+    assert ws.version == KvmdVersion(4, 186)
+    assert ws.version >= (4, 100), "a version is for comparing"
+
+
+async def test_version_is_read_by_a_ping_too() -> None:
+    """The loop event arrives before the pong, whoever is reading."""
+    async with serving(handler=answering) as (url, _):
+        async with socket(url) as ws:
+            await ws.ping()
+            assert ws.version == (4, 186)
+
+
+@pytest.mark.parametrize(
+    "event",
+    [None, {}, {"version": None}, {"version": {"major": 4}}, {"version": {}}],
+)
+async def test_version_ignores_a_loop_event_without_one(event: Any) -> None:
+    """An older or newer kvmd must not break the connection over this."""
+    ws = socket()
+    ws._connection = iterating(json.dumps({"event_type": "loop", "event": event}))
+    assert [seen async for seen in ws.events()] == [
+        {"event_type": "loop", "event": event}
+    ]
+    assert ws.version is None
 
 
 # --- Lifecycle -----------------------------------------------------------
