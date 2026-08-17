@@ -4,8 +4,9 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import PiKVM, PiKVMError
+from aiopikvm import ConfigurationError, PiKVM, PiKVMError
 from aiopikvm._base_resource import BaseResource
+from aiopikvm._client import _RESOURCE_NAMES
 
 
 async def test_context_manager(mock_api: respx.MockRouter) -> None:
@@ -66,17 +67,7 @@ async def test_client_close(mock_api: respx.MockRouter) -> None:
 
 def test_access_before_aenter() -> None:
     client = PiKVM("https://pikvm.local", user="admin", passwd="admin")
-    for name in (
-        "auth",
-        "atx",
-        "hid",
-        "msd",
-        "gpio",
-        "streamer",
-        "switch",
-        "redfish",
-        "prometheus",
-    ):
+    for name in _RESOURCE_NAMES:
         with pytest.raises(PiKVMError, match="async context"):
             getattr(client, name)
 
@@ -119,6 +110,116 @@ async def test_explicit_aclose(mock_api: respx.MockRouter) -> None:
     await kvm.aclose()
     assert kvm._client is None
     assert "atx" not in kvm.__dict__
+
+
+async def test_external_client_is_released_on_close(
+    mock_api: respx.MockRouter,
+) -> None:
+    """Closing lets go of an injected client without closing it (#70).
+
+    The reference was kept before, so every resource went on working after
+    the block that owned them ended — and went on using an HTTP client the
+    caller was free to have closed by then.
+    """
+    ext_client = httpx.AsyncClient(base_url="https://pikvm.local")
+    kvm = PiKVM("https://pikvm.local", http_client=ext_client)
+    async with kvm:
+        assert kvm.atx is not None
+    assert not ext_client.is_closed
+    assert kvm._client is None
+    await ext_client.aclose()
+
+
+@pytest.mark.parametrize("external", [False, True])
+async def test_resources_refuse_to_work_after_close(
+    mock_api: respx.MockRouter, external: bool
+) -> None:
+    """Whoever owns the HTTP client, a closed PiKVM serves nothing (#70)."""
+    ext_client = httpx.AsyncClient(base_url="https://pikvm.local")
+    kvm = PiKVM("https://pikvm.local", http_client=ext_client if external else None)
+    async with kvm:
+        pass
+    for name in _RESOURCE_NAMES:
+        with pytest.raises(PiKVMError, match="has been closed"):
+            getattr(kvm, name)
+    with pytest.raises(PiKVMError, match="has been closed"):
+        kvm.base_url  # noqa: B018
+    with pytest.raises(PiKVMError, match="has been closed"):
+        kvm.cookies  # noqa: B018
+    await ext_client.aclose()
+
+
+async def test_request_refuses_after_close(mock_api: respx.MockRouter) -> None:
+    """The failure names the cause instead of the not-entered-yet one."""
+    kvm = PiKVM("https://pikvm.local")
+    async with kvm:
+        pass
+    with pytest.raises(PiKVMError, match="has been closed"):
+        await kvm.request("GET", "/api/atx")
+
+
+async def test_reopening_is_refused(mock_api: respx.MockRouter) -> None:
+    """A closed client cannot be reopened, exactly as in httpx (#70).
+
+    Entering again used to build a second connection pool under the same
+    object, rereading the credentials as they stood at that moment.
+    """
+    kvm = PiKVM("https://pikvm.local")
+    async with kvm:
+        pass
+    with pytest.raises(ConfigurationError, match="reopen"):
+        async with kvm:
+            pass  # pragma: no cover - __aenter__ raises
+
+
+async def test_entering_twice_is_refused(mock_api: respx.MockRouter) -> None:
+    """The inner block would close what the outer one is still using (#70)."""
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ConfigurationError, match="more than once"):
+            async with kvm:
+                pass  # pragma: no cover - __aenter__ raises
+        # The outer block is untouched by the refusal.
+        assert kvm._client is not None
+
+
+async def test_aclose_is_idempotent(mock_api: respx.MockRouter) -> None:
+    """``async with`` already closed it; calling again is not an error."""
+    kvm = PiKVM("https://pikvm.local")
+    async with kvm:
+        pass
+    await kvm.aclose()
+    assert kvm._client is None
+
+
+async def test_aclose_without_entering(mock_api: respx.MockRouter) -> None:
+    """Closing a client that was never opened still closes it, as in httpx."""
+    kvm = PiKVM("https://pikvm.local")
+    await kvm.aclose()
+    with pytest.raises(ConfigurationError, match="reopen"):
+        async with kvm:
+            pass  # pragma: no cover - __aenter__ raises
+
+
+async def test_invalid_url_is_a_configuration_error() -> None:
+    """httpx's own InvalidURL would land outside the hierarchy."""
+    with pytest.raises(ConfigurationError, match="Invalid PiKVM URL"):
+        async with PiKVM("http://[::1"):
+            pass  # pragma: no cover - __aenter__ raises
+
+
+async def test_ws_refuses_after_close(mock_api: respx.MockRouter) -> None:
+    """The socket does not go through httpx, so it needs its own guard (#70)."""
+    kvm = PiKVM("https://pikvm.local")
+    async with kvm:
+        assert kvm.ws() is not None
+    with pytest.raises(ConfigurationError, match="has been closed"):
+        kvm.ws()
+
+
+async def test_ws_before_entering(mock_api: respx.MockRouter) -> None:
+    """A socket needs no HTTP client, and could always be built without one."""
+    kvm = PiKVM("https://pikvm.local")
+    assert kvm.ws()._url == "wss://pikvm.local/api/ws?stream=1"
 
 
 async def test_ws_factory_uses_timeout(mock_api: respx.MockRouter) -> None:

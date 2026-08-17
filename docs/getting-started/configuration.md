@@ -104,6 +104,29 @@ finally:
 !!! warning
     Always close the client when done. `aclose()` releases the HTTP connection and clears cached resources.
 
+### A closed client stays closed
+
+`aclose()` is final, the same as it is on `httpx.AsyncClient`. Afterwards every
+resource, `base_url`, `cookies`, `request()` and `ws()` raise, and the client
+cannot be reopened:
+
+```python
+kvm = PiKVM("https://pikvm.local", user="admin", passwd="admin")
+async with kvm:
+    await kvm.atx.get_state()
+
+await kvm.atx.get_state()   # PiKVMError: this client has been closed
+async with kvm:             # ConfigurationError: cannot reopen
+    ...
+```
+
+Entering the same client twice is refused for the same reason — the inner
+block's exit would close the connection the outer one is still using. Build a
+new `PiKVM` for a new session; it is a thin object around the HTTP client.
+
+Calling `aclose()` a second time does nothing, so a `finally` that closes an
+already-closed client is safe.
+
 ## External httpx client
 
 You can provide your own `httpx.AsyncClient` for advanced use cases (custom middleware, shared connection pools, etc.):
@@ -119,6 +142,11 @@ async with httpx.AsyncClient(verify=False, timeout=30.0) as http:
 
 !!! note
     When an external client is provided, PiKVM does **not** close it on exit. The caller is responsible for managing the client's lifecycle.
+
+    It still lets go of it, though: the `PiKVM` object is closed either way,
+    and none of its resources work afterwards. The alternative is worse — a
+    `PiKVM` that keeps serving requests through an `httpx.AsyncClient` its
+    owner is free to have closed in the meantime.
 
 ## Resource access
 
@@ -139,4 +167,7 @@ async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
 ```
 
 !!! warning
-    Resources can only be accessed after entering the async context. Accessing a resource before `__aenter__()` raises `PiKVMError`.
+    Resources can only be accessed after entering the async context, and until
+    the client is closed. Accessing one before `__aenter__()` or after
+    `aclose()` raises `PiKVMError`, and the message says which of the two it
+    was.

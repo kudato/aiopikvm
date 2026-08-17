@@ -306,6 +306,23 @@ async def test_redirect_while_streaming(mock_api: respx.MockRouter) -> None:
                 pass  # pragma: no cover - the request fails before yielding
 
 
+async def test_timeout_while_streaming(mock_api: respx.MockRouter) -> None:
+    """The streaming path wraps a timeout the same way the plain one does."""
+    mock_api.get("/api/log").mock(side_effect=httpx.ReadTimeout("Read timed out"))
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ConnectionTimeoutError, match="Read timed out"):
+            async for _ in kvm.system.stream_log():
+                pass  # pragma: no cover - the request fails before yielding
+
+
+async def test_url_without_scheme_while_streaming() -> None:
+    """And the same missing scheme, which httpx reports before connecting."""
+    async with PiKVM("pikvm.local", user="admin", passwd="admin") as kvm:
+        with pytest.raises(ConfigurationError, match=re.escape("https://pikvm.local")):
+            async for _ in kvm.system.stream_log():
+                pass  # pragma: no cover - the request fails before yielding
+
+
 async def test_redirect_loop_while_streaming(mock_api: respx.MockRouter) -> None:
     """The same httpx.TooManyRedirects gap exists on the streaming path."""
     mock_api.get("/api/log").mock(
