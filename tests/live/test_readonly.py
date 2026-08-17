@@ -9,7 +9,13 @@ MSD call rewrites a virtual drive, HID input types into whatever window has
 focus. Anything that changes device state belongs in a manual check, not here.
 
 A failure is a real gap between this client and that device — check the open
-issues before assuming the harness is at fault.
+issues before assuming the harness is at fault. One exception: kvmd itself is
+not always stable under the WebSocket churn this file produces. It has been
+seen to die of SIGSEGV inside CPython while a session connects and the
+streamer is stopping, and systemd restarts it a second or two later; the tests
+that were opening a socket at that moment fail with an HTTP 502 from the nginx
+in front of it. That is the device's own bug, not this client's — but it does
+mean every socket opened here has a cost, so open as few as the check needs.
 """
 
 import asyncio
@@ -154,6 +160,23 @@ async def test_websocket_delivers_the_initial_state(live: PiKVM) -> None:
                         break
     assert WS_EXPECTED <= set(seen)
     assert seen[0] == "loop", "the protocol version always comes first"
+
+
+@pytest.mark.parametrize("binary", [False, True])
+async def test_websocket_ping_is_answered(live: PiKVM, binary: bool) -> None:
+    """Both channels answer, and the round trip is a real measurement (#82).
+
+    The version is checked on the same socket rather than on one of its own:
+    every WebSocket this suite opens is a connect and a disconnect for kvmd to
+    survive, and it does not always (see the module docstring).
+    """
+    reported = (await live.system.get_info("system"))["system"]["kvmd"]["version"]
+    async with live.ws(stream=False, binary=binary) as ws:
+        latency = await ws.ping(timeout=WS_TIMEOUT)
+        assert 0 < latency < WS_TIMEOUT
+        # Reading the pong means reading past the loop event that precedes it.
+        assert ws.version is not None
+        assert f"{ws.version.major}.{ws.version.minor}" == reported
 
 
 async def _client_counts(ws: PiKVMWebSocket, seconds: float = 2.0) -> list[int]:

@@ -206,6 +206,10 @@
       "file": "redfish_actions.json",
       "description": "The one system id GET /api/redfish/v1/Systems/{sid} accepts on this device and four it refuses, the empty 204s of the PATCH stub and ComputerSystem.Reset, the ResetType values kvmd rejects, and the advertised-but-missing SetDefaultBootOrder action."
     },
+    "ws_binary": {
+      "file": "ws_binary.json",
+      "description": "kvmd's binary WebSocket channel: the ping/pong exchange on both channels, the frames this client builds for a key, a mouse button, an absolute move and a wheel step, an operation kvmd has no handler for, and two malformed frames -- each recorded with the /api/hid/inactivity counter kvmd bumps only for a frame it accepted."
+    },
     "ws_events": {
       "file": "ws_events.jsonl",
       "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=0, in arrival order."

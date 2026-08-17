@@ -1,0 +1,113 @@
+{
+  "description": "kvmd 4.186's binary WebSocket channel on GET /api/ws, recorded by hand: the capture tool only records GETs, and every frame here is one this client sent. The first byte of a frame is kvmd's operation number, dispatched by exposed_ws(<int>) in apps/kvmd/api/hid.py and server.py. Each input frame is recorded with /api/hid/inactivity read before and after it: kvmd bumps that counter from inside the handler, so a reset to 0 is the device saying it decoded and accepted the frame, and an unchanged counter is it dropping one its validators refused.",
+  "safety": "Input frames reach the HID. This was recorded with the USB gadget not attached to any host -- keyboard.online and mouse.online were both false -- so nothing was typed or clicked anywhere; the frames chosen are inert in any case (a lone ControlLeft press and release, a wheel of zero, a mouse move to the centre, a middle-button release). The socket was opened with stream=0, so the video pipeline was not touched. Nothing here needs undoing, but re-recording it means sending input to somebody's device, so ask first.",
+  "steps": [
+    {
+      "name": "ping_json",
+      "sent": {
+        "event_type": "ping",
+        "event": {}
+      },
+      "version": [
+        4,
+        186
+      ],
+      "latency_ms": 92.261,
+      "note": "ping over the JSON channel: kvmd answers with a pong event. The latency is a round trip from outside the device's own network, not a LAN figure"
+    },
+    {
+      "name": "ping_binary",
+      "sent": "00",
+      "latency_ms": 68.433,
+      "note": "the same exchange over the binary channel: op 0 out, op 255 back"
+    },
+    {
+      "name": "pong_binary",
+      "sent": "00",
+      "received": "ff",
+      "events_before_it": 13,
+      "note": "the pong frame byte for byte, and how many broadcast events arrived before it -- kvmd sends its initial state burst first, so an answer is never simply the next frame"
+    },
+    {
+      "name": "unknown_op",
+      "sent": "c8",
+      "received": null,
+      "events_before_it": 6,
+      "note": "an operation kvmd has no handler for: nothing comes back, and it logs 'Unknown websocket binary event' on its own side"
+    },
+    {
+      "name": "key_press",
+      "frame": "0101436f6e74726f6c4c656674",
+      "inactivity_before": 4548,
+      "inactivity_after": 0,
+      "accepted": true,
+      "expected_accepted": true,
+      "note": "op 1: bit 0 of the flags byte is the state, the rest of the frame is the key name as ASCII"
+    },
+    {
+      "name": "key_release",
+      "frame": "0100436f6e74726f6c4c656674",
+      "inactivity_before": 2,
+      "inactivity_after": 0,
+      "accepted": true,
+      "expected_accepted": true
+    },
+    {
+      "name": "mouse_move",
+      "frame": "0300000000",
+      "inactivity_before": 2,
+      "inactivity_after": 0,
+      "accepted": true,
+      "expected_accepted": true,
+      "note": "op 3: the position as two big-endian signed shorts, here the centre of the screen"
+    },
+    {
+      "name": "mouse_wheel",
+      "frame": "05000000",
+      "inactivity_before": 2,
+      "inactivity_after": 0,
+      "accepted": true,
+      "expected_accepted": true,
+      "note": "op 5: the squash flag, then one signed pair; zero steps still count as input"
+    },
+    {
+      "name": "mouse_button",
+      "frame": "02006d6964646c65",
+      "inactivity_before": 2,
+      "inactivity_after": 0,
+      "accepted": true,
+      "expected_accepted": true,
+      "note": "op 2: the same layout as a key, with the button name"
+    },
+    {
+      "name": "key_unknown_name",
+      "frame": "01014e6f537563684b6579",
+      "inactivity_before": 2,
+      "inactivity_after": 2,
+      "accepted": false,
+      "expected_accepted": false,
+      "note": "a name valid_hid_key refuses: the handler returns before the HID sees it, and the counter keeps running"
+    },
+    {
+      "name": "mouse_move_truncated",
+      "frame": "030000",
+      "inactivity_before": 2,
+      "inactivity_after": 2,
+      "accepted": false,
+      "expected_accepted": false,
+      "note": "three bytes where struct.unpack wants five: dropped the same silent way"
+    },
+    {
+      "name": "hid_baseline",
+      "keyboard_online": false,
+      "mouse_online": false,
+      "jiggler": {
+        "enabled": true,
+        "active": false,
+        "interval": 60
+      },
+      "inactivity": 4547,
+      "note": "what the HID looked like while this was recorded: a gadget with no host attached, and the jiggler enabled but idle"
+    }
+  ]
+}

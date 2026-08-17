@@ -14,7 +14,7 @@ from aiopikvm._exceptions import (
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import PiKVMWebSocket
+from aiopikvm._ws import KvmdVersion, PiKVMWebSocket
 from aiopikvm.models.atx import ATXActs, ATXLeds, ATXState
 from aiopikvm.models.gpio import (
     GPIOChannel,
@@ -128,6 +128,7 @@ __all__ = [
     "HIDMouse",
     "HIDOutputs",
     "HIDState",
+    "KvmdVersion",
     "MSDDownload",
     "MSDDrive",
     "MSDDriveImage",
