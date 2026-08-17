@@ -18,6 +18,7 @@ import contextlib
 import pytest
 
 from aiopikvm import APIError, AuthError, PiKVM, PiKVMWebSocket
+from aiopikvm.resources.redfish import RESET_TYPES
 from tests.helpers import undeclared_fields
 
 pytestmark = pytest.mark.live
@@ -68,6 +69,14 @@ async def test_prometheus_metrics_are_exposition_format(live: PiKVM) -> None:
     assert "# TYPE pikvm_" in metrics
 
 
+async def test_prometheus_omits_help_lines(live: PiKVM) -> None:
+    """kvmd emits ``# TYPE`` only; the docs used to promise ``# HELP`` (#78)."""
+    metrics = await live.prometheus.get_metrics()
+    comments = [line for line in metrics.splitlines() if line.startswith("#")]
+    assert comments
+    assert all(line.startswith("# TYPE ") for line in comments)
+
+
 async def test_keymaps_list_the_default_layout(live: PiKVM) -> None:
     """The device's keymap catalogue includes the layout it defaults to."""
     keymaps = await live.hid.get_keymaps()
@@ -89,6 +98,36 @@ async def test_redfish_root_links_to_systems(live: PiKVM) -> None:
     """The Redfish service root advertises the Systems collection."""
     root = await live.redfish.get_root()
     assert root["Systems"]["@odata.id"].endswith("/Systems")
+
+
+async def test_redfish_system_id_is_a_string(live: PiKVM) -> None:
+    """``"0"`` resolves and ``"1"`` does not: the id is compared as text (#57)."""
+    system = await live.redfish.get_system()
+    assert system["Id"] == "0"
+    with pytest.raises(APIError) as info:
+        await live.redfish.get_system("1")
+    assert info.value.status_code == 400
+
+
+async def test_redfish_reset_types_match_the_constant(live: PiKVM) -> None:
+    """The device's allowable values are exactly :data:`RESET_TYPES` (#78)."""
+    system = await live.redfish.get_system()
+    allowed = system["Actions"]["#ComputerSystem.Reset"][
+        "ResetType@Redfish.AllowableValues"
+    ]
+    assert sorted(allowed) == sorted(RESET_TYPES)
+
+
+async def test_redfish_refuses_an_unknown_reset_type(live: PiKVM) -> None:
+    """A refused reset stays inside the exception hierarchy.
+
+    This is the one POST in this file, and it changes nothing: kvmd validates
+    ``ResetType`` against its list before dispatching anything, and the value
+    sent here is deliberately one no version could ever implement.
+    """
+    with pytest.raises(APIError) as info:
+        await live.redfish.reset("aiopikvm-does-not-exist")
+    assert info.value.status_code == 400
 
 
 async def test_websocket_delivers_the_initial_state(live: PiKVM) -> None:

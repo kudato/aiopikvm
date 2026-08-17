@@ -108,12 +108,24 @@ async def test_api_error_non_dict_result(
         await client.atx.get_state()
 
 
-async def test_invalid_json_redfish(mock_api: respx.MockRouter, client: PiKVM) -> None:
+async def test_redfish_action_ignores_the_body(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """A 2xx is the whole success signal: kvmd sends 204 and nothing else."""
     mock_api.post("/api/redfish/v1/Systems/0/Actions/ComputerSystem.Reset").mock(
         return_value=httpx.Response(200, text="<html>not json</html>")
     )
-    with pytest.raises(APIError, match="Invalid JSON response"):
-        await client.redfish.reset()
+    assert await client.redfish.reset() is None
+
+
+async def test_invalid_json_redfish_document(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/redfish/v1/Systems/0").mock(
+        return_value=httpx.Response(200, text="<html>not json</html>")
+    )
+    with pytest.raises(ResponseError, match="not JSON"):
+        await client.redfish.get_system()
 
 
 async def test_remote_protocol_error(mock_api: respx.MockRouter, client: PiKVM) -> None:
