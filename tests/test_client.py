@@ -2,6 +2,7 @@
 
 import importlib.util
 import ssl
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -236,9 +237,33 @@ async def test_aclose_without_entering(mock_api: respx.MockRouter) -> None:
 
 async def test_invalid_url_is_a_configuration_error() -> None:
     """httpx's own InvalidURL would land outside the hierarchy."""
-    with pytest.raises(ConfigurationError, match="Invalid PiKVM URL"):
+    with pytest.raises(ConfigurationError, match="the PiKVM URL"):
         async with PiKVM("http://[::1"):
             pass  # pragma: no cover - __aenter__ raises
+
+
+async def test_an_invalid_url_is_blamed_alone_when_no_proxy_could_share_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typo in the URL should not be reported as maybe-the-proxy (#69).
+
+    httpx reports a proxy it cannot parse the same way it reports a URL it
+    cannot parse, so the environment is asked whether there is a proxy at
+    all before the message hedges.
+    """
+    monkeypatch.setattr(urllib.request, "getproxies", dict)
+    with pytest.raises(ConfigurationError) as caught:
+        async with PiKVM("http://[::1"):
+            pass  # pragma: no cover - __aenter__ raises
+    assert "proxy" not in str(caught.value)
+
+    monkeypatch.setattr(
+        urllib.request, "getproxies", lambda: {"http": "http://proxy.local:3128"}
+    )
+    with pytest.raises(ConfigurationError) as caught:
+        async with PiKVM("http://[::1"):
+            pass  # pragma: no cover - __aenter__ raises
+    assert "proxy" in str(caught.value)
 
 
 def _spy_on_httpx(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
@@ -294,10 +319,15 @@ async def test_the_defaults_leave_httpx_where_it_was(
     assert captured["trust_env"] is True
 
 
-async def test_a_proxy_url_httpx_cannot_parse_is_a_configuration_error() -> None:
-    """httpx raises a bare ValueError, which is outside the hierarchy (#69)."""
+async def test_a_proxy_scheme_httpx_alone_refuses_is_a_configuration_error() -> None:
+    """httpx raises a bare ValueError, which is outside the hierarchy (#69).
+
+    ``socks4://`` is the gap between the two libraries in the direction the
+    constructor does not close: *websockets* parses it, so it reaches httpx,
+    which knows only ``socks5``.
+    """
     with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
-        async with PiKVM("https://pikvm.local", proxy="proxy.local:3128"):
+        async with PiKVM("https://pikvm.local", proxy="socks4://proxy.local:1080"):
             pass  # pragma: no cover - __aenter__ raises
 
 
@@ -311,7 +341,38 @@ def test_a_bad_proxy_port_is_not_blamed_on_the_pikvm_url() -> None:
         PiKVM("https://pikvm.local", proxy="http://proxy.local:notaport")
     message = str(caught.value)
     assert "http://proxy.local:notaport" in message
-    assert "Invalid PiKVM URL" not in message
+    assert "PiKVM URL" not in message
+
+
+def test_a_bad_proxy_port_in_the_environment_is_refused_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The argument was only one way in; the environment is the other (#69).
+
+    httpx builds a client with a port above 65535 and fails at connect time
+    with an ``OverflowError`` wrapped in an ``ExceptionGroup``, which no
+    clause in this package catches and nothing in the hierarchy covers.
+    """
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:99999")
+    with pytest.raises(ConfigurationError) as caught:
+        PiKVM("https://pikvm.local")
+    message = str(caught.value)
+    assert "http://proxy.local:99999" in message
+    assert "PiKVM URL" not in message
+
+
+async def test_an_unusable_ca_bundle_in_the_environment_is_a_configuration_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """httpx reads SSL_CERT_FILE itself, and reports it as a bare OSError.
+
+    Only when *verify_ssl* is ``True``: that is the one case where httpx
+    builds the context rather than being handed one (#69).
+    """
+    monkeypatch.setenv("SSL_CERT_FILE", str(tmp_path / "missing.pem"))
+    with pytest.raises(ConfigurationError, match="SSL_CERT_FILE"):
+        async with PiKVM("https://pikvm.local", verify_ssl=True):
+            pass  # pragma: no cover - __aenter__ raises
 
 
 @pytest.mark.skipif(

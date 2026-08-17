@@ -24,7 +24,12 @@ from aiopikvm._exceptions import (
     _error_fields,
     _status_error,
 )
-from aiopikvm._transport import VerifySSL, resolve_proxy, resolve_verify_ssl
+from aiopikvm._transport import (
+    VerifySSL,
+    environment_proxies,
+    resolve_proxy,
+    resolve_verify_ssl,
+)
 from aiopikvm._ws import PiKVMWebSocket
 
 if TYPE_CHECKING:
@@ -135,15 +140,16 @@ class PiKVM:
 
         Raises:
             ConfigurationError: *verify_ssl* names a path this machine
-                cannot load a CA bundle from, or *proxy* carries a port
-                neither library can use.
+                cannot load a CA bundle from, or *proxy* is one the two
+                libraries would not use alike, or *trust_env* is on and the
+                environment sets a proxy with an unusable port.
         """
         self._url = url.rstrip("/")
         self._user = user
         self._passwd = passwd
         self._totp = totp
         self._verify_ssl = resolve_verify_ssl(verify_ssl)
-        self._proxy = resolve_proxy(proxy)
+        self._proxy = resolve_proxy(proxy, self._url, trust_env)
         self._trust_env = trust_env
         self._timeout = timeout
         self._follow_redirects = follow_redirects
@@ -524,8 +530,9 @@ class PiKVM:
 
         Raises:
             ConfigurationError: If this client is already open or has been
-                closed, or if the URL or credentials cannot be used to build
-                an HTTP client.
+                closed, or if the URL, the credentials, the proxy or the CA
+                bundle the environment names cannot be used to build an HTTP
+                client.
         """
         if self._closed:
             raise ConfigurationError(
@@ -555,18 +562,32 @@ class PiKVM:
                     f"PiKVM credentials travel in HTTP headers and must be ASCII: {exc}"
                 ) from exc
             except httpx.InvalidURL as exc:
-                # Only the base URL reaches here: a proxy whose port httpx
-                # would report the same way was refused in __init__, where
-                # the message could name the proxy instead of this URL.
-                raise ConfigurationError(
-                    f"Invalid PiKVM URL {self._url!r}: {exc}"
-                ) from exc
+                # A proxy carrying a port httpx reports this way was refused
+                # in __init__, where the message could name it. What is left
+                # is the base URL — unless the environment sets a proxy that
+                # only httpx's parser is strict about, such as one holding a
+                # tab, so the blame is shared only when there is one to
+                # share it with.
+                blamed = f"the PiKVM URL {self._url!r}"
+                if self._trust_env and environment_proxies(self._url):
+                    blamed += " or a proxy the environment sets"
+                raise ConfigurationError(f"httpx refused {blamed}: {exc}") from exc
             except (ImportError, ValueError) as exc:
                 # A proxy scheme httpx does not know arrives as a ValueError
                 # and a socks:// one without the socksio package as an
                 # ImportError, whichever of *proxy* and the environment the
                 # URL came from. Both are outside PiKVMError.
                 raise ConfigurationError(f"Cannot use the proxy: {exc}") from exc
+            except OSError as exc:
+                # Nothing here touches the disk except the TLS material, and
+                # only when the environment is trusted and verify_ssl is
+                # True: httpx reads SSL_CERT_FILE and SSL_CERT_DIR itself,
+                # and a missing file arrives as FileNotFoundError and one
+                # holding no certificate as ssl.SSLError, both OSError.
+                raise ConfigurationError(
+                    f"Cannot verify TLS against what the environment names "
+                    f"in SSL_CERT_FILE or SSL_CERT_DIR: {exc}"
+                ) from exc
         self._entered = True
         return self
 

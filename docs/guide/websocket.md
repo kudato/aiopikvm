@@ -26,9 +26,11 @@ async with kvm.ws(
 
 The socket inherits the client's `verify_ssl`, `proxy`, `trust_env` and
 `follow_redirects`, so a private CA or a proxy is configured once and covers
-both protocols — including when an external `http_client` was supplied, since
-the socket does not go through httpx and keeps reading these from the `PiKVM`
-constructor. Redirects are not followed by default for the same reason as
+both protocols. An external `http_client` is the exception: it was built with
+its own TLS and proxy settings and keeps them, while the socket goes on
+reading these from the `PiKVM` constructor — so with one supplied, these
+arguments configure the socket alone and the two halves can differ.
+Redirects are not followed by default for the same reason as
 on the REST side: the upgrade carries the password in a header, and following
 the redirect hands it to whatever the redirect points at.
 

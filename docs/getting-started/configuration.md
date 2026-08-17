@@ -73,19 +73,37 @@ async with PiKVM("https://pikvm.local", proxy="http://proxy.local:3128") as kvm:
     await kvm.atx.get_state()
 ```
 
-Without one, both libraries read the environment — `HTTPS_PROXY`, `WSS_PROXY`,
-`NO_PROXY` and the rest — which is what `trust_env=True` leaves them doing.
-Pass `trust_env=False` to connect directly whatever the environment says; in
-httpx that also switches off `SSL_CERT_FILE` and `SSL_CERT_DIR`, which it
-reads only when `verify_ssl=True`.
+The URL is checked when the client is built, against what **both** libraries
+accept, because a setting that only one of them takes would configure the
+requests and break the socket. `websockets` is the stricter of the two, so it
+sets the bar: a URL with no host, or carrying a path, a query, a fragment or a
+username without a password is refused here, even though httpx would take it
+and quietly work around it — dropping the username, in that last case. So is a
+port outside 0–65535, which httpx accepts and only fails on when it connects.
 
-A proxy URL with an unusable port is refused when the client is built, because
-the two libraries disagree about it — httpx accepts a port above 65535 and
-`websockets` does not — and neither reports it in a way that points at the
-proxy. Everything else is left to them.
+A `socks5://` proxy needs an explicit port for the same reason. Left blank,
+httpcore fills in 1080 and `websockets` fills in 80, and the one setting
+reaches two different proxies without either library saying so.
 
-A `socks5://` proxy needs a package neither library depends on: `socksio` for
-the requests, `python-socks` for the socket. Without them the client raises
+Without a `proxy`, both libraries read the environment — `HTTPS_PROXY`,
+`WSS_PROXY`, `NO_PROXY` and the rest — which is what `trust_env=True` leaves
+them doing. Pass `trust_env=False` to connect directly whatever the
+environment says; in httpx that also switches off `SSL_CERT_FILE` and
+`SSL_CERT_DIR`, which it reads only when `verify_ssl=True`.
+
+What the environment holds is checked less strictly, because it is shared with
+every other program on the machine: only the port is read when the client is
+built, since that is the one fault that would otherwise surface as an
+`OverflowError` from httpx wrapped in an `ExceptionGroup`, or from `websockets`
+as something indistinguishable from the connection dropping. The rest
+`websockets` refuses during the handshake, as a `ConfigurationError` naming the
+proxy, which is already the right answer in the right place. Only the variables
+that could carry this client's traffic are read: with an `https://` device
+those are `ALL_PROXY`, `HTTPS_PROXY`, `SOCKS_PROXY` and `WSS_PROXY`, and a
+broken `FTP_PROXY` next to them is no concern of ours.
+
+A `socks5://` proxy also needs a package neither library depends on: `socksio`
+for the requests, `python-socks` for the socket. Without them the client raises
 `ConfigurationError` and names the missing one.
 
 ## TOTP authentication

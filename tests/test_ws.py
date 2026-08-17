@@ -280,7 +280,7 @@ async def test_aenter_wss_uses_the_context_it_was_given() -> None:
     ws._connection = None
 
 
-async def test_aenter_wss_loads_a_ca_bundle_path(tmp_path: Any) -> None:
+async def test_aenter_wss_loads_a_ca_bundle_path() -> None:
     """A path is a CA bundle here, not merely something that is not False.
 
     *websockets* takes no path of its own, so one read as a plain truthy
@@ -348,11 +348,26 @@ async def test_connector_forwards_what_it_was_given() -> None:
     assert built.close_timeout == 3.0
 
 
-async def test_a_proxy_url_websockets_cannot_parse_is_a_configuration_error() -> None:
-    """InvalidProxy is a WebSocketException, so it would read as a failed
-    connection rather than as the setting it is (#69)."""
+def test_a_proxy_url_websockets_cannot_parse_is_refused_at_construction() -> None:
+    """A proxy written for this client has to serve both transports (#69)."""
     with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
-        async with socket(proxy="proxy.local:3128"):
+        socket(proxy="proxy.local:3128")
+
+
+async def test_a_proxy_from_the_environment_is_refused_at_the_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """InvalidProxy is a WebSocketException, so it would read as a failed
+    connection rather than as the setting it is (#69).
+
+    The environment is checked for its port alone when the socket is built —
+    it is shared with every other program on the machine — so the rest of
+    what *websockets* refuses in it still arrives here, and has to arrive as
+    a setting.
+    """
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:3128/path")
+    with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
+        async with socket():
             pass  # pragma: no cover - __aenter__ raises
 
 

@@ -295,8 +295,9 @@ class PiKVMWebSocket:
         Raises:
             ConfigurationError: If the URL scheme is not ``https`` or
                 ``http``, or *verify_ssl* names a path this machine cannot
-                load a CA bundle from, or *proxy* carries a port neither
-                library can use.
+                load a CA bundle from, or *proxy* is one the two libraries
+                would not use alike, or *trust_env* is on and the environment
+                sets a proxy with an unusable port.
         """
         parsed = urlparse(url)
         scheme_map = {"https": "wss", "http": "ws"}
@@ -313,7 +314,7 @@ class PiKVMWebSocket:
         self._user = user
         self._passwd = passwd
         self._verify_ssl = resolve_verify_ssl(verify_ssl)
-        self._proxy = resolve_proxy(proxy)
+        self._proxy = resolve_proxy(proxy, self._url, trust_env)
         self._trust_env = trust_env
         self._binary = binary
         self._follow_redirects = follow_redirects
@@ -339,11 +340,12 @@ class PiKVMWebSocket:
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
-            ConfigurationError: The proxy cannot be used: its scheme or host
-                is not one *websockets* accepts, or it is a ``socks5://`` one
+            ConfigurationError: A proxy the environment set cannot be used —
+                its scheme, host, path, query or credentials are not what
+                *websockets* accepts — or the proxy is a ``socks5://`` one
                 and the ``python-socks`` package it needs is not installed.
-                A proxy whose port is unusable was refused earlier, when this
-                object was built.
+                A proxy passed to the constructor was already held to what
+                both transports accept, when this object was built.
             RedirectError: The upgrade was redirected and *follow_redirects*
                 is off. Following it would resend the password to the target.
             APIError: kvmd rejected the upgrade for another reason, such as a
@@ -389,10 +391,11 @@ class PiKVMWebSocket:
             # ordinary HTTP error, envelope and all.
             raise _handshake_error(exc.response) from exc
         except (websockets.exceptions.InvalidProxy, ImportError) as exc:
-            # A proxy URL websockets cannot parse, or a socks:// one without
-            # the python-socks package. Both are settings rather than
-            # connection failures, and the REST client reports the same two
-            # as ConfigurationError.
+            # A proxy the environment set that websockets cannot parse — one
+            # passed to the constructor was held to this same parser there —
+            # or a socks:// one without the python-socks package. Both are
+            # settings rather than connection failures, and the REST client
+            # reports the same two as ConfigurationError.
             raise ConfigurationError(f"Cannot use the proxy: {exc}") from exc
         except (
             OSError,
