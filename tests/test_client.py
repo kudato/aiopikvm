@@ -1,5 +1,11 @@
 """PiKVM client lifecycle tests."""
 
+import importlib.util
+import ssl
+from pathlib import Path
+from typing import Any
+
+import certifi
 import httpx
 import pytest
 import respx
@@ -56,6 +62,33 @@ async def test_ws_inherits_follow_redirects(
 async def test_ws_inherits_verify_ssl(mock_api: respx.MockRouter) -> None:
     async with PiKVM("https://pikvm.local", verify_ssl=True) as client:
         assert client.ws()._verify_ssl is True
+
+
+async def test_ws_inherits_the_proxy(mock_api: respx.MockRouter) -> None:
+    """One proxy setting for the device, not one per protocol (#69)."""
+    async with PiKVM(
+        "https://pikvm.local", proxy="http://proxy.local:3128", trust_env=False
+    ) as client:
+        ws = client.ws()
+        assert ws._proxy == "http://proxy.local:3128"
+        assert ws._trust_env is False
+
+
+async def test_a_ca_bundle_is_loaded_once_for_both_transports() -> None:
+    """The socket verifies against the same context the requests do (#69).
+
+    Neither httpx nor websockets takes a path any more, so the bundle is
+    read here — and a bundle read twice would be two objects, not one.
+    """
+    async with PiKVM("https://pikvm.local", verify_ssl=certifi.where()) as client:
+        assert isinstance(client._verify_ssl, ssl.SSLContext)
+        assert client.ws()._verify_ssl is client._verify_ssl
+
+
+def test_an_unusable_ca_bundle_is_refused_at_construction(tmp_path: Path) -> None:
+    """The path is wrong now, rather than once a request is attempted (#69)."""
+    with pytest.raises(ConfigurationError, match="Cannot verify TLS against"):
+        PiKVM("https://pikvm.local", verify_ssl=tmp_path / "missing.pem")
 
 
 async def test_client_close(mock_api: respx.MockRouter) -> None:
@@ -204,6 +237,77 @@ async def test_invalid_url_is_a_configuration_error() -> None:
     """httpx's own InvalidURL would land outside the hierarchy."""
     with pytest.raises(ConfigurationError, match="Invalid PiKVM URL"):
         async with PiKVM("http://[::1"):
+            pass  # pragma: no cover - __aenter__ raises
+
+
+def _spy_on_httpx(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Record the keyword arguments the client builds httpx with.
+
+    An ``httpx.AsyncClient`` reads none of these back once it holds them, so
+    what it was handed is the only place the wiring can be checked.
+
+    Args:
+        monkeypatch: The fixture used to swap the class out.
+
+    Returns:
+        The dictionary the arguments are recorded into.
+    """
+    captured: dict[str, Any] = {}
+    build = httpx.AsyncClient
+
+    def spy(**kwargs: Any) -> httpx.AsyncClient:
+        captured.update(kwargs)
+        return build(**kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", spy)
+    return captured
+
+
+async def test_tls_and_proxy_settings_reach_httpx(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A setting nothing forwards is a setting that does nothing (#69)."""
+    captured = _spy_on_httpx(monkeypatch)
+    context = ssl.create_default_context()
+    async with PiKVM(
+        "https://pikvm.local",
+        verify_ssl=context,
+        proxy="http://proxy.local:3128",
+        trust_env=False,
+    ):
+        pass
+    assert captured["verify"] is context
+    assert captured["proxy"] == "http://proxy.local:3128"
+    assert captured["trust_env"] is False
+
+
+async def test_the_defaults_leave_httpx_where_it_was(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No proxy of our own, and the environment read as httpx always did."""
+    captured = _spy_on_httpx(monkeypatch)
+    async with PiKVM("https://pikvm.local"):
+        pass
+    assert captured["verify"] is False
+    assert captured["proxy"] is None
+    assert captured["trust_env"] is True
+
+
+async def test_a_proxy_url_httpx_cannot_parse_is_a_configuration_error() -> None:
+    """httpx raises a bare ValueError, which is outside the hierarchy (#69)."""
+    with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
+        async with PiKVM("https://pikvm.local", proxy="proxy.local:3128"):
+            pass  # pragma: no cover - __aenter__ raises
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("socksio") is not None,
+    reason="socksio is installed, so httpx builds the transport instead",
+)
+async def test_a_socks_proxy_without_socksio_is_a_configuration_error() -> None:
+    """httpx raises ImportError, which is outside the hierarchy too (#69)."""
+    with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
+        async with PiKVM("https://pikvm.local", proxy="socks5://proxy.local:1080"):
             pass  # pragma: no cover - __aenter__ raises
 
 

@@ -24,10 +24,11 @@ async with kvm.ws(
     ...
 ```
 
-The socket inherits the client's `verify_ssl` and `follow_redirects`. Redirects
-are not followed by default for the same reason as on the REST side: the
-upgrade carries the password in a header, and following the redirect hands it
-to whatever the redirect points at.
+The socket inherits the client's `verify_ssl`, `proxy`, `trust_env` and
+`follow_redirects`, so a private CA or a proxy is configured once and covers
+both protocols. Redirects are not followed by default for the same reason as
+on the REST side: the upgrade carries the password in a header, and following
+the redirect hands it to whatever the redirect points at.
 
 `stream` is a flag, not an index. kvmd counts the connected sessions that asked for
 video and runs the streamer for as long as that count is above zero, so an open
@@ -448,7 +449,9 @@ ws = PiKVMWebSocket(
     url="https://pikvm.local",
     user="admin",
     passwd="admin",
-    verify_ssl=False,
+    verify_ssl=False,     # or a CA bundle path, or an ssl.SSLContext
+    proxy=None,           # or "http://proxy.local:3128"
+    trust_env=True,       # read WSS_PROXY / HTTPS_PROXY / NO_PROXY
     stream=True,
     binary=False,
     open_timeout=10.0,

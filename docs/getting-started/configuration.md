@@ -21,9 +21,62 @@ kvm = PiKVM(
 | `user` | `str` | `"admin"` | Username for authentication |
 | `passwd` | `str` | `""` | Password for authentication |
 | `totp` | `str \| None` | `None` | TOTP code for two-factor auth |
-| `verify_ssl` | `bool` | `False` | Verify SSL certificates |
+| `verify_ssl` | `bool \| str \| Path \| ssl.SSLContext` | `False` | Verify TLS: a flag, a CA bundle, or a context |
+| `proxy` | `str \| None` | `None` | Proxy URL for requests and the WebSocket |
+| `trust_env` | `bool` | `True` | Read proxy settings from the environment |
 | `timeout` | `float` | `10.0` | Request timeout in seconds |
+| `follow_redirects` | `bool` | `False` | Follow redirects instead of raising `RedirectError` |
 | `http_client` | `httpx.AsyncClient \| None` | `None` | External httpx client |
+
+## TLS
+
+PiKVM ships a self-signed certificate, which is why `verify_ssl` is off by
+default. A hardened device has a real one, and `verify_ssl` takes whatever it
+was issued against.
+
+```python
+import ssl
+from aiopikvm import PiKVM
+
+# A public CA — the default trust store already has it
+PiKVM("https://kvm.example.com", verify_ssl=True)
+
+# A private CA: the path to its bundle, a PEM file or a c_rehash'd directory
+PiKVM("https://kvm.example.com", verify_ssl="/etc/ssl/certs/internal-ca.pem")
+
+# Anything else, a client certificate included
+context = ssl.create_default_context(cafile="/etc/ssl/certs/internal-ca.pem")
+context.load_cert_chain("/etc/ssl/client.pem", "/etc/ssl/client.key")
+PiKVM("https://kvm.example.com", verify_ssl=context)
+```
+
+A path is read into an `ssl.SSLContext` when the client is built, so a path
+that is not a CA bundle raises `ConfigurationError` there rather than at the
+first request. The result is one context for the whole client: `kvm.ws()`
+verifies the handshake against the same certificates the requests use.
+
+!!! note
+    Neither httpx nor `websockets` accepts a path itself — httpx deprecated
+    `verify=<str>` in 0.28 and `websockets` never had it — so this is aiopikvm
+    reading the bundle, not either of them.
+
+## Proxies
+
+`proxy` covers both protocols: the requests and the WebSocket go through it.
+
+```python
+async with PiKVM("https://pikvm.local", proxy="http://proxy.local:3128") as kvm:
+    await kvm.atx.get_state()
+```
+
+Without one, both libraries read the environment — `HTTPS_PROXY`, `WSS_PROXY`,
+`NO_PROXY` and the rest — which is what `trust_env=True` leaves them doing.
+Pass `trust_env=False` to connect directly whatever the environment says; in
+httpx that also switches off `.netrc` and `SSL_CERT_FILE`.
+
+A `socks5://` proxy needs a package neither library depends on: `socksio` for
+the requests, `python-socks` for the socket. Without them the client raises
+`ConfigurationError` and names the missing one.
 
 ## TOTP authentication
 

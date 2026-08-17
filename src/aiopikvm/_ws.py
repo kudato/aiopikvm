@@ -24,7 +24,7 @@ import struct
 from collections import deque
 from collections.abc import AsyncIterator, Iterable
 from types import TracebackType
-from typing import Any, NamedTuple, Self
+from typing import Any, Literal, NamedTuple, Self
 from urllib.parse import urlparse, urlunparse
 
 import websockets
@@ -40,6 +40,7 @@ from aiopikvm._exceptions import (
     _error_fields_from_bytes,
     _status_error,
 )
+from aiopikvm._ssl import VerifySSL, resolve_verify_ssl
 from aiopikvm.models.atx import ATXState
 from aiopikvm.models.gpio import GPIOState
 from aiopikvm.models.hid import HIDKeymaps, HIDState
@@ -173,6 +174,7 @@ class _Connector(websockets.asyncio.client.connect):
         follow_redirects: bool = False,
         additional_headers: dict[str, str],
         ssl_context: ssl.SSLContext | bool | None,
+        proxy: str | Literal[True] | None,
         open_timeout: float,
         close_timeout: float,
     ) -> None:
@@ -187,6 +189,8 @@ class _Connector(websockets.asyncio.client.connect):
             follow_redirects: Follow a redirect instead of reporting it.
             additional_headers: Headers to add to the upgrade request.
             ssl_context: TLS configuration, or ``None`` for a plain socket.
+            proxy: Proxy URL, ``True`` to read one from the environment, or
+                ``None`` to connect directly.
             open_timeout: Seconds to wait for the handshake.
             close_timeout: Seconds to wait for the closing handshake.
         """
@@ -195,6 +199,7 @@ class _Connector(websockets.asyncio.client.connect):
             uri,
             additional_headers=additional_headers,
             ssl=ssl_context,
+            proxy=proxy,
             open_timeout=open_timeout,
             close_timeout=close_timeout,
         )
@@ -239,7 +244,9 @@ class PiKVMWebSocket:
         *,
         user: str,
         passwd: str,
-        verify_ssl: bool = True,
+        verify_ssl: VerifySSL = True,
+        proxy: str | None = None,
+        trust_env: bool = True,
         stream: bool = True,
         binary: bool = False,
         follow_redirects: bool = False,
@@ -252,7 +259,17 @@ class PiKVMWebSocket:
             url: PiKVM base URL, ``https://`` or ``http://``.
             user: kvmd user name.
             passwd: Password, TOTP code appended if the device asks for one.
-            verify_ssl: Verify the TLS certificate.
+            verify_ssl: Verify the TLS certificate. Also takes the path to a
+                CA bundle, or an :class:`ssl.SSLContext` — including one
+                carrying a client certificate.
+            proxy: Proxy URL for the handshake, e.g.
+                ``http://proxy.local:3128``. A ``socks5://`` one needs the
+                ``python-socks`` package *websockets* asks for, which is not
+                a dependency of aiopikvm. ``None`` leaves the choice to
+                *trust_env*.
+            trust_env: Read the proxy from the environment —
+                ``WSS_PROXY``, ``HTTPS_PROXY``, ``NO_PROXY`` and the rest.
+                On by default, which is what *websockets* does on its own.
             stream: Ask kvmd to treat this client as a video viewer. kvmd
                 counts the sessions that did and runs the streamer while that
                 count is above zero, so a client connected with ``False``
@@ -276,7 +293,9 @@ class PiKVMWebSocket:
             close_timeout: Seconds to wait for the closing handshake.
 
         Raises:
-            ConfigurationError: If the URL scheme is not ``https`` or ``http``.
+            ConfigurationError: If the URL scheme is not ``https`` or
+                ``http``, or *verify_ssl* names a path this machine cannot
+                load a CA bundle from.
         """
         parsed = urlparse(url)
         scheme_map = {"https": "wss", "http": "ws"}
@@ -292,7 +311,9 @@ class PiKVMWebSocket:
         self._url = f"{ws_url}/api/ws?stream={'1' if stream else '0'}"
         self._user = user
         self._passwd = passwd
-        self._verify_ssl = verify_ssl
+        self._verify_ssl = resolve_verify_ssl(verify_ssl)
+        self._proxy = proxy
+        self._trust_env = trust_env
         self._binary = binary
         self._follow_redirects = follow_redirects
         self._open_timeout = open_timeout
@@ -317,6 +338,9 @@ class PiKVMWebSocket:
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
+            ConfigurationError: The proxy cannot be used: *websockets* could
+                not parse its URL, or it is a ``socks5://`` one and the
+                ``python-socks`` package it needs is not installed.
             RedirectError: The upgrade was redirected and *follow_redirects*
                 is off. Following it would resend the password to the target.
             APIError: kvmd rejected the upgrade for another reason, such as a
@@ -327,12 +351,20 @@ class PiKVMWebSocket:
         """
         ssl_context: ssl.SSLContext | bool | None = None
         if self._url.startswith("wss://"):
-            if not self._verify_ssl:
+            if isinstance(self._verify_ssl, ssl.SSLContext):
+                ssl_context = self._verify_ssl
+            elif self._verify_ssl:
+                ssl_context = True
+            else:
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
-            else:
-                ssl_context = True
+
+        # websockets spells "read the environment" as True, which is also
+        # what it does when nothing is passed.
+        proxy: str | Literal[True] | None = self._proxy
+        if proxy is None:
+            proxy = True if self._trust_env else None
 
         headers = {
             "X-KVMD-User": self._user,
@@ -344,6 +376,7 @@ class PiKVMWebSocket:
                 self._url,
                 additional_headers=headers,
                 ssl_context=ssl_context,
+                proxy=proxy,
                 open_timeout=self._open_timeout,
                 close_timeout=self._close_timeout,
                 follow_redirects=self._follow_redirects,
@@ -352,6 +385,12 @@ class PiKVMWebSocket:
             # The upgrade never happened: kvmd answered the GET with an
             # ordinary HTTP error, envelope and all.
             raise _handshake_error(exc.response) from exc
+        except (websockets.exceptions.InvalidProxy, ImportError) as exc:
+            # A proxy URL websockets cannot parse, or a socks:// one without
+            # the python-socks package. Both are settings rather than
+            # connection failures, and the REST client reports the same two
+            # as ConfigurationError.
+            raise ConfigurationError(f"Cannot use the proxy: {exc}") from exc
         except (
             OSError,
             ValueError,

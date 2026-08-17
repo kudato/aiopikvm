@@ -12,6 +12,7 @@ import httpx
 from aiopikvm._constants import (
     DEFAULT_FOLLOW_REDIRECTS,
     DEFAULT_TIMEOUT,
+    DEFAULT_TRUST_ENV,
     DEFAULT_VERIFY_SSL,
 )
 from aiopikvm._exceptions import (
@@ -23,6 +24,7 @@ from aiopikvm._exceptions import (
     _error_fields,
     _status_error,
 )
+from aiopikvm._ssl import VerifySSL, resolve_verify_ssl
 from aiopikvm._ws import PiKVMWebSocket
 
 if TYPE_CHECKING:
@@ -83,7 +85,9 @@ class PiKVM:
         user: str = "admin",
         passwd: str = "",
         totp: str | None = None,
-        verify_ssl: bool = DEFAULT_VERIFY_SSL,
+        verify_ssl: VerifySSL = DEFAULT_VERIFY_SSL,
+        proxy: str | None = None,
+        trust_env: bool = DEFAULT_TRUST_ENV,
         timeout: float = DEFAULT_TIMEOUT,
         follow_redirects: bool = DEFAULT_FOLLOW_REDIRECTS,
         http_client: httpx.AsyncClient | None = None,
@@ -96,7 +100,25 @@ class PiKVM:
             passwd: kvmd password.
             totp: Current TOTP code, appended to the password.
             verify_ssl: Verify the TLS certificate. Off by default because
-                PiKVM ships a self-signed one.
+                PiKVM ships a self-signed one. A device behind a private CA
+                takes the path to that CA's bundle instead — a PEM file, or
+                a directory of them — and anything else takes an
+                :class:`ssl.SSLContext`, which is also where a client
+                certificate goes::
+
+                    context = ssl.create_default_context(cafile="ca.pem")
+                    context.load_cert_chain("client.pem", "client.key")
+
+            proxy: Proxy URL for every request, e.g.
+                ``http://proxy.local:3128``. A ``socks5://`` proxy needs the
+                ``socksio`` package httpx asks for and the ``python-socks``
+                one *websockets* asks for; neither is a dependency of
+                aiopikvm. ``None`` leaves the choice to *trust_env*.
+            trust_env: Read the proxy settings from the environment —
+                ``HTTPS_PROXY``, ``NO_PROXY`` and the rest. On by default,
+                which is what httpx and *websockets* both do on their own;
+                it also governs httpx's use of ``.netrc`` and
+                ``SSL_CERT_FILE``.
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
                 :class:`RedirectError`. Off by default: a redirect resends
@@ -105,13 +127,22 @@ class PiKVM:
                 to ``https://`` — has already exposed the password in
                 cleartext by then.
             http_client: Pre-built httpx client. When given, this client
-                does not close it and the arguments above are ignored.
+                does not close it and the arguments above are ignored —
+                except by :meth:`ws`, which does not go through httpx and
+                keeps reading *verify_ssl*, *proxy* and *trust_env* from
+                here.
+
+        Raises:
+            ConfigurationError: *verify_ssl* names a path this machine
+                cannot load a CA bundle from.
         """
         self._url = url.rstrip("/")
         self._user = user
         self._passwd = passwd
         self._totp = totp
-        self._verify_ssl = verify_ssl
+        self._verify_ssl = resolve_verify_ssl(verify_ssl)
+        self._proxy = proxy
+        self._trust_env = trust_env
         self._timeout = timeout
         self._follow_redirects = follow_redirects
         self._external_client = http_client is not None
@@ -512,6 +543,8 @@ class PiKVM:
                         "X-KVMD-Passwd": self._password,
                     },
                     verify=self._verify_ssl,
+                    proxy=self._proxy,
+                    trust_env=self._trust_env,
                     timeout=self._timeout,
                     follow_redirects=self._follow_redirects,
                 )
@@ -523,6 +556,12 @@ class PiKVM:
                 raise ConfigurationError(
                     f"Invalid PiKVM URL {self._url!r}: {exc}"
                 ) from exc
+            except (ImportError, ValueError) as exc:
+                # A proxy URL httpx cannot parse arrives as a ValueError and
+                # a socks:// one without the socksio package as an
+                # ImportError, whichever of *proxy* and the environment the
+                # URL came from. Both are outside PiKVMError.
+                raise ConfigurationError(f"Cannot use the proxy: {exc}") from exc
         self._entered = True
         return self
 
@@ -588,9 +627,10 @@ class PiKVM:
 
         Returns:
             A *PiKVMWebSocket* async context manager. It inherits this
-            client's *verify_ssl* and *follow_redirects*; with an external
-            *http_client* it still uses the credentials and URL passed to
-            this constructor, since it does not go through httpx at all.
+            client's *verify_ssl*, *proxy*, *trust_env* and
+            *follow_redirects*; with an external *http_client* it still uses
+            the credentials and URL passed to this constructor, since it does
+            not go through httpx at all.
 
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
@@ -606,6 +646,8 @@ class PiKVM:
             user=self._user,
             passwd=self._password,
             verify_ssl=self._verify_ssl,
+            proxy=self._proxy,
+            trust_env=self._trust_env,
             stream=stream,
             binary=binary,
             follow_redirects=self._follow_redirects,

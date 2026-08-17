@@ -47,6 +47,10 @@ async with PiKVM("https://pikvm.local", verify_ssl=True) as kvm:
     ...
 ```
 
+A certificate from a private CA needs that CA's bundle, and anything beyond
+that — a client certificate, a pinned context — is configured with an
+`ssl.SSLContext`. See [Configuration](configuration.md#tls).
+
 ## Verify installation
 
 ```python

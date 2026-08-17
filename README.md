@@ -82,9 +82,15 @@ kvm = PiKVM(
     passwd="secret",
     totp="123456",         # optional TOTP code
     verify_ssl=False,      # default: False (PiKVM uses self-signed certs)
+    proxy=None,            # or "http://proxy.local:3128", for HTTP and the socket
+    trust_env=True,        # read HTTPS_PROXY / NO_PROXY from the environment
     timeout=10.0,          # default timeout in seconds
 )
 ```
+
+`verify_ssl` also takes the path to a private CA's bundle, or an
+`ssl.SSLContext` for anything more — a client certificate included. Whatever
+it is applies to `kvm.ws()` as well.
 
 ### External httpx client
 

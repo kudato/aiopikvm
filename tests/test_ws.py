@@ -1,6 +1,7 @@
 """PiKVMWebSocket tests."""
 
 import asyncio
+import importlib.util
 import json
 import logging
 import ssl
@@ -10,6 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import certifi
 import pytest
 import websockets.asyncio.server
 import websockets.exceptions
@@ -267,6 +269,35 @@ async def test_aenter_wss_verify() -> None:
     ws._connection = None
 
 
+async def test_aenter_wss_uses_the_context_it_was_given() -> None:
+    """A private CA has to reach the socket, not only the HTTP client (#69)."""
+    context = ssl.create_default_context()
+    ws = socket(verify_ssl=context)
+    mock_connect = AsyncMock(return_value=AsyncMock())
+    with patch("aiopikvm._ws._Connector", mock_connect):
+        await ws.__aenter__()
+        assert mock_connect.call_args[1]["ssl_context"] is context
+    ws._connection = None
+
+
+async def test_aenter_wss_loads_a_ca_bundle_path(tmp_path: Any) -> None:
+    """A path is a CA bundle here, not merely something that is not False.
+
+    *websockets* takes no path of its own, so one read as a plain truthy
+    value would hand the handshake the default trust store and verify
+    against everything except the CA that was asked for (#69).
+    """
+    ws = socket(verify_ssl=certifi.where())
+    mock_connect = AsyncMock(return_value=AsyncMock())
+    with patch("aiopikvm._ws._Connector", mock_connect):
+        await ws.__aenter__()
+        ctx = mock_connect.call_args[1]["ssl_context"]
+        assert isinstance(ctx, ssl.SSLContext)
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx.get_ca_certs()
+    ws._connection = None
+
+
 async def test_aenter_http() -> None:
     ws = socket("http://pikvm.local")
     mock_connect = AsyncMock(return_value=AsyncMock())
@@ -276,22 +307,64 @@ async def test_aenter_http() -> None:
     ws._connection = None
 
 
+@pytest.mark.parametrize(
+    ("proxy", "trust_env", "expected"),
+    [
+        ("http://proxy.local:3128", True, "http://proxy.local:3128"),
+        ("http://proxy.local:3128", False, "http://proxy.local:3128"),
+        (None, True, True),
+        (None, False, None),
+    ],
+)
+async def test_aenter_resolves_the_proxy(
+    proxy: str | None, trust_env: bool, expected: str | bool | None
+) -> None:
+    """websockets spells "read the environment" True and "connect direct" None."""
+    ws = socket(proxy=proxy, trust_env=trust_env)
+    mock_connect = AsyncMock(return_value=AsyncMock())
+    with patch("aiopikvm._ws._Connector", mock_connect):
+        await ws.__aenter__()
+        assert mock_connect.call_args[1]["proxy"] == expected
+    ws._connection = None
+
+
 async def test_connector_forwards_what_it_was_given() -> None:
-    """The three tests above patch _Connector away; this pins what it passes on."""
+    """The tests above patch _Connector away; this pins what it passes on."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     connector = _Connector(
         "wss://pikvm.local/api/ws?stream=1",
         additional_headers={"X-KVMD-User": "admin"},
         ssl_context=context,
+        proxy="http://proxy.local:3128",
         open_timeout=7.0,
         close_timeout=3.0,
     )
     assert connector.open_timeout == 7.0
     assert connector.connection_kwargs["ssl"] is context
+    assert connector.proxy == "http://proxy.local:3128"
     assert connector.additional_headers == {"X-KVMD-User": "admin"}
     # close_timeout only reaches the connection websockets builds per attempt.
     built = connector.protocol_factory(parse_uri(connector.uri))
     assert built.close_timeout == 3.0
+
+
+async def test_a_proxy_url_websockets_cannot_parse_is_a_configuration_error() -> None:
+    """InvalidProxy is a WebSocketException, so it would read as a failed
+    connection rather than as the setting it is (#69)."""
+    with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
+        async with socket(proxy="proxy.local:3128"):
+            pass  # pragma: no cover - __aenter__ raises
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("python_socks") is not None,
+    reason="python-socks is installed, so websockets opens the tunnel instead",
+)
+async def test_a_socks_proxy_without_python_socks_is_a_configuration_error() -> None:
+    """websockets raises ImportError, which is outside the hierarchy (#69)."""
+    with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
+        async with socket(proxy="socks5://proxy.local:1080"):
+            pass  # pragma: no cover - __aenter__ raises
 
 
 async def test_aenter_oserror() -> None:
