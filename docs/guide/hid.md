@@ -75,6 +75,35 @@ await kvm.hid.send_key("KeyA", state=True)
 await kvm.hid.send_key("KeyA", state=False)
 ```
 
+### Key names
+
+The names are kvmd's, and they are the ones a browser reports in
+`KeyboardEvent.code` — `"KeyA"`, not `"a"`; `"Digit1"`, not `"1"`. Matching
+is case-sensitive, so `"keya"` is refused like any other name kvmd does not
+know.
+
+`KEY_NAMES` holds all 115 of them:
+
+```python
+from aiopikvm.resources.hid import KEY_NAMES
+
+if key not in KEY_NAMES:
+    raise ValueError(f"kvmd has no key named {key!r}")
+await kvm.hid.send_key(key)
+```
+
+Checking first is worth it for a name that came from somewhere you do not
+control, because the two transports fail differently and neither is loud:
+an HTTP call raises `APIError` with HTTP 400, while a key sent over the
+[WebSocket](websocket.md) is dropped inside kvmd's handler with no answer at
+all — nothing distinguishes a typo from a keystroke that landed.
+
+kvmd exposes the table through no endpoint, so `KEY_NAMES` is a copy: it was
+read off a device running kvmd 4.186 and is checked against that capture by
+the test suite. A device on another version may know names it does not list,
+which is why nothing in the client enforces it — a name outside the set is
+sent as given.
+
 ## Keyboard shortcuts
 
 ```python

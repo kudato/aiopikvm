@@ -222,9 +222,12 @@ async with kvm.ws() as ws:
     await ws.send_key("KeyA", state=False)
 ```
 
-Key names are kvmd's web names — `KeyA`, `Digit1`, `ControlLeft`, `F5`. kvmd
-holds a key down until the release arrives, and silently ignores a name it does
-not know.
+Key names are kvmd's web names — `KeyA`, `Digit1`, `ControlLeft`, `F5`; the
+whole catalogue is [`KEY_NAMES`](hid.md#key-names). kvmd holds a key down
+until the release arrives, and ignores a name it does not know without
+answering anything at all — over this socket there is no 400 to tell a typo
+from a keystroke that landed, which is why a name from an untrusted source is
+worth checking against the set before it goes out.
 
 ## Mouse input
 

@@ -182,6 +182,10 @@
       "file": "auth_roundtrip.json",
       "description": "POST /api/auth/login with a JSON body vs a form body, the session cookie round trip through check/logout/check, and every refusal the three endpoints produce: wrong password, a user name and an expire the validators reject, logout without the cookie, logout refused once a cookie is sent, and check with no credentials at all."
     },
+    "hid_keys": {
+      "file": "hid_keys.json",
+      "description": "Every key name kvmd accepts: the keys of its WEB_TO_EVDEV table, sorted. Read off the device rather than off the wire \u2014 no endpoint exposes the table \u2014 with: python3 -c 'import json; from kvmd.keyboard.mappings import WEB_TO_EVDEV; print(json.dumps({\"keys\": sorted(WEB_TO_EVDEV)}))'"
+    },
     "msd_downloading": {
       "file": "msd_downloading.json",
       "description": "GET /api/msd sampled while a stored image is being read back via GET /api/msd/read (storage.downloading is populated)."

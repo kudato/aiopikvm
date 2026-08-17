@@ -108,6 +108,13 @@ getting one. Unlike the other scenarios it records HTTP responses rather than
 kvmd envelopes, since the upgrade is refused before the socket exists, so each
 step carries the `status`, `reason_phrase` and `content_type` a client sees.
 
+`hid_keys.json` is the odd one out: it holds no response at all, but kvmd's
+own `WEB_TO_EVDEV` table — every key name its validator accepts. No endpoint
+exposes it, so it was read off the device itself rather than off the wire,
+with the one-liner recorded in the manifest entry. It is what keeps
+`aiopikvm.resources.hid.KEY_NAMES` honest: a copy of a table nothing can
+fetch at runtime is exactly the kind of thing that drifts unnoticed.
+
 `ws_binary.json` is the other half of that socket: kvmd's binary channel, where
 the first byte of a frame is an operation number rather than JSON. Every frame
 in it is one this client built and sent, and every one is recorded with

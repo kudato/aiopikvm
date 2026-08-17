@@ -35,6 +35,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   movement. `squash` asks kvmd to add consecutive steps together where they fit
   into one report — fewer reports for the host, and nothing at all sent when a
   squashed batch adds up to zero (#60).
+- `aiopikvm.resources.hid.KEY_NAMES`, the 115 key names kvmd accepts —
+  the keys of its `WEB_TO_EVDEV` table, matched case-sensitively. Sending one
+  it does not know fails differently on each transport and quietly on both:
+  HTTP 400 from `send_key()` and `send_shortcut()`, and nothing whatsoever
+  from the WebSocket, which drops the frame inside kvmd's handler. No
+  endpoint exposes the table, so the catalogue is a copy read off a device
+  running kvmd 4.186 and pinned to that capture by a contract test; nothing
+  in the client enforces it, since a later kvmd may know more names (#77).
 - `aiopikvm.resources.redfish.RESET_TYPES`, the six `ResetType` values kvmd
   accepts. The DMTF schema defines more, and kvmd refuses every one of them
   before taking any action (#78).

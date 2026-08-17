@@ -5,6 +5,49 @@ from typing import Any
 from aiopikvm._base_resource import BaseResource
 from aiopikvm.models.hid import HIDKeymaps, HIDState, _HIDInactivity
 
+KEY_NAMES = frozenset({
+    "AltLeft", "AltRight", "ArrowDown", "ArrowLeft", "ArrowRight",
+    "ArrowUp", "AudioVolumeDown", "AudioVolumeMute", "AudioVolumeUp",
+    "Backquote", "Backslash", "Backspace", "BracketLeft", "BracketRight",
+    "CapsLock", "Comma", "ContextMenu", "ControlLeft", "ControlRight",
+    "Convert", "Delete", "Digit0", "Digit1", "Digit2", "Digit3", "Digit4",
+    "Digit5", "Digit6", "Digit7", "Digit8", "Digit9", "End", "Enter",
+    "Equal", "Escape", "F1", "F10", "F11", "F12", "F2", "F20", "F3", "F4",
+    "F5", "F6", "F7", "F8", "F9", "Home", "Insert", "IntlBackslash",
+    "IntlRo", "IntlYen", "KanaMode", "KeyA", "KeyB", "KeyC", "KeyD", "KeyE",
+    "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL", "KeyM", "KeyN",
+    "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW",
+    "KeyX", "KeyY", "KeyZ", "MetaLeft", "MetaRight", "Minus", "NonConvert",
+    "NumLock", "Numpad0", "Numpad1", "Numpad2", "Numpad3", "Numpad4",
+    "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9", "NumpadAdd",
+    "NumpadDecimal", "NumpadDivide", "NumpadEnter", "NumpadMultiply",
+    "NumpadSubtract", "PageDown", "PageUp", "Pause", "Period", "Power",
+    "PrintScreen", "Quote", "ScrollLock", "Semicolon", "ShiftLeft",
+    "ShiftRight", "Slash", "Space", "Tab",
+})  # fmt: skip
+"""Every key name kvmd accepts, matched case-sensitively.
+
+These are the keys of kvmd's ``WEB_TO_EVDEV`` table, which is where its
+validator looks: the names a browser puts in ``KeyboardEvent.code``, which
+is why they read like ``"KeyA"`` and ``"Digit1"`` rather than ``"a"`` and
+``"1"``. Anything else is refused — ``"keya"`` and ``"a"`` included.
+
+How it is refused depends on the transport, and neither way is loud. An
+HTTP call raises :class:`~aiopikvm.APIError` with HTTP 400, and a key sent
+over the WebSocket is dropped inside kvmd's handler without an answer of
+any kind. Checking a name that came from somewhere untrusted against this
+set is the only way to find out before the input silently goes nowhere::
+
+    if key not in KEY_NAMES:
+        raise ValueError(f"kvmd has no key named {key!r}")
+    await kvm.hid.send_key(key)
+
+The set is kvmd 4.186's, recorded from the device behind this project's
+fixtures; no endpoint exposes the table, so this cannot be read from a
+device at runtime. Another version may know more names — nothing in the
+client enforces the set, and a name outside it is sent as given.
+"""
+
 
 class HIDResource(BaseResource):
     """HID keyboard and mouse control for PiKVM."""
@@ -166,9 +209,13 @@ class HIDResource(BaseResource):
         """Send a single key event.
 
         Args:
-            key: Key name.
+            key: Key name, one of :data:`KEY_NAMES` and matched
+                case-sensitively.
             state: Key state (``True`` = press, ``False`` = release,
                 ``None`` = press and release).
+
+        Raises:
+            APIError: If kvmd has no key by that name (HTTP 400).
         """
         params: dict[str, Any] = {"key": key}
         if state is not None:
@@ -182,10 +229,14 @@ class HIDResource(BaseResource):
         reverse order, with a fixed 50 ms delay between events.
 
         Args:
-            *keys: Key names forming the shortcut.
+            *keys: Key names forming the shortcut, each one of
+                :data:`KEY_NAMES` and matched case-sensitively.
 
         Raises:
             ValueError: If no keys are given.
+            APIError: If kvmd has no key by one of those names (HTTP 400).
+                It validates the whole list before pressing anything, so a
+                shortcut with one bad name sends nothing at all.
         """
         if not keys:
             raise ValueError("send_shortcut() requires at least one key")
