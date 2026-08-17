@@ -142,6 +142,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- `HIDResource.set_connected()` now says where it does anything. kvmd 4.186
+  implements it only in the MCU-based backends (`hid.type` of `serial` or
+  `spi`); under `otg`, `ch9329` and `bt` the call reaches a base
+  implementation that discards its argument, so it answers 200 and nothing
+  happens. The docs presented it as a universal "disconnect the HID". The
+  signal that tells the two apart is `HIDState.connected`, and it points one
+  way only: a `bool` there is a backend that implements the call, while a
+  `None` is also what an MCU backend reports before its microcontroller has
+  sent a status word. `reset()`, which every backend does override, is
+  documented per backend — it releases held keys under `otg` and `bt`, resets
+  the microcontroller under `serial` and `spi`, and does nothing at all under
+  `ch9329`, whose reset request is commented out (#76).
 - **Breaking:** `PiKVMWebSocket.ping()` waits for the answer and returns the
   round trip in seconds, raising `WebSocketError` when none arrives within
   `timeout`. It used to send the frame and return, which made it useless as
