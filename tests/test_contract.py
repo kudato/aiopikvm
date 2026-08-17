@@ -244,6 +244,23 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
     assert names <= KEY_NAMES, sorted(names - KEY_NAMES)
 
 
+def _values(annotation: Any) -> tuple[Any, ...]:
+    """Return every literal value reachable inside *annotation*.
+
+    Empty for a type built out of no literals at all, which is how an
+    ordinary alias — ``type Params = dict[str, Any]`` — is told apart from a
+    vocabulary below. Recursive, so that an alias for an alias, a union of
+    literals and a ``Literal[...] | None`` all read as the vocabulary they
+    are: a shape this stopped seeing would stop being documented, silently,
+    which is the one thing the checks below exist to prevent.
+    """
+    if isinstance(annotation, TypeAliasType):
+        return _values(annotation.__value__)
+    if get_origin(annotation) is Literal:
+        return get_args(annotation)
+    return tuple(value for arg in get_args(annotation) for value in _values(arg))
+
+
 _TYPED_VALUES = (
     ("keyboard_output", r'keyboard_output="([^"\n]*)"', KeyboardOutput),
     ("mouse_output", r'mouse_output="([^"\n]*)"', MouseOutput),
@@ -255,12 +272,15 @@ _TYPED_VALUES = (
     # in the file.
     ("ATX action", r'atx_power\([^)\n]*"([^"\n]*)"', ATXAction),
     ("ATX button", r'atx_click\([^)\n]*"([^"\n]*)"', ATXButton),
-    # Four other resources have a ``reset()`` and none of them takes a name,
-    # so this one is matched through its resource: an unqualified pattern
-    # would collect a switch unit number and four empty calls. The guide
-    # spells refused types out too — ``GracefulRestart``, ``"forceoff"`` —
-    # deliberately, and neither is inside a call.
-    ("reset type", r'redfish\.reset\(\s*"([^"\n]*)"', ResetType),
+    # Four other resources have a ``reset()`` and not one of them takes a
+    # name, which is what lets this pattern go unqualified: ``switch.reset``
+    # takes a unit number and the other four take nothing, so none of them
+    # can put a string where this looks. Qualifying it by the resource would
+    # cost the two examples that name the type without naming the resource,
+    # ``ForceRestart`` among them — the default, and the one the guide's
+    # danger block is about. The guide spells refused types out too,
+    # ``GracefulRestart`` and ``"forceoff"``, and neither is inside a call.
+    ("reset type", r'reset\(\s*"([^"\n]*)"', ResetType),
 )
 _TYPE_TABLE = ROOT / "docs" / "guide" / "error-handling.md"
 _TYPE_HEADING = "## Values the type checker catches"
@@ -286,15 +306,18 @@ def test_documented_values_are_ones_the_type_allows(
         for value in re.findall(pattern, path.read_text(encoding="utf-8"))
     }
     assert found, f"no {what} found in the docs; the pattern stopped matching"
-    allowed = set(get_args(alias.__value__))
+    allowed = set(_values(alias))
     assert found <= allowed, sorted(found - allowed)
 
 
 def _modules() -> list[ModuleType]:
     """Return every module in the package, the top-level one included.
 
-    ``walk_packages`` yields neither the package it is handed nor any
-    ``__init__``, and both are places a public name legitimately lives.
+    ``walk_packages`` yields the subpackages, so importing what it hands
+    back reaches ``resources/__init__.py`` and ``models/__init__.py`` on its
+    own. What it never yields is the package it was given, which is why
+    ``aiopikvm`` itself is prepended: a public name in the top-level
+    ``__init__`` would otherwise be invisible here.
     """
     return [
         aiopikvm,
@@ -313,10 +336,10 @@ def _vocabularies() -> dict[str, TypeAliasType]:
     only a type somebody remembered to add to *it*, and a hand-written list
     of modules stops covering one that gets renamed, split or moved.
 
-    Only ``Literal`` aliases count. The style guide asks for ``type``
-    aliases generally, so an ordinary one — ``type Params = dict[str,
-    Any]`` — will turn up in a resource module sooner or later, and it has
-    no vocabulary for the guide to spell out.
+    Only aliases with literal values count, as :func:`_values` reads them.
+    The style guide asks for ``type`` aliases generally, so an ordinary one
+    — ``type Params = dict[str, Any]`` — will turn up in a resource module
+    sooner or later, and it has no vocabulary for the guide to spell out.
     """
     aliases = {
         name: value
@@ -325,7 +348,7 @@ def _vocabularies() -> dict[str, TypeAliasType]:
         if not name.startswith("_")
         and isinstance(value, TypeAliasType)
         and value.__module__ == module.__name__
-        and get_origin(value.__value__) is Literal
+        and _values(value)
     }
     # Everything below compares this against the docs, so an empty side
     # would agree with an empty table and prove nothing at all.
@@ -381,7 +404,7 @@ def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     """
     listed = _type_table()[name]
     assert len(listed) == len(set(listed)), f"the guide repeats a value: {listed}"
-    assert set(listed) == set(get_args(_vocabularies()[name].__value__))
+    assert set(listed) == set(_values(_vocabularies()[name]))
 
 
 def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:
