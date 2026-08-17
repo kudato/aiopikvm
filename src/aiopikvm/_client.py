@@ -63,6 +63,17 @@ class PiKVM:
 
     An external *httpx.AsyncClient* can be provided via *http_client*; in that
     case the caller is responsible for closing it.
+
+    The lifecycle follows the one *httpx.AsyncClient* has, so that wrapping
+    one does not change the rules: a client is used once and then closed.
+    :meth:`aclose` — which ``async with`` calls on the way out — releases the
+    resources and leaves the object closed for good, whether the underlying
+    HTTP client was built here or handed in.
+
+    Reopening and nesting both raise :class:`ConfigurationError`. Reopening
+    used to build a second connection pool under the same object, rereading
+    the credentials as they stood at that moment; nesting used to leave the
+    inner block's exit closing the connection the outer one was still using.
     """
 
     def __init__(
@@ -105,6 +116,8 @@ class PiKVM:
         self._follow_redirects = follow_redirects
         self._external_client = http_client is not None
         self._client: httpx.AsyncClient | None = http_client
+        self._entered = False
+        self._closed = False
 
     @property
     def _password(self) -> str:
@@ -116,10 +129,20 @@ class PiKVM:
     def _ensure_client(self) -> httpx.AsyncClient:
         """Return the underlying *httpx.AsyncClient*.
 
+        Returns:
+            The HTTP client every request goes through.
+
         Raises:
-            PiKVMError: If the async context has not been entered yet.
+            PiKVMError: If this client has been closed, or the async context
+                has not been entered yet.
         """
         if self._client is None:
+            if self._closed:
+                raise PiKVMError(
+                    "This PiKVM client has been closed and cannot be used "
+                    "again. Build a new one — a closed client cannot be "
+                    "reopened, the same as httpx.AsyncClient."
+                )
             raise PiKVMError(
                 "Cannot access resources before entering async context. "
                 "Use 'async with PiKVM(...) as kvm:' first."
@@ -136,7 +159,8 @@ class PiKVM:
             passed to this constructor.
 
         Raises:
-            PiKVMError: If the async context has not been entered yet.
+            PiKVMError: If this client has been closed, or the async context
+                has not been entered yet.
         """
         return self._ensure_client().base_url
 
@@ -171,7 +195,8 @@ class PiKVM:
             raise, which is why aiopikvm clears before it sets.
 
         Raises:
-            PiKVMError: If the async context has not been entered yet.
+            PiKVMError: If this client has been closed, or the async context
+                has not been entered yet.
         """
         return self._ensure_client().cookies
 
@@ -459,6 +484,25 @@ class PiKVM:
     # --- Context manager -----------------------------------------------
 
     async def __aenter__(self) -> Self:
+        """Open the client.
+
+        Returns:
+            This client, ready to use.
+
+        Raises:
+            ConfigurationError: If this client is already open or has been
+                closed, or if the URL or credentials cannot be used to build
+                an HTTP client.
+        """
+        if self._closed:
+            raise ConfigurationError(
+                "Cannot reopen a PiKVM client once it has been closed. Build a new one."
+            )
+        if self._entered:
+            raise ConfigurationError(
+                "Cannot enter a PiKVM client more than once: the inner block "
+                "would close the connection the outer one is still using."
+            )
         if self._client is None:
             try:
                 self._client = httpx.AsyncClient(
@@ -479,16 +523,29 @@ class PiKVM:
                 raise ConfigurationError(
                     f"Invalid PiKVM URL {self._url!r}: {exc}"
                 ) from exc
+        self._entered = True
         return self
 
     async def aclose(self) -> None:
-        """Close the client and release resources."""
+        """Close the client and release resources.
+
+        An HTTP client built here is closed; one handed in as *http_client*
+        is left alone, since the caller owns it. Either way this client lets
+        go of it and will not serve another request: the alternative is an
+        object that keeps working after the block that owned it ended, which
+        is only ever a bug waiting to be found somewhere else.
+
+        Calling this more than once does nothing the second time.
+        """
         for name in _RESOURCE_NAMES:
             self.__dict__.pop(name, None)
 
         if not self._external_client and self._client is not None:
             await self._client.aclose()
-            self._client = None
+
+        self._client = None
+        self._entered = False
+        self._closed = True
 
     async def __aexit__(
         self,
@@ -532,9 +589,14 @@ class PiKVM:
             this constructor, since it does not go through httpx at all.
 
         Raises:
-            ConfigurationError: If the URL this client was built with has no
-                usable scheme.
+            ConfigurationError: If this client has been closed, or the URL it
+                was built with has no usable scheme.
         """
+        if self._closed:
+            raise ConfigurationError(
+                "This PiKVM client has been closed; it cannot open a new "
+                "WebSocket. Build a new client."
+            )
         return PiKVMWebSocket(
             url=self._url,
             user=self._user,

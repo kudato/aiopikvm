@@ -115,6 +115,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** `PiKVM.aclose()` is final, and leaves the client closed
+  whoever owns the underlying HTTP client. With an external `http_client` the
+  reference was kept, so every resource went on working after the block that
+  owned them ended — through an `httpx.AsyncClient` the caller was free to
+  have closed by then. Resources, `base_url`, `cookies`, `request()`,
+  `stream()` and `ws()` now all raise afterwards, and the message says the
+  client was closed rather than never entered. Closing twice is still a no-op
+  (#70).
+- **Breaking:** entering a `PiKVM` twice, or entering one again after closing
+  it, raises `ConfigurationError`. Re-entry silently built a second connection
+  pool under the same object, rereading the credentials as they stood at that
+  moment, and a nested `async with` closed the connection the outer block was
+  still using. `httpx.AsyncClient` refuses both, and wrapping one should not
+  change the rules (#70).
 - **Breaking:** `MSDResource.upload()` returns `MSDUpload` instead of `None`.
   kvmd answers a write with `{"image": {"name", "size", "written"}}`, and the
   name in it is the one the image was actually stored under — a `prefix` is
