@@ -50,10 +50,13 @@ class HIDState(_Base):
     """HID subsystem state.
 
     Mirrors the shape returned by ``GET /api/hid``. ``connected`` reports
-    whether the target host has the HID plugged in, and only MCU-based
-    backends can tell — it is ``None`` on OTG. Those are the same backends
-    that implement :meth:`HIDResource.set_connected`, so a ``None`` here is
-    also what says that call would do nothing.
+    whether the target host has the HID plugged in, and only the MCU-based
+    backends can tell — ``otg``, ``ch9329`` and ``bt`` report ``None``. Those
+    are the same backends that implement
+    :meth:`~aiopikvm.resources.hid.HIDResource.set_connected`, so a ``bool``
+    here says that call does something. A ``None`` does not say the reverse:
+    an MCU backend reports it too until its microcontroller has sent a status
+    word carrying the flag.
     """
 
     enabled: bool

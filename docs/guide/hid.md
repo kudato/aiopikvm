@@ -17,7 +17,9 @@ print(f"Jiggler: {state.jiggler.enabled}")
 ```
 
 `state.connected` reports whether the target host has the HID plugged in.
-Only MCU-based backends can tell — it is `None` on OTG.
+Only the MCU-based backends can tell — `otg`, `ch9329` and `bt` report
+`None`. See [Connection control](#connection-control) for what that does and
+does not imply.
 
 ## Idle time
 
@@ -148,31 +150,50 @@ keyboard offers no choice at all, while its mouse still switches between
 ## Connection control
 
 `set_connected()` unplugs the emulated keyboard and mouse from the target
-host, and plugs them back in. **Only MCU-based boards do it** — the Arduino
-or Pico wired over serial or SPI, which is what a v1 board and a DIY build
-use. A v2 or v3 runs the OTG backend, where kvmd accepts the call, answers
-200 and does nothing: no plugin but the MCU one implements it, and the base
-implementation ignores its argument.
+host, and plugs them back in. **Only the MCU-based backends do it** — the
+ones driving a separate microcontroller, `hid.type` set to `serial` or
+`spi` in the kvmd config. Under `otg`, `ch9329` or `bt` the call lands on a
+base implementation that discards its argument, so kvmd answers 200 and
+nothing happens. (The device these docs were verified against, a v3, runs
+`otg`.)
 
-Nothing in the response says which of the two happened, so read the state:
+Nothing in the response says which of the two happened, so read the state —
+in the one direction it is good for:
 
 ```python
 state = await kvm.hid.get_state()
-if state.connected is None:
-    print("This board cannot unplug its HID; set_connected() would do nothing")
-else:
-    await kvm.hid.set_connected(False)  # host stops seeing the keyboard
+if state.connected is not None:
+    # This backend implements it: the host stops seeing the keyboard.
+    await kvm.hid.set_connected(False)
+    await asyncio.sleep(2)
     await kvm.hid.set_connected(True)
 ```
 
-`reset()` is a different thing and every backend implements it. kvmd drops
-the input still queued and releases the keys and buttons the host sees as
-held — which is what to reach for after a script died mid-shortcut and left
-a modifier stuck:
+`connected` being `None` is *not* proof of the opposite. An MCU backend
+reports `None` too until its microcontroller has answered with a status word
+carrying the flag, so a board that is merely offline, or whose firmware
+answers the shorter pong, looks exactly like one that cannot unplug
+anything — check `state.online` alongside it. The change also travels to the
+microcontroller through a queue and the call returns as soon as it is
+queued, which is what the sleep above is for: back-to-back calls are a
+disconnect the host never has time to notice.
+
+`reset()` is a different matter. Every backend overrides it, but what it
+does differs:
 
 ```python
 await kvm.hid.reset()
 ```
+
+| `hid.type` | What `reset()` does |
+|---|---|
+| `otg` | Drops the queued input and releases every held key and button |
+| `bt` | The same, then closes the Bluetooth links |
+| `serial`, `spi` | Resets the microcontroller; queued input survives |
+| `ch9329` | Marks itself busy for a moment — the reset request is commented out in kvmd 4.186 |
+
+Under `otg` that makes it the way out of a modifier left stuck by a script
+that died mid-shortcut.
 
 ## Keymaps
 

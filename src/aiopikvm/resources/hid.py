@@ -60,20 +60,25 @@ class HIDResource(BaseResource):
     async def set_connected(self, connected: bool) -> None:
         """Unplug the emulated HID from the target host, or plug it back in.
 
-        Only the MCU-based HID backends do this — the Arduino or Pico wired
-        over serial or SPI, which is what a v1 board and a DIY build use. On
-        every other backend, the OTG one of a v2 or v3 board included, kvmd
-        accepts the call, answers 200 and does nothing at all: the base
-        implementation ignores its argument and no plugin but the MCU one
-        overrides it.
+        Only the MCU-based backends do this: kvmd 4.186 implements it in the
+        ones that drive a separate microcontroller, ``hid.type`` set to
+        ``serial`` or ``spi``, and nowhere else. Under ``otg``, ``ch9329`` or
+        ``bt`` the call reaches a base implementation that discards its
+        argument, so kvmd answers 200 and nothing happens. The capture device
+        behind this project's fixtures, a v3, runs ``otg``.
 
-        ``HIDState.connected`` is the signal to read first. A backend that
-        cannot unplug the HID reports ``None`` there, so a ``None`` before
-        this call means the call is a no-op, and the value never becoming
-        what was asked for means the same thing. Reading it back is the only
-        way to tell: nothing in the response says whether anything happened.
+        Nothing in the response says which of the two took place, so read
+        ``HIDState.connected`` — but read it as the one-way signal it is. A
+        ``bool`` there is a backend that does implement this call. ``None``
+        is not the opposite: an MCU backend reports ``None`` as well until
+        its microcontroller has answered with a status word that carries the
+        flag, so a board that is merely offline, or whose firmware answers
+        the shorter pong, looks exactly like one that cannot unplug
+        anything. Check ``HIDState.online`` alongside it, and give the change
+        a moment before reading it back — it goes to the microcontroller
+        through a queue, and this call returns as soon as it is queued.
 
-        :meth:`reset` is not affected — every backend implements that one.
+        :meth:`reset` is a different matter: every backend overrides that.
 
         Args:
             connected: Whether the host should see the HID as plugged in.
@@ -83,9 +88,16 @@ class HIDResource(BaseResource):
     async def reset(self) -> None:
         """Reset the HID subsystem.
 
-        Every backend implements this, unlike :meth:`set_connected`: kvmd
-        drops the input still queued and releases the keys and buttons the
-        host sees as held, and an MCU board resets the microcontroller too.
+        Every backend overrides this, unlike :meth:`set_connected`, but what
+        it means differs by more than the name suggests. Under ``otg`` kvmd
+        drops the input still queued and releases every key and button the
+        host sees as held — the way out of a modifier left stuck by a script
+        that died mid-shortcut. ``bt`` drops the queue as well and then closes
+        the Bluetooth links. An MCU backend resets the microcontroller itself,
+        through its reset pin where one is configured, and keeps the queued
+        input to deliver afterwards. Under ``ch9329``, kvmd 4.186 only marks
+        itself busy for a moment: the reset request its loop would send is
+        commented out.
         """
         await self._post("/api/hid/reset")
 

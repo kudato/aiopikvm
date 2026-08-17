@@ -162,8 +162,8 @@ async def test_reset(mock_api: respx.MockRouter, client: PiKVM) -> None:
 async def test_set_connected(
     mock_api: respx.MockRouter, client: PiKVM, connected: bool, sent: str
 ) -> None:
-    # kvmd reads the flag through its bool validator, which takes 1/0 — and
-    # rejects the request outright if the parameter is missing.
+    # kvmd reads the flag through its bool validator, which takes 1/0 among
+    # other spellings — and refuses the request if the parameter is missing.
     mock_api.post("/api/hid/set_connected").mock(
         return_value=httpx.Response(200, json=OK)
     )
