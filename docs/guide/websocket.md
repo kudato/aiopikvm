@@ -375,6 +375,14 @@ async with kvm.ws(binary=True) as ws:
 The second byte is a flag field: bit 0 is the state and bit 1 is `finish`, so
 a press asking for the release is `0b11`.
 
+!!! warning "`finish` over the binary channel needs kvmd 4.33"
+    An older kvmd reads that byte as a whole boolean, which accepts `0` and
+    `1` and nothing else, so a frame carrying bit 1 fails validation and is
+    dropped entire — the key is never pressed, and no answer comes back to
+    say so. This is the one place where an older device does worse than
+    ignore the flag; over JSON, and over HTTP, the press still lands and the
+    key is simply left held.
+
 Everything else is unchanged: the same methods, the same arguments, and events
 still arrive as JSON — that direction has nothing else in it. Two details only
 apply to the binary encoding:

@@ -300,6 +300,12 @@ class HIDResource(BaseResource):
         them. Asking for it on one of the nine presses the key and leaves it
         pressed, with no error to say so.
 
+        Nine is what kvmd 4.34 and after exempt. 4.33, the release that
+        introduced the flag, exempted six: a mapping bug spelled the control
+        pair ``{ControlRight, ControlRight}`` and gave the ``Meta`` keys no
+        entry at all, so that one version releases ``ControlLeft``,
+        ``MetaLeft`` and ``MetaRight`` like any ordinary key.
+
         Args:
             key: Key name, one of :data:`KEY_NAMES` and matched
                 case-sensitively.
@@ -307,10 +313,11 @@ class HIDResource(BaseResource):
                 ``None`` = press with the auto-release above, which is what
                 kvmd does for an event carrying no state at all — so a
                 modifier passed this way is pressed and stays down).
-            finish: Release the key straight after pressing it. Read only
-                alongside an explicit *state*, and only when that state is
-                ``True``: kvmd ignores the flag on a release. Silently
-                ignored by kvmd older than 4.33, which leaves the key held.
+            finish: Release the key straight after pressing it. kvmd reads
+                the parameter only in the branch that reads *state*, so it
+                goes out only alongside one; a release parses it and does
+                nothing with it. Silently ignored by kvmd older than 4.33,
+                which leaves the key held.
 
         Raises:
             APIError: If kvmd has no key by that name (HTTP 400).
@@ -320,8 +327,8 @@ class HIDResource(BaseResource):
             params["state"] = int(state)
             if finish:
                 # kvmd reads `finish` only in the branch that reads `state`.
-                # An event carrying neither already presses and releases, so
-                # sending the flag there would name something kvmd never
+                # An event carrying no state supplies its own `finish=True`,
+                # so sending the flag there would name something kvmd never
                 # looks at.
                 params["finish"] = 1
         await self._post("/api/hid/events/send_key", params=params)

@@ -760,6 +760,13 @@ class PiKVMWebSocket:
         kvmd to release the key in the same event that pressed it, which is
         the one keystroke a lost connection cannot interrupt halfway.
 
+        Both channels carry it from kvmd 4.33 on. Older ones part company,
+        and not in the harmless direction: the JSON handler drops a field it
+        has no name for and presses the key anyway, while the binary handler
+        validates the whole flags byte as a boolean, so a frame carrying bit
+        1 fails that check and is thrown away entire. The press does not
+        happen either, and nothing comes back to say so.
+
         Args:
             key: Key name, one of kvmd's web names such as ``"KeyA"`` or
                 ``"ControlLeft"``; ``aiopikvm.resources.hid.KEY_NAMES`` holds
@@ -769,15 +776,16 @@ class PiKVMWebSocket:
                 landed.
             state: ``True`` for press, ``False`` for release. kvmd holds the
                 key until the release arrives.
-            finish: Release the key straight after pressing it. kvmd reads it
-                only on a press, and exempts the modifiers — ``ShiftLeft``,
-                ``ShiftRight``, ``ControlLeft``, ``ControlRight``,
-                ``AltLeft``, ``AltRight``, ``MetaLeft``, ``MetaRight``, and
-                ``PrintScreen``, which it counts as one for the sake of
-                ``Alt+SysRq``. Asking for it on one of those nine presses the
-                key and leaves it held. kvmd older than 4.33 reads neither
-                the JSON field nor the binary bit, and holds the key just the
-                same, with nothing said either way.
+            finish: Release the key straight after pressing it. kvmd parses
+                it on a release too and acts on it only on a press, and it
+                exempts the modifiers — ``ShiftLeft``, ``ShiftRight``,
+                ``ControlLeft``, ``ControlRight``, ``AltLeft``, ``AltRight``,
+                ``MetaLeft``, ``MetaRight``, and ``PrintScreen``, which it
+                counts as one for the sake of ``Alt+SysRq``. Asking for it on
+                one of those nine presses the key and leaves it held. kvmd
+                4.33 exempted six of the nine — a mapping bug left
+                ``ControlLeft`` and both ``Meta`` keys out of the set — and
+                4.34 fixed it.
 
         Raises:
             ConfigurationError: The key name cannot go into a binary frame,

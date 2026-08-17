@@ -100,10 +100,16 @@ Asking for it on one of those nine presses the key and leaves it held, with
 nothing said either way. So does asking for it on a device running kvmd
 older than 4.33, which does not read the parameter at all.
 
+The table is kvmd 4.34 and after. 4.33, the release that introduced the flag,
+exempted six of the nine: a mapping bug spelled the control pair
+`{ControlRight, ControlRight}` and left the `Meta` keys out of the set
+entirely, so on that one version `finish` releases `ControlLeft`, `MetaLeft`
+and `MetaRight` like any ordinary key.
+
 !!! note
     `send_key("KeyA")` with no `state` **is** the press-and-release above:
     kvmd 4.33 replaced the two events it used to send with a single press
-    carrying `finish`. The nine keys are exempt there too, so
+    carrying `finish`. The exempt keys are exempt there too, so
     `send_key("ShiftLeft")` presses Shift and leaves it down — where kvmd
     4.32 and earlier released it. Pass `state=False` to let it up.
 

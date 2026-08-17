@@ -882,9 +882,11 @@ async def test_send_on_a_broken_connection() -> None:
 
 # --- Sending over the binary channel -------------------------------------
 #
-# The frames these build were sent to a real device and accepted by it: the
-# ws_binary scenario records each one with kvmd's inactivity counter read
-# before and after, and kvmd only bumps that counter for a frame it decoded.
+# Nearly every frame these build was sent to a real device and accepted by
+# it: the ws_binary scenario records each one with kvmd's inactivity counter
+# read before and after, and kvmd only bumps that counter for a frame it
+# decoded. The exceptions are the two frames carrying `finish`, which no
+# device has been asked to accept — the test that builds them says so.
 
 
 def binary_step(name: str) -> dict[str, Any]:
