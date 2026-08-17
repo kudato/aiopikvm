@@ -15,7 +15,6 @@ from aiopikvm import (
     ConnectError,
     PiKVM,
     ResponseError,
-    UnavailableError,
 )
 from tests.fixtures import load_json
 
@@ -655,15 +654,32 @@ async def test_download_explicit_timeout(
 
 
 async def test_download_error_status(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    """A refused read raises before the first chunk, with kvmd's own reason.
+
+    The status is 400, not 503: everything `/api/msd/read` refuses for is a
+    `MsdOperationError`, which kvmd maps to 400 along with every other
+    `OperationError`. It answers 503 nowhere in the MSD API — only the
+    streamer raises the error class that carries that status.
+
+    The payload is written out rather than loaded, since no capture in this
+    repository shows a *read* being refused. Its shape is a real one all the
+    same: the `remote_exists` step of `msd_write` is the same subsystem
+    refusing the same way, an `MsdOperationError` under a 400 (#68).
+    """
     mock_api.get("/api/msd/read").mock(
         return_value=httpx.Response(
-            503,
+            400,
             json={
                 "ok": False,
-                "result": {"error": "UnavailableError", "error_msg": "MSD is offline"},
+                "result": {
+                    "error": "MsdOfflineError",
+                    "error_msg": "MSD is not found",
+                },
             },
         )
     )
-    with pytest.raises(UnavailableError, match="MSD is offline"):
+    with pytest.raises(APIError, match="MSD is not found") as info:
         async for _ in client.msd.download("boot.iso"):
             pass  # pragma: no cover - the request fails before yielding
+    assert info.value.status_code == 400
+    assert info.value.error == "MsdOfflineError"

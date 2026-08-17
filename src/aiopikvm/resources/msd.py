@@ -10,7 +10,7 @@ download inside an HTTP 200 rather than as a status.
 
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -20,6 +20,18 @@ from aiopikvm.models.msd import MSDState, MSDUpload
 
 _WRITE_PATH = "/api/msd/write"
 _WRITE_REMOTE_PATH = "/api/msd/write_remote"
+
+type Compression = Literal["", "none", "lzma", "zstd"]
+"""How :meth:`MSDResource.download` may ask kvmd to compress an image.
+
+``""`` and ``"none"`` are the same thing and send the image verbatim;
+``"lzma"`` produces what ``.xz`` holds and ``"zstd"`` what ``.zst`` does.
+kvmd compresses on the fly on the Pi's own CPU, so the two real modes trade
+transfer size against how fast the device can feed the connection.
+
+kvmd lowercases the value before it looks, so only the canonical spelling is
+typed. A mode it does not know is HTTP 400.
+"""
 
 
 class MSDResource(BaseResource):
@@ -355,7 +367,7 @@ class MSDResource(BaseResource):
         self,
         name: str,
         *,
-        compress: str = "",
+        compress: Compression = "",
         chunk_size: int = 65536,
         timeout: float | httpx.Timeout | None = None,
     ) -> AsyncIterator[bytes]:
@@ -363,10 +375,10 @@ class MSDResource(BaseResource):
 
         Args:
             name: Name of the stored image to read.
-            compress: Compression kvmd applies on the fly — ``"lzma"`` or
-                ``"zstd"``. Empty (the default) and ``"none"`` both send the
-                image verbatim; a compressed response carries no
-                ``Content-Length``, so the size is unknown until it ends.
+            compress: Compression kvmd applies on the fly, one of
+                :data:`Compression`. The default sends the image verbatim; a
+                compressed response carries no ``Content-Length``, so the
+                size is unknown until it ends.
             chunk_size: Size of the chunks yielded, in bytes.
             timeout: Override the request timeout. By default the read
                 timeout is disabled — an image takes far longer to transfer
@@ -375,6 +387,16 @@ class MSDResource(BaseResource):
 
         Yields:
             Chunks of the image, in order.
+
+        Raises:
+            APIError: If kvmd refuses the read, all of it HTTP 400: no image
+                of that name in storage, a compression mode it does not
+                know, an MSD that is not set up (``MsdOfflineError``), or a
+                drive still handed to the host, which it cannot read from
+                underneath (``MsdConnectedError``).
+            BusyError: If the MSD is busy with another operation (409).
+            PiKVMError: If PiKVM is unreachable, or the connection breaks
+                part-way through the image.
         """
         params: dict[str, Any] = {"image": name}
         if compress:

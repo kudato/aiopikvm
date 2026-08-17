@@ -11,25 +11,37 @@ The actions answer with HTTP 204 and no body at all, which is why the calls
 that perform them return nothing.
 """
 
-from typing import Any
+from typing import Any, Literal, get_args
 
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._exceptions import ResponseError
 
-RESET_TYPES = (
+type ResetType = Literal[
     "On",
     "ForceOn",
     "ForceOff",
     "GracefulShutdown",
     "ForceRestart",
     "PushPowerButton",
-)
+]
 """Every ``ResetType`` kvmd accepts, matched case-sensitively.
 
 The DMTF schema defines more — ``GracefulRestart``, ``Nmi``, ``PowerCycle`` —
-and kvmd refuses all of them with HTTP 400. The live list is also in each
-system document under
-``Actions["#ComputerSystem.Reset"]["ResetType@Redfish.AllowableValues"]``.
+and kvmd refuses all of them with HTTP 400. Unlike the output, button and
+compression names elsewhere in this client, these are not lowercased on the
+way in: kvmd looks the name up as given, so ``"forceoff"`` is refused as
+surely as a type it has never heard of. Key names are matched the same way.
+
+:data:`RESET_TYPES` is the same list to check against at runtime.
+"""
+
+RESET_TYPES: tuple[ResetType, ...] = get_args(ResetType.__value__)
+"""The values of :data:`ResetType`, in a tuple, for checking at runtime.
+
+Read off the type rather than written out again, so the two cannot drift
+apart. The live list is also in each system document under
+``Actions["#ComputerSystem.Reset"]["ResetType@Redfish.AllowableValues"]``,
+which is what pins this one to a real device.
 """
 
 
@@ -166,7 +178,7 @@ class RedfishResource(BaseResource):
         )
 
     async def reset(
-        self, reset_type: str = "ForceRestart", system_id: str = "0"
+        self, reset_type: ResetType = "ForceRestart", system_id: str = "0"
     ) -> None:
         """Send a Redfish ComputerSystem.Reset action.
 
@@ -214,7 +226,7 @@ class RedfishResource(BaseResource):
         somewhere you do not control.
 
         Args:
-            reset_type: One of :data:`RESET_TYPES`, matched case-sensitively.
+            reset_type: One of :data:`ResetType`, matched case-sensitively.
                 Anything else is refused with HTTP 400 before any action is
                 taken, ``"GracefulRestart"`` from the DMTF schema included.
             system_id: Redfish id of the system to act on: ``"0"`` for the

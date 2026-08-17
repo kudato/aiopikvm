@@ -156,6 +156,10 @@ await kvm.switch.atx_power(0, "on")
 await kvm.switch.atx_click(0, "power")
 ```
 
+Both are typed — `ATXAction` and `ATXButton` — and both are kvmd's ATX
+vocabulary rather than the switch's own: the same names serve `/api/atx`,
+where [`ATXResource`](atx.md) spells each one out as a method of its own.
+
 ## Reboot switch unit
 
 ```python

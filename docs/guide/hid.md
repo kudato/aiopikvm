@@ -149,6 +149,11 @@ await kvm.hid.send_mouse_button("left", state=False)
 await kvm.hid.send_mouse_button("right")
 ```
 
+The names are the `MouseButton` type
+([the values](error-handling.md#values-the-type-checker-catches)). Two of
+them read oddly: `up` and `down` are the side buttons a browser reports as
+back and forward, not wheel directions — the wheel is below.
+
 ### Mouse wheel
 
 ```python
@@ -175,10 +180,25 @@ await kvm.hid.set_params(mouse_output="usb_rel")
 await kvm.hid.set_params(jiggler=True)
 ```
 
-Valid output names come from the state: `state.keyboard.outputs.available`
-and `state.mouse.outputs.available`. Either list can be empty — an OTG
-keyboard offers no choice at all, while its mouse still switches between
-`usb` and `usb_rel`.
+The output names are typed as `KeyboardOutput` and `MouseOutput`
+([the values](error-handling.md#values-the-type-checker-catches)), so a typo
+is a type error rather than an HTTP 400. That is kvmd's validator, though,
+and passing it is not the same as taking effect. kvmd checks the name against
+the fixed list whatever backend is running, and then hands it to a backend
+that may have no use for it: only the MCU backends act on `keyboard_output`
+at all, while `otg`, `ch9329` and `bt` discard it and answer 200.
+
+What the running backend offers is in the state:
+`state.keyboard.outputs.available` and `state.mouse.outputs.available`.
+Either can be empty — an OTG keyboard offers no choice at all, while its
+mouse still moves between `usb` and `usb_rel`.
+
+A name kvmd knows but the backend does not advertise is still not an error,
+and what becomes of it differs: `otg` ignores it under a 200, while `ch9329`
+advertises two names and acts on all five, taking everything but `usb` as its
+relative mouse. Read the state back rather than assume the name was applied
+as asked — `state.mouse.outputs.active` names the mouse in use and
+`state.mouse.absolute` says whether it reports positions or movement.
 
 ## Connection control
 

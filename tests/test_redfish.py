@@ -240,10 +240,17 @@ async def test_reset_targets_a_switch_port(
 async def test_reset_type_refused(
     mock_api: respx.MockRouter, client: PiKVM, name: str, reset_type: str
 ) -> None:
-    """kvmd matches the six values case-sensitively, and 400s on the rest."""
+    """kvmd matches the six values case-sensitively, and 400s on the rest.
+
+    ``ResetType`` narrows the parameter for a type checker only, and this is
+    what that costs nothing at runtime looks like: the request goes out and
+    comes back a 400 from the device, exactly as before. CI type-checks
+    ``src/`` alone, so the ignore below documents the deliberate violation
+    rather than being verified by anything (#68).
+    """
     mock_api.post(RESET_PATH).mock(return_value=replay(name))
     with pytest.raises(APIError, match="Missing or invalid ResetType") as info:
-        await client.redfish.reset(reset_type)
+        await client.redfish.reset(reset_type)  # type: ignore[arg-type]
     assert info.value.status_code == 400
 
 

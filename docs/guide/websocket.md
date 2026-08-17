@@ -324,8 +324,12 @@ async with kvm.ws() as ws:
     await ws.send_mouse_button("left", False)
 ```
 
-Valid names are `left`, `right`, `middle`, `up` (browser back) and `down`
-(browser forward).
+The names are the `MouseButton` type, shared with the REST call
+([the values](error-handling.md#values-the-type-checker-catches); `up` and
+`down` are the browser's back and forward buttons, not the wheel). Having a
+type here is worth more than it is over HTTP: a name kvmd does not know is
+dropped inside its handler with no answer of any kind, exactly as a bad key
+name is.
 
 ### Mouse wheel
 
