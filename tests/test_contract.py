@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import pkgutil
 import re
 from pathlib import Path
 from typing import Any, NamedTuple, TypeAliasType, get_args
@@ -18,6 +19,7 @@ from typing import Any, NamedTuple, TypeAliasType, get_args
 import pytest
 from pydantic import BaseModel
 
+import aiopikvm.resources
 from aiopikvm import (
     ATXState,
     GPIOState,
@@ -253,6 +255,7 @@ _TYPED_VALUES = (
     ("ATX button", r'atx_click\([^)\n]*"([^"\n]*)"', ATXButton),
 )
 _TYPE_TABLE = ROOT / "docs" / "guide" / "error-handling.md"
+_TYPE_HEADING = "## Values the type checker catches"
 
 
 @pytest.mark.parametrize(
@@ -279,23 +282,34 @@ def test_documented_values_are_ones_the_type_allows(
     assert found <= allowed, sorted(found - allowed)
 
 
+_VOCABULARIES = 7
+"""How many of these types there are, so that finding none cannot pass."""
+
+
 def _aliases() -> dict[str, TypeAliasType]:
     """Return every vocabulary type the resource modules define, by name.
 
-    Read out of the modules rather than listed here: a hand-written
-    inventory only catches a type somebody remembered to add to *it*, which
-    is not the thing worth catching.
+    Read out of the modules, and out of every module in the package rather
+    than a list of the interesting ones: a hand-written inventory catches
+    only a type somebody remembered to add to *it*, and a hand-written list
+    of modules stops covering one that gets renamed or split.
     """
-    modules = [
-        importlib.import_module(f"aiopikvm.resources.{name}")
-        for name in ("hid", "msd", "switch", "redfish")
-    ]
-    return {
+    aliases = {
         name: value
-        for module in modules
+        for info in pkgutil.iter_modules(aiopikvm.resources.__path__)
+        for module in [importlib.import_module(f"aiopikvm.resources.{info.name}")]
         for name, value in vars(module).items()
-        if isinstance(value, TypeAliasType) and value.__module__ == module.__name__
+        if not name.startswith("_")
+        and isinstance(value, TypeAliasType)
+        and value.__module__ == module.__name__
     }
+    # Everything below compares this against the docs. Left to itself an
+    # inventory that came back short — or empty — would agree with a table
+    # filtered by the same names and prove nothing at all.
+    assert len(aliases) == _VOCABULARIES, (
+        f"expected {_VOCABULARIES} vocabulary types, found {sorted(aliases)}"
+    )
+    return aliases
 
 
 def _type_table() -> dict[str, list[str]]:
@@ -304,12 +318,17 @@ def _type_table() -> dict[str, list[str]]:
     The table is the one place every value of every vocabulary is written
     out — the row a reader copies from — and the scan above cannot see it,
     since nothing in it is shaped like a call.
+
+    Every row of that one table is read, and no row is matched against the
+    library on the way in: a row naming a type that does not exist has to
+    reach the comparison to be caught by it.
     """
-    aliases = _aliases()
+    _, _, rest = _TYPE_TABLE.read_text(encoding="utf-8").partition(_TYPE_HEADING)
+    assert rest, f"{_TYPE_TABLE.name} no longer has a {_TYPE_HEADING!r} section"
     rows: dict[str, list[str]] = {}
-    for line in _TYPE_TABLE.read_text(encoding="utf-8").splitlines():
+    for line in rest.split("\n## ")[0].splitlines():
         cells = [cell.strip() for cell in line.split("|")[1:-1]]
-        if len(cells) != 3 or cells[1].strip("`") not in aliases:
+        if len(cells) != 3 or not re.fullmatch(r"`\w+`", cells[1]):
             continue
         name = cells[1].strip("`")
         assert name not in rows, f"the guide has two rows for {name}"

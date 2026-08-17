@@ -659,7 +659,12 @@ async def test_download_error_status(mock_api: respx.MockRouter, client: PiKVM) 
     The status is 400, not 503: everything `/api/msd/read` refuses for is a
     `MsdOperationError`, which kvmd maps to 400 along with every other
     `OperationError`. It answers 503 nowhere in the MSD API — only the
-    streamer raises the error class that carries that status (#68).
+    streamer raises the error class that carries that status.
+
+    The payload is written out rather than loaded, since no capture in this
+    repository shows a *read* being refused. Its shape is a real one all the
+    same: the `remote_exists` step of `msd_write` is the same subsystem
+    refusing the same way, an `MsdOperationError` under a 400 (#68).
     """
     mock_api.get("/api/msd/read").mock(
         return_value=httpx.Response(
