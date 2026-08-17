@@ -45,19 +45,35 @@ ROOT = Path(__file__).parent.parent
 
 
 def _prose() -> list[Path]:
-    """Return everything the documentation publishes.
+    """Return the prose an example can be copied out of.
 
-    The docs tree and the README, and the modules under ``src`` as well:
-    every page under ``docs/reference`` is a ``:::`` directive and nothing
-    else, so the prose a reader of the API reference copies from is the
-    docstrings, and those live in the source. An example written there is
-    as published as one written in a guide.
+    Three corpora: the docs tree, the README, and every module under
+    ``src``. The modules are in because a page under ``docs/reference`` is
+    little more than a ``:::`` directive — the prose a reader of the API
+    reference copies from is the docstrings mkdocstrings renders out of the
+    source, so an example written in one is as published as one written in
+    a guide. Reading the code alongside them is the price, and a cheap one:
+    nothing in the library spells a vocabulary value out except an example.
+
+    Two corpora are deliberately out, and both would fail today. ``tests/``
+    and ``CHANGELOG.md`` quote values the device refuses on purpose — a
+    ``ResetType`` from the DMTF schema, a key name that falls out empty — so
+    scanning them would fail on the examples that are correct precisely
+    because they are wrong.
+
+    Returns:
+        Every file the scans below read, guides first.
+
+    Raises:
+        AssertionError: If either glob comes back empty. A moved package or
+            a renamed docs tree looks like nothing at all from here, and a
+            scan of nothing goes on passing.
     """
-    return [
-        *ROOT.joinpath("docs").rglob("*.md"),
-        ROOT / "README.md",
-        *ROOT.joinpath("src").rglob("*.py"),
-    ]
+    guides = sorted(ROOT.joinpath("docs").rglob("*.md"))
+    modules = sorted(ROOT.joinpath("src").rglob("*.py"))
+    assert guides, "no guide found; the docs tree moved"
+    assert modules, "no module found; the package moved"
+    return [*guides, ROOT / "README.md", *modules]
 
 
 class Case(NamedTuple):
@@ -238,20 +254,24 @@ def test_key_names_match_the_device_table() -> None:
 
 
 def test_documented_key_names_are_ones_kvmd_accepts() -> None:
-    """No example in the docs or the README types a key that does not exist.
+    """No published example types a key that does not exist.
 
     A wrong name in an example fails with HTTP 400 over HTTP and with nothing
     at all over the WebSocket, which is exactly the failure this catalogue
     exists to prevent (#77).
+
+    The lookbehind skips the definitions: a parameter of ``send_key()`` that
+    ever takes a string default would otherwise be read as a key name, and
+    blamed on a guide.
     """
-    calls = re.compile(r"send_(?:key|shortcut)\(([^)]*)\)")
+    calls = re.compile(r"(?<!def )send_(?:key|shortcut)\(([^)]*)\)")
     names = {
         name
         for path in _prose()
         for call in calls.findall(path.read_text(encoding="utf-8"))
         for name in re.findall(r'"([^"]*)"', call)
     }
-    assert names, "no key name found in the docs; the pattern stopped matching"
+    assert names, "no key name found at all; the pattern stopped matching"
     assert names <= KEY_NAMES, sorted(names - KEY_NAMES)
 
 
@@ -335,7 +355,7 @@ def test_documented_values_are_ones_the_type_allows(
     for path in _prose():
         for value in re.findall(pattern, path.read_text(encoding="utf-8")):
             found.setdefault(value, set()).add(str(path.relative_to(ROOT)))
-    assert found, f"no {what} found in the docs; the pattern stopped matching"
+    assert found, f"no {what} found at all; the pattern stopped matching"
     allowed = set(_values(alias))
     # Which file, as well as which value: the pattern reads the docs tree,
     # the README and every module, and a bare value leaves a reader
@@ -434,7 +454,12 @@ def test_the_guide_lists_every_typed_vocabulary() -> None:
     Both halves are read off the source: add a vocabulary to a resource
     module and this fails until the guide's table has a row for it.
     """
-    assert set(_type_table()) == set(_vocabularies())
+    documented = set(_type_table())
+    defined = set(_vocabularies())
+    assert documented == defined, (
+        f"no row: {sorted(defined - documented)}; "
+        f"no such type: {sorted(documented - defined)}"
+    )
 
 
 def test_every_vocabulary_has_a_docs_example_scan() -> None:
@@ -462,12 +487,16 @@ def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     as one it leaves out, and both are invisible to a type checker, which
     reads the library and not the prose.
     """
-    listed = _type_table()[name]
+    # The type is read first, and checked first. A vocabulary whose members
+    # read alike once written down — ``Literal[1, "1"]`` — cannot be spelled
+    # out at all: the honest row trips the duplicate check below it and the
+    # incomplete one would pass the equality. Left until after the row was
+    # looked up, that never got as far as saying so — a type nobody had
+    # documented yet died on the lookup instead, which is the order anybody
+    # adding one works in.
     values = _values(_vocabularies()[name])
-    # A vocabulary whose members read alike once written down — ``Literal[1,
-    # "1"]`` — cannot be spelled out at all: the honest row trips the
-    # duplicate check below and the incomplete one would pass the equality.
     assert len(values) == len(set(values)), f"{name} has two values that read alike"
+    listed = _type_table()[name]
     assert len(listed) == len(set(listed)), f"the guide repeats a value: {listed}"
     assert set(listed) == set(values)
 
