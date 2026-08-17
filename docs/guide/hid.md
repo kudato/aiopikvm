@@ -177,10 +177,11 @@ anything. `state.online` rules out the offline board; the firmware that
 never sends the flag cannot be told apart at all.
 
 The change travels to the microcontroller through a queue and the call
-returns as soon as it is queued, which is what the sleep above is for:
-back-to-back calls are a disconnect the host never has time to notice. The
-call also empties that queue on the way in, so keystrokes sent a moment
-earlier and not yet delivered go with it.
+returns as soon as it is queued. It also empties that queue on the way in,
+so keystrokes sent a moment earlier and not yet delivered are dropped with
+it — and so is the disconnect itself, if a reconnect follows before the
+queue has been read. That is what the sleep above is for: back to back, the
+two calls are a disconnect the host never notices, or never receives at all.
 
 `reset()` is a different matter. Every backend overrides it, but what it
 does differs:
