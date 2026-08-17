@@ -78,10 +78,10 @@ HTTP 400. It lowercases the value first, so a device would also take
 
 Being accepted is not being applied. kvmd validates against this list
 whatever HID backend is running, and *then* hands the value to a backend
-that may have no use for it: ``otg`` discards ``keyboard_output`` outright
-and still answers 200. What the running backend can switch between is
-``HIDState.keyboard.outputs.available``, which is empty when there is no
-choice to make.
+that may have no use for it. In kvmd 4.186 only the MCU backends act on
+it at all; ``otg``, ``ch9329`` and ``bt`` discard the argument and still
+answer 200. ``HIDState.keyboard.outputs.available`` is what the running
+backend offers, and it is empty when there is no choice to make.
 """
 
 type MouseOutput = Literal["usb", "usb_win98", "usb_rel", "ps2", "disabled"]
@@ -89,15 +89,20 @@ type MouseOutput = Literal["usb", "usb_win98", "usb_rel", "ps2", "disabled"]
 
 ``"usb"`` is the absolute mouse, ``"usb_rel"`` the relative one, and
 ``"usb_win98"`` an absolute mouse with a workaround for Windows 98's
-driver. Which of them the target host obeys is
-``HIDState.mouse.absolute``.
+driver. ``HIDState.mouse.outputs.active`` names the one in use, and
+``HIDState.mouse.absolute`` says whether it reports positions or
+movement — which is what decides between
+:meth:`HIDResource.send_mouse_move` and
+:meth:`HIDResource.send_mouse_relative`.
 
 The same two-step as :data:`KeyboardOutput`: kvmd validates the name
-against this list on every backend, then applies it only if the running
-backend has that mouse — ``HIDState.mouse.outputs.available`` is the list
-that does. A name it does not have is dropped without a word, under an
-HTTP 200. Switching also recreates the USB gadget, which the host sees as
-the keyboard and mouse being unplugged and put back.
+against this list on every backend, then hands it to a backend that may
+not have that mouse. What happens then is the backend's own business and
+not always visible — ``otg`` ignores a name outside
+``HIDState.mouse.outputs.available``, under an HTTP 200, while ``ch9329``
+offers two names and acts on any of the five, taking everything but
+``"usb"`` as its relative mouse. Read the state back rather than assume
+the name was applied as asked.
 """
 
 type MouseButton = Literal["left", "right", "middle", "up", "down"]
@@ -107,6 +112,12 @@ type MouseButton = Literal["left", "right", "middle", "up", "down"]
 forward — not wheel directions, which are
 :meth:`HIDResource.send_mouse_wheel`. kvmd lowercases the name before it
 looks it up, so only the canonical spelling is typed.
+
+Unlike the output names, these reach the same validator whichever way they
+are sent, and are dropped rather than reported when the socket is the way:
+:meth:`HIDResource.send_mouse_button` answers HTTP 400 on a name kvmd does
+not know, while ``PiKVMWebSocket.send_mouse_button()`` gets no answer of
+any kind.
 """
 
 
@@ -156,8 +167,9 @@ class HIDResource(BaseResource):
         Raises:
             APIError: If kvmd does not know one of these output names
                 (HTTP 400). An output it knows but the running backend does
-                not have is *not* an error: it is dropped under an HTTP 200,
-                so read the state back to see what took.
+                not offer is *not* an error — it answers 200 and what
+                becomes of the name is up to the backend — so read the
+                state back to see what took.
         """
         params: dict[str, str | int] = {}
         if keyboard_output is not None:

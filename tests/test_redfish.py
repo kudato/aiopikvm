@@ -242,9 +242,11 @@ async def test_reset_type_refused(
 ) -> None:
     """kvmd matches the six values case-sensitively, and 400s on the rest.
 
-    ``ResetType`` narrows the parameter for a type checker only; nothing
-    stops a value from reaching the device at runtime, which is what the
-    ignore below is asserting as much as the request itself (#68).
+    ``ResetType`` narrows the parameter for a type checker only, and this is
+    what that costs nothing at runtime looks like: the request goes out and
+    comes back a 400 from the device, exactly as before. CI type-checks
+    ``src/`` alone, so the ignore below documents the deliberate violation
+    rather than being verified by anything (#68).
     """
     mock_api.post(RESET_PATH).mock(return_value=replay(name))
     with pytest.raises(APIError, match="Missing or invalid ResetType") as info:

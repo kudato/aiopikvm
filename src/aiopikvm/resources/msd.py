@@ -387,6 +387,16 @@ class MSDResource(BaseResource):
 
         Yields:
             Chunks of the image, in order.
+
+        Raises:
+            APIError: If kvmd refuses the read, all of it HTTP 400: no image
+                of that name in storage, a compression mode it does not
+                know, an MSD that is not set up (``MsdOfflineError``), or a
+                drive still handed to the host, which it cannot read from
+                underneath (``MsdConnectedError``).
+            BusyError: If the MSD is busy with another operation (409).
+            PiKVMError: If PiKVM is unreachable, or the connection breaks
+                part-way through the image.
         """
         params: dict[str, Any] = {"image": name}
         if compress:

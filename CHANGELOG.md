@@ -162,8 +162,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Breaking:** the parameters those literal types cover are no longer `str`:
   `hid.set_params()`, `hid.send_mouse_button()`, `ws.send_mouse_button()`,
-  `msd.download(compress=…)`, `switch.atx_power()`, `switch.atx_click()` and
-  `redfish.reset()`. Nothing changes on the wire — the client still sends
+  `switch.atx_power()`, `switch.atx_click()` and `redfish.reset()`.
+  (`msd.download(compress=…)` is typed the same way but has never shipped, so
+  nothing breaks there.) Nothing changes on the wire — the client still sends
   whatever it is handed — but a caller passing a variable inferred as `str`
   now needs it annotated with the type, or a `cast`, which fails a strict
   build that used to pass. The types stay out of the response models, where

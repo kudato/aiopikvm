@@ -27,10 +27,10 @@ type ResetType = Literal[
 """Every ``ResetType`` kvmd accepts, matched case-sensitively.
 
 The DMTF schema defines more — ``GracefulRestart``, ``Nmi``, ``PowerCycle`` —
-and kvmd refuses all of them with HTTP 400. Unlike the vocabularies elsewhere
-in this client, this one is not lowercased on the way in: kvmd looks the name
-up as given, so ``"forceoff"`` is refused as surely as a type it has never
-heard of.
+and kvmd refuses all of them with HTTP 400. Unlike the output, button and
+compression names elsewhere in this client, these are not lowercased on the
+way in: kvmd looks the name up as given, so ``"forceoff"`` is refused as
+surely as a type it has never heard of. Key names are matched the same way.
 
 :data:`RESET_TYPES` is the same list to check against at runtime.
 """

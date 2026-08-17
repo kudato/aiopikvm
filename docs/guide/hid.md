@@ -183,19 +183,21 @@ The output names are typed — `KeyboardOutput` is `usb`, `ps2` or `disabled`,
 `MouseOutput` adds `usb_win98` and `usb_rel` — so a typo is a type error
 rather than an HTTP 400. That is kvmd's validator, though, and passing it is
 not the same as taking effect. kvmd checks the name against the fixed list
-whatever backend is running, then hands it to a backend that may have no use
-for it: an OTG keyboard discards `keyboard_output` outright and still answers
-200.
+whatever backend is running, and then hands it to a backend that may have no
+use for it. Of the four in kvmd 4.186 only the MCU ones act on
+`keyboard_output` at all; `otg`, `ch9329` and `bt` discard it and answer 200.
 
-What the running backend can switch between is in the state:
+What the running backend offers is in the state:
 `state.keyboard.outputs.available` and `state.mouse.outputs.available`.
 Either can be empty — an OTG keyboard offers no choice at all, while its
-mouse still moves between `usb` and `usb_rel`. A name kvmd knows but the
-backend does not have is dropped silently under a 200, so read the state back
-to see what took.
+mouse still moves between `usb` and `usb_rel`.
 
-Switching the mouse recreates the USB gadget, which the host sees as the
-keyboard and mouse being unplugged and plugged back in.
+A name kvmd knows but the backend does not advertise is still not an error,
+and what becomes of it differs: `otg` ignores it under a 200, while `ch9329`
+advertises two names and acts on all five, taking everything but `usb` as its
+relative mouse. Read the state back rather than assume the name was applied
+as asked — `state.mouse.outputs.active` names the mouse in use and
+`state.mouse.absolute` says whether it reports positions or movement.
 
 ## Connection control
 

@@ -32,6 +32,7 @@ from aiopikvm._ws import _STATE_MODELS, _as_state, _merge
 from aiopikvm.models.hid import _HIDInactivity
 from aiopikvm.resources.hid import KEY_NAMES, KeyboardOutput, MouseButton, MouseOutput
 from aiopikvm.resources.msd import Compression
+from aiopikvm.resources.redfish import ResetType
 from aiopikvm.resources.switch import ATXAction, ATXButton
 from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
@@ -40,7 +41,7 @@ ROOT = Path(__file__).parent.parent
 
 
 def _prose() -> list[Path]:
-    """Return every Markdown file a reader of this project might copy from."""
+    """Return the published prose: the whole docs tree and the README."""
     return [*ROOT.joinpath("docs").rglob("*.md"), ROOT / "README.md"]
 
 
@@ -240,13 +241,18 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
 
 
 _TYPED_VALUES = (
-    ("keyboard_output", r'keyboard_output="([^"]*)"', KeyboardOutput),
-    ("mouse_output", r'mouse_output="([^"]*)"', MouseOutput),
-    ("mouse button", r'send_mouse_button\(\s*"([^"]*)"', MouseButton),
-    ("compression", r'compress="([^"]*)"', Compression),
-    ("ATX action", r'atx_power\([^)]*,\s*"([^"]*)"\)', ATXAction),
-    ("ATX button", r'atx_click\([^)]*,\s*"([^"]*)"\)', ATXButton),
+    ("keyboard_output", r'keyboard_output="([^"\n]*)"', KeyboardOutput),
+    ("mouse_output", r'mouse_output="([^"\n]*)"', MouseOutput),
+    ("mouse button", r'send_mouse_button\(\s*"([^"\n]*)"', MouseButton),
+    ("compression", r'compress="([^"\n]*)"', Compression),
+    # The ATX pair take the name positionally, so the match has to walk the
+    # argument list — but only as far as the end of the call, and never past
+    # the end of the line, or the capture runs on into the next quoted thing
+    # in the file.
+    ("ATX action", r'atx_power\([^)\n]*"([^"\n]*)"', ATXAction),
+    ("ATX button", r'atx_click\([^)\n]*"([^"\n]*)"', ATXButton),
 )
+_TYPE_TABLE = ROOT / "docs" / "guide" / "error-handling.md"
 
 
 @pytest.mark.parametrize(
@@ -271,6 +277,55 @@ def test_documented_values_are_ones_the_type_allows(
     assert found, f"no {what} found in the docs; the pattern stopped matching"
     allowed = set(get_args(alias.__value__))
     assert found <= allowed, sorted(found - allowed)
+
+
+_ALIASES = {
+    "KeyboardOutput": KeyboardOutput,
+    "MouseOutput": MouseOutput,
+    "MouseButton": MouseButton,
+    "Compression": Compression,
+    "ATXAction": ATXAction,
+    "ATXButton": ATXButton,
+    "ResetType": ResetType,
+}
+
+
+def _type_table() -> dict[str, list[str]]:
+    """Parse the guide's table of typed values into ``{type: [value, ...]}``.
+
+    The table is the one place every value of every vocabulary is written
+    out — the row a reader copies from — and the scan above cannot see it,
+    since nothing in it is shaped like a call.
+    """
+    rows: dict[str, list[str]] = {}
+    for line in _TYPE_TABLE.read_text(encoding="utf-8").splitlines():
+        cells = [cell.strip() for cell in line.split("|")[1:-1]]
+        if len(cells) != 3 or cells[1].strip("`") not in _ALIASES:
+            continue
+        rows[cells[1].strip("`")] = [
+            # The empty compression mode is spelled `""` in the table.
+            "" if value == '""' else value
+            for value in re.findall(r"`([^`]*)`", cells[2])
+        ]
+    return rows
+
+
+def test_the_guide_lists_every_typed_vocabulary() -> None:
+    """A type nobody documented is one nobody knows to use (#68)."""
+    assert set(_type_table()) == set(_ALIASES)
+
+
+@pytest.mark.parametrize("name", sorted(_ALIASES))
+def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
+    """Each row of that table is its type's values, all of them (#68).
+
+    Equality, not containment: a value the table invents misleads as badly
+    as one it leaves out, and both are invisible to a type checker, which
+    reads the library and not the prose.
+    """
+    listed = _type_table()[name]
+    assert len(listed) == len(set(listed)), f"the guide repeats a value: {listed}"
+    assert set(listed) == set(get_args(_ALIASES[name].__value__))
 
 
 def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:

@@ -131,12 +131,18 @@ For a name that arrives at runtime — out of a config file, off a UI — the
 values are on the type:
 
 ```python
-from typing import get_args
+from typing import cast, get_args
 from aiopikvm.resources.hid import MouseButton
 
 if name not in get_args(MouseButton.__value__):
     raise ValueError(f"kvmd has no mouse button named {name!r}")
+await kvm.hid.send_mouse_button(cast(MouseButton, name))
 ```
+
+The `cast` is not optional: `get_args()` is typed as returning
+`tuple[Any, ...]`, so the check above narrows nothing for mypy even though
+it settles the question at runtime. What makes the cast honest is the line
+before it.
 
 Two things these types deliberately do not do. They do not enforce anything
 at runtime: the client sends what it is handed, so a value some later kvmd
@@ -145,13 +151,14 @@ understands still goes through with a `cast` or a
 a literal type would turn a value this release has not seen into a
 `ResponseError` instead of a string the caller can look at and decide about.
 
-`ResetType` is matched by kvmd as written. Every other list here is
+`ResetType` is matched by kvmd as written. Every other list in the table is
 lowercased before matching, so a device would also take `"USB"` or
 `"Left"` — only the canonical spelling is typed.
 
-Key names are the one vocabulary left as plain `str`. There are 115 of
-them, and a key is usually computed rather than written out, so they are a
-runtime set instead: see [`KEY_NAMES`](hid.md#key-names).
+Key names are the one vocabulary left as plain `str`, and they are
+case-sensitive like `ResetType`. There are 115 of them, and a key is
+usually computed rather than written out, so they are a runtime set
+instead: see [`KEY_NAMES`](hid.md#key-names).
 
 ## Usage patterns
 
