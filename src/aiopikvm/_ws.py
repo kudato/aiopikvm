@@ -16,6 +16,7 @@ with ``binary=True``; incoming frames of either kind are understood regardless.
 """
 
 import asyncio
+import dataclasses
 import json
 import logging
 import ssl
@@ -29,14 +30,22 @@ from urllib.parse import urlparse, urlunparse
 import websockets
 import websockets.asyncio.client
 import websockets.http11
+from pydantic import BaseModel, ValidationError
 
 from aiopikvm._exceptions import (
     APIError,
     ConfigurationError,
+    ResponseError,
     WebSocketError,
     _error_fields_from_bytes,
     _status_error,
 )
+from aiopikvm.models.atx import ATXState
+from aiopikvm.models.gpio import GPIOState
+from aiopikvm.models.hid import HIDKeymaps, HIDState
+from aiopikvm.models.msd import MSDState
+from aiopikvm.models.streamer import OCRInfo, StreamerState
+from aiopikvm.models.switch import SwitchState
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +90,66 @@ class KvmdVersion(NamedTuple):
 
     major: int
     minor: int
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class DeviceState:
+    """Everything the socket has said about the device so far.
+
+    One of these comes out of :meth:`PiKVMWebSocket.states` per event that
+    changed something, with the subsystem that event was about validated
+    against the same model its REST endpoint returns. A field is ``None``
+    until kvmd has sent that subsystem — which it does for all of them when
+    the socket opens, except on a device that has the subsystem switched off.
+
+    Attributes:
+        updated: Event type behind this snapshot, e.g. ``"atx"``. Empty on a
+            snapshot nothing has been merged into yet.
+        atx: Power and LED state, as ``GET /api/atx`` returns it.
+        gpio: GPIO scheme, view and pin state.
+        hid: Keyboard, mouse and jiggler state.
+        hid_keymaps: Keyboard layouts installed on the device.
+        msd: Mass storage drive and storage state.
+        ocr: Whether OCR is enabled, and the languages it has.
+        streamer: Streamer state, features, limits and parameters.
+        switch: PiKVM Switch model, port state and summary.
+        clients: How many connected sessions asked kvmd for video. kvmd
+            broadcasts it to everybody whenever a session comes or goes, this
+            one included.
+        info: The ``/api/info`` subsystems, merged as they arrive. kvmd sends
+            one key at a time — ``uptime``, ``health``, ``system`` — and this
+            is still a raw dictionary; typing it is tracked in #71.
+    """
+
+    updated: str = ""
+    atx: ATXState | None = None
+    gpio: GPIOState | None = None
+    hid: HIDState | None = None
+    hid_keymaps: HIDKeymaps | None = None
+    msd: MSDState | None = None
+    ocr: OCRInfo | None = None
+    streamer: StreamerState | None = None
+    switch: SwitchState | None = None
+    clients: int | None = None
+    info: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+
+_STATE_MODELS: dict[str, tuple[type[BaseModel], str]] = {
+    "atx": (ATXState, ""),
+    "gpio": (GPIOState, ""),
+    "hid": (HIDState, ""),
+    "hid_keymaps": (HIDKeymaps, "keymaps"),
+    "msd": (MSDState, ""),
+    "ocr": (OCRInfo, ""),
+    "streamer": (StreamerState, ""),
+    "switch": (SwitchState, ""),
+}
+"""Model for each subsystem event, and the key to unwrap before validating.
+
+Only ``hid_keymaps`` has one: kvmd sends that state inside a ``keymaps``
+object, the way ``GET /api/hid/keymaps`` returns it. The ``ocr`` event is the
+other way round — the REST endpoint wraps it in ``ocr`` and the event does not.
+"""
 
 
 class _Finished(Exception):
@@ -370,6 +439,61 @@ class PiKVMWebSocket:
                     return
             if event is not None:
                 yield event
+
+    async def states(self) -> AsyncIterator[DeviceState]:
+        """Iterate over the device state the events add up to.
+
+        kvmd broadcasts a subsystem's state in pieces: the first event for
+        each carries all of it, and every event after that carries only what
+        changed — a ``streamer`` event with nothing but ``streamer`` in it, an
+        ``info`` event with nothing but ``uptime``. Validating one of those on
+        its own fails, because most of the model is simply not in it. This
+        merges each event into what the same subsystem said before and hands
+        back the whole picture, typed, once per event that changed something.
+
+        Only the events that say something about the device produce a
+        snapshot; ``loop`` and ``pong`` do not, and neither does an event type
+        this release does not know. The kvmd version the ``loop`` event
+        carries is on :attr:`version`.
+
+        Everything :meth:`events` does about the connection applies here, and
+        the two cannot be iterated over the same socket at once: this is
+        :meth:`events` with the states built on top.
+
+        Yields:
+            The device as of the event that has just arrived.
+
+        Raises:
+            ResponseError: A merged payload did not match its model, which
+                means a kvmd this release does not describe correctly. kvmd
+                sends every subsystem in full when the socket opens, so a
+                partial update always has something to merge into.
+            WebSocketError: The client is not connected, or the connection
+                broke instead of closing cleanly.
+        """
+        seen: dict[str, dict[str, Any]] = {}
+        state = DeviceState()
+        async for event in self.events():
+            event_type = event.get("event_type")
+            payload = event.get("event")
+            if not isinstance(event_type, str) or not isinstance(payload, dict):
+                continue
+            if event_type == "clients":
+                count = payload.get("count")
+                if not isinstance(count, int):
+                    continue
+                state = dataclasses.replace(state, updated=event_type, clients=count)
+            elif event_type == "info" or event_type in _STATE_MODELS:
+                merged = _merge(seen.get(event_type, {}), payload)
+                seen[event_type] = merged
+                state = dataclasses.replace(
+                    state,
+                    updated=event_type,
+                    **{event_type: _as_state(event_type, merged)},
+                )
+            else:
+                continue
+            yield state
 
     async def ping(self, *, timeout: float = 10.0) -> float:
         """Ask kvmd for a pong, and wait for it.
@@ -862,6 +986,60 @@ class PiKVMWebSocket:
                     "squash": squash,
                 },
             )
+
+
+def _merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    """Merge one event's payload into what the same subsystem said before.
+
+    Nothing is changed in place: an object that was not in *update* is shared
+    with *base* rather than copied, and one that was is rebuilt, so a snapshot
+    already handed to a caller keeps saying what it said.
+
+    Args:
+        base: What is known about the subsystem so far.
+        update: What the event carried.
+
+    Returns:
+        The two merged, *update* winning wherever they disagree.
+    """
+    merged = dict(base)
+    for key, value in update.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _merge(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _as_state(event_type: str, merged: dict[str, Any]) -> Any:
+    """Turn a merged payload into whatever :class:`DeviceState` holds for it.
+
+    Args:
+        event_type: kvmd event name.
+        merged: Everything that subsystem has sent, merged.
+
+    Returns:
+        The validated model, or the payload itself for ``info``, which has no
+        model yet.
+
+    Raises:
+        ResponseError: The payload does not match the model. Pydantic raises
+            ``ValidationError``, which is outside the aiopikvm hierarchy and
+            would escape ``except PiKVMError``.
+    """
+    if event_type not in _STATE_MODELS:
+        return merged
+    (model, key) = _STATE_MODELS[event_type]
+    data = merged.get(key) if key else merged
+    try:
+        return model.model_validate(data)
+    except ValidationError as exc:
+        raise ResponseError(
+            f"The {event_type} WebSocket event adds up to a payload "
+            f"{model.__name__} cannot parse. This usually means a kvmd "
+            f"version aiopikvm does not know about yet:\n{exc}"
+        ) from exc
 
 
 def _pack_delta(delta_x: int, delta_y: int) -> bytes:

@@ -26,6 +26,7 @@ from aiopikvm import (
     StreamerState,
     SwitchState,
 )
+from aiopikvm._ws import _STATE_MODELS, _as_state, _merge
 from aiopikvm.models.hid import _HIDInactivity
 from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
@@ -170,3 +171,41 @@ def test_websocket_capture_holds_event_frames() -> None:
         and isinstance(entry["msg"]["event_type"], str)
         for entry in events
     )
+
+
+def test_every_captured_event_parses_into_its_model() -> None:
+    """What the socket broadcasts is what the REST models describe (#61).
+
+    Each event is merged into what the same subsystem sent before, the way
+    ``PiKVMWebSocket.states`` does, because kvmd sends a subsystem in full
+    once and then only the parts of it that change.
+    """
+    seen: dict[str, dict[str, Any]] = {}
+    parsed: set[str] = set()
+    for entry in load_jsonl("ws_events"):
+        event_type = str(entry["msg"]["event_type"])
+        if event_type not in _STATE_MODELS:
+            continue
+        merged = _merge(seen.get(event_type, {}), entry["msg"]["event"])
+        seen[event_type] = merged
+        state = _as_state(event_type, merged)
+        assert undeclared_fields(state) == [], f"{event_type} at {entry['index']}"
+        parsed.add(event_type)
+
+    assert parsed == set(_STATE_MODELS), (
+        "the capture must exercise every subsystem the states API types"
+    )
+
+
+def test_the_capture_contains_a_partial_update() -> None:
+    """Without one, the merge above would prove nothing (#61)."""
+    keys: dict[str, list[set[str]]] = {}
+    for entry in load_jsonl("ws_events"):
+        event_type = str(entry["msg"]["event_type"])
+        keys.setdefault(event_type, []).append(set(entry["msg"]["event"]))
+    assert any(
+        later < first
+        for sent in keys.values()
+        for first in [sent[0]]
+        for later in sent[1:]
+    ), "no event carries a subset of the keys the first one did"
