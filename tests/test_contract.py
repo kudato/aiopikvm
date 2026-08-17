@@ -45,8 +45,19 @@ ROOT = Path(__file__).parent.parent
 
 
 def _prose() -> list[Path]:
-    """Return the published prose: the whole docs tree and the README."""
-    return [*ROOT.joinpath("docs").rglob("*.md"), ROOT / "README.md"]
+    """Return everything the documentation publishes.
+
+    The docs tree and the README, and the modules under ``src`` as well:
+    every page under ``docs/reference`` is a ``:::`` directive and nothing
+    else, so the prose a reader of the API reference copies from is the
+    docstrings, and those live in the source. An example written there is
+    as published as one written in a guide.
+    """
+    return [
+        *ROOT.joinpath("docs").rglob("*.md"),
+        ROOT / "README.md",
+        *ROOT.joinpath("src").rglob("*.py"),
+    ]
 
 
 class Case(NamedTuple):
@@ -323,11 +334,14 @@ def test_documented_values_are_ones_the_type_allows(
     found: dict[str, set[str]] = {}
     for path in _prose():
         for value in re.findall(pattern, path.read_text(encoding="utf-8")):
-            found.setdefault(value, set()).add(path.name)
+            found.setdefault(value, set()).add(str(path.relative_to(ROOT)))
     assert found, f"no {what} found in the docs; the pattern stopped matching"
     allowed = set(_values(alias))
-    # Which file, as well as which value: the pattern reads the whole docs
-    # tree, and a bare value leaves a reader grepping for it.
+    # Which file, as well as which value: the pattern reads the docs tree,
+    # the README and every module, and a bare value leaves a reader
+    # grepping for it. The path is relative to the repository because nine
+    # basenames appear twice over — every guide has a reference page named
+    # after it.
     assert set(found) <= allowed, sorted(
         (value, sorted(found[value])) for value in set(found) - allowed
     )
@@ -426,13 +440,18 @@ def test_the_guide_lists_every_typed_vocabulary() -> None:
 def test_every_vocabulary_has_a_docs_example_scan() -> None:
     """And a type nobody scans for is one the guides can misspell (#68).
 
-    ``_TYPED_VALUES`` is the one hand-written inventory left, and the whole
-    apparatus exists because a hand-written inventory catches only what
+    ``_TYPED_VALUES`` is the one hand-written list of aliases left, and the
+    whole apparatus exists because a hand-written list catches only what
     somebody remembered to add to it: ``ResetType`` shipped without a
     scanner for exactly that reason. This is what makes the omission
     impossible rather than merely unlikely.
     """
-    assert {alias for _, _, alias in _TYPED_VALUES} == set(_vocabularies().values())
+    scanned = {alias for _, _, alias in _TYPED_VALUES}
+    defined = set(_vocabularies().values())
+    assert scanned == defined, (
+        f"no scanner: {sorted(a.__name__ for a in defined - scanned)}; "
+        f"no vocabulary: {sorted(a.__name__ for a in scanned - defined)}"
+    )
 
 
 @pytest.mark.parametrize("name", sorted(_vocabularies()))
@@ -444,8 +463,13 @@ def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     reads the library and not the prose.
     """
     listed = _type_table()[name]
+    values = _values(_vocabularies()[name])
+    # A vocabulary whose members read alike once written down — ``Literal[1,
+    # "1"]`` — cannot be spelled out at all: the honest row trips the
+    # duplicate check below and the incomplete one would pass the equality.
+    assert len(values) == len(set(values)), f"{name} has two values that read alike"
     assert len(listed) == len(set(listed)), f"the guide repeats a value: {listed}"
-    assert set(listed) == set(_values(_vocabularies()[name]))
+    assert set(listed) == set(values)
 
 
 def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:
