@@ -209,6 +209,9 @@ def test_key_names_match_the_device_table() -> None:
     the device itself and this is what keeps the copy in the library honest.
     """
     assert KEY_NAMES == set(load_json("hid_keys")["keys"])
+    # The docs and the changelog quote the count; pin it so refreshing the
+    # fixture from a newer kvmd cannot leave them quietly wrong.
+    assert len(KEY_NAMES) == 115
 
 
 def test_documented_key_names_are_ones_kvmd_accepts() -> None:
@@ -226,7 +229,7 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
         for name in re.findall(r'"([^"]*)"', call)
     }
     assert names, "no key name found in the docs; the pattern stopped matching"
-    assert names <= KEY_NAMES
+    assert names <= KEY_NAMES, sorted(names - KEY_NAMES)
 
 
 def test_the_capture_contains_a_partial_update() -> None:

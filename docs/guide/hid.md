@@ -77,12 +77,15 @@ await kvm.hid.send_key("KeyA", state=False)
 
 ### Key names
 
-The names are kvmd's, and they are the ones a browser reports in
+The names are kvmd's, and they are written the way a browser reports them in
 `KeyboardEvent.code` — `"KeyA"`, not `"a"`; `"Digit1"`, not `"1"`. Matching
 is case-sensitive, so `"keya"` is refused like any other name kvmd does not
-know.
+know. The two sets are not the same, though: kvmd knows 115 names and the
+DOM defines around 200, so forwarding a browser's `code` straight through
+will eventually hand it something it has no entry for — `F13` and
+`NumpadEqual` are real `code` values with no key behind them here.
 
-`KEY_NAMES` holds all 115 of them:
+`KEY_NAMES` holds every one kvmd does know:
 
 ```python
 from aiopikvm.resources.hid import KEY_NAMES
@@ -92,11 +95,11 @@ if key not in KEY_NAMES:
 await kvm.hid.send_key(key)
 ```
 
-Checking first is worth it for a name that came from somewhere you do not
-control, because the two transports fail differently and neither is loud:
-an HTTP call raises `APIError` with HTTP 400, while a key sent over the
-[WebSocket](websocket.md) is dropped inside kvmd's handler with no answer at
-all — nothing distinguishes a typo from a keystroke that landed.
+Over HTTP the check is a convenience — `send_key()` raises `APIError` with
+HTTP 400 and kvmd's own message naming the key. Over the
+[WebSocket](websocket.md) it is the only signal there is: kvmd drops the
+frame inside its handler and answers nothing, so a typo and a keystroke that
+landed look exactly alike.
 
 kvmd exposes the table through no endpoint, so `KEY_NAMES` is a copy: it was
 read off a device running kvmd 4.186 and is checked against that capture by

@@ -113,7 +113,13 @@ own `WEB_TO_EVDEV` table — every key name its validator accepts. No endpoint
 exposes it, so it was read off the device itself rather than off the wire,
 with the one-liner recorded in the manifest entry. It is what keeps
 `aiopikvm.resources.hid.KEY_NAMES` honest: a copy of a table nothing can
-fetch at runtime is exactly the kind of thing that drifts unnoticed.
+fetch at runtime is exactly the kind of thing that drifts unnoticed. Unlike
+the other hand-recorded files it carries no `description` of its own — it is
+kept as exactly what that command prints, so re-reading the table on a newer
+device diffs clean and any difference is a real one. The other half of the
+story is already in `ws_binary.json`, whose `key_unknown_name` step is a
+name kvmd refused over the socket, recorded with the inactivity counter that
+proves it never reached the HID.
 
 `ws_binary.json` is the other half of that socket: kvmd's binary channel, where
 the first byte of a frame is an operation number rather than JSON. Every frame

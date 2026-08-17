@@ -35,14 +35,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   movement. `squash` asks kvmd to add consecutive steps together where they fit
   into one report — fewer reports for the host, and nothing at all sent when a
   squashed batch adds up to zero (#60).
-- `aiopikvm.resources.hid.KEY_NAMES`, the 115 key names kvmd accepts —
-  the keys of its `WEB_TO_EVDEV` table, matched case-sensitively. Sending one
-  it does not know fails differently on each transport and quietly on both:
-  HTTP 400 from `send_key()` and `send_shortcut()`, and nothing whatsoever
-  from the WebSocket, which drops the frame inside kvmd's handler. No
-  endpoint exposes the table, so the catalogue is a copy read off a device
-  running kvmd 4.186 and pinned to that capture by a contract test; nothing
-  in the client enforces it, since a later kvmd may know more names (#77).
+- `aiopikvm.resources.hid.KEY_NAMES`, the 115 key names kvmd accepts — the
+  keys of its `WEB_TO_EVDEV` table, matched case-sensitively. Only one of the
+  two transports says when a name is wrong: `send_key()` and
+  `send_shortcut()` raise `APIError` with HTTP 400 and kvmd's own message,
+  while the WebSocket drops the frame inside kvmd's handler and answers
+  nothing at all. No endpoint exposes the table, so the catalogue is a copy
+  read off a device running kvmd 4.186 and pinned to that capture by a
+  contract test; nothing in the client enforces it, since a later kvmd may
+  know more names (#77).
 - `aiopikvm.resources.redfish.RESET_TYPES`, the six `ResetType` values kvmd
   accepts. The DMTF schema defines more, and kvmd refuses every one of them
   before taking any action (#78).
@@ -150,6 +151,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** `HIDResource.send_shortcut()` raises `ConfigurationError`
+  instead of `ValueError` when called with no keys, and now refuses a key
+  that is empty or holds a comma, a space or a tab. kvmd takes the shortcut
+  as one string and splits it on exactly those characters, dropping what
+  falls out empty — so `send_shortcut("ControlLeft", "")` used to press one
+  key, answer 200 and say nothing about the other, which is the kind of
+  silent miss `KEY_NAMES` exists to prevent. `ConfigurationError` is what the
+  other resources already raise for unusable arguments (#77).
 - `HIDResource.set_connected()` now says where it does anything. kvmd 4.186
   implements it only in the MCU-based backends (`hid.type` of `serial` or
   `spi`); under `otg`, `ch9329` and `bt` the call reaches a base

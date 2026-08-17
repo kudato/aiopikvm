@@ -184,7 +184,7 @@
     },
     "hid_keys": {
       "file": "hid_keys.json",
-      "description": "Every key name kvmd accepts: the keys of its WEB_TO_EVDEV table, sorted. Read off the device rather than off the wire \u2014 no endpoint exposes the table \u2014 with: python3 -c 'import json; from kvmd.keyboard.mappings import WEB_TO_EVDEV; print(json.dumps({\"keys\": sorted(WEB_TO_EVDEV)}))'"
+      "description": "Every key name kvmd accepts: the keys of its WEB_TO_EVDEV table, sorted. Read off the device rather than off the wire \u2014 no endpoint exposes the table \u2014 and kept verbatim, so re-running the command diffs clean: python3 -c 'import json; from kvmd.keyboard.mappings import WEB_TO_EVDEV; print(json.dumps({\"keys\": sorted(WEB_TO_EVDEV)}, indent=2))'"
     },
     "msd_downloading": {
       "file": "msd_downloading.json",

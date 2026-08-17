@@ -208,6 +208,29 @@ async def test_websocket_states_type_what_the_device_sends(live: PiKVM) -> None:
     assert isinstance(seen["hid"], HIDState)
 
 
+async def test_hid_refuses_a_key_it_has_no_name_for(live: PiKVM) -> None:
+    """A name outside ``KEY_NAMES`` is refused before anything is typed (#77).
+
+    Two POSTs that press nothing: kvmd runs every key through ``valid_hid_key``
+    before it touches the HID, and the names sent here are ones no version
+    could have. The shortcut is the interesting one — pairing a bad name with
+    a real modifier proves kvmd validates the whole list first, so a shortcut
+    with one typo types none of it rather than half of it.
+    """
+    for bad in (
+        ("aiopikvm-does-not-exist",),
+        ("ControlLeft", "aiopikvm-does-not-exist"),
+    ):
+        with pytest.raises(APIError) as caught:
+            if len(bad) == 1:
+                await live.hid.send_key(bad[0])
+            else:
+                await live.hid.send_shortcut(*bad)
+        assert caught.value.status_code == 400
+        assert caught.value.error == "ValidatorError"
+        assert "aiopikvm-does-not-exist" in (caught.value.error_msg or "")
+
+
 async def test_hid_mouse_reports_which_motion_it_takes(live: PiKVM) -> None:
     """Only one of the two motion events does anything, and this says which.
 
