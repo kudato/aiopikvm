@@ -14,12 +14,13 @@ import json
 import pkgutil
 import re
 from pathlib import Path
-from typing import Any, NamedTuple, TypeAliasType, get_args
+from types import ModuleType
+from typing import Any, Literal, NamedTuple, TypeAliasType, get_args, get_origin
 
 import pytest
 from pydantic import BaseModel
 
-import aiopikvm.resources
+import aiopikvm
 from aiopikvm import (
     ATXState,
     GPIOState,
@@ -35,6 +36,7 @@ from aiopikvm._ws import _STATE_MODELS, _as_state, _merge
 from aiopikvm.models.hid import _HIDInactivity
 from aiopikvm.resources.hid import KEY_NAMES, KeyboardOutput, MouseButton, MouseOutput
 from aiopikvm.resources.msd import Compression
+from aiopikvm.resources.redfish import ResetType
 from aiopikvm.resources.switch import ATXAction, ATXButton
 from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
@@ -253,6 +255,12 @@ _TYPED_VALUES = (
     # in the file.
     ("ATX action", r'atx_power\([^)\n]*"([^"\n]*)"', ATXAction),
     ("ATX button", r'atx_click\([^)\n]*"([^"\n]*)"', ATXButton),
+    # Four other resources have a ``reset()`` and none of them takes a name,
+    # so this one is matched through its resource: an unqualified pattern
+    # would collect a switch unit number and four empty calls. The guide
+    # spells refused types out too — ``GracefulRestart``, ``"forceoff"`` —
+    # deliberately, and neither is inside a call.
+    ("reset type", r'redfish\.reset\(\s*"([^"\n]*)"', ResetType),
 )
 _TYPE_TABLE = ROOT / "docs" / "guide" / "error-handling.md"
 _TYPE_HEADING = "## Values the type checker catches"
@@ -282,33 +290,46 @@ def test_documented_values_are_ones_the_type_allows(
     assert found <= allowed, sorted(found - allowed)
 
 
-_VOCABULARIES = 7
-"""How many of these types there are, so that finding none cannot pass."""
+def _modules() -> list[ModuleType]:
+    """Return every module in the package, the top-level one included.
+
+    ``walk_packages`` yields neither the package it is handed nor any
+    ``__init__``, and both are places a public name legitimately lives.
+    """
+    return [
+        aiopikvm,
+        *(
+            importlib.import_module(info.name)
+            for info in pkgutil.walk_packages(aiopikvm.__path__, "aiopikvm.")
+        ),
+    ]
 
 
-def _aliases() -> dict[str, TypeAliasType]:
-    """Return every vocabulary type the resource modules define, by name.
+def _vocabularies() -> dict[str, TypeAliasType]:
+    """Return every literal type the library defines, by name.
 
     Read out of the modules, and out of every module in the package rather
     than a list of the interesting ones: a hand-written inventory catches
     only a type somebody remembered to add to *it*, and a hand-written list
-    of modules stops covering one that gets renamed or split.
+    of modules stops covering one that gets renamed, split or moved.
+
+    Only ``Literal`` aliases count. The style guide asks for ``type``
+    aliases generally, so an ordinary one — ``type Params = dict[str,
+    Any]`` — will turn up in a resource module sooner or later, and it has
+    no vocabulary for the guide to spell out.
     """
     aliases = {
         name: value
-        for info in pkgutil.iter_modules(aiopikvm.resources.__path__)
-        for module in [importlib.import_module(f"aiopikvm.resources.{info.name}")]
+        for module in _modules()
         for name, value in vars(module).items()
         if not name.startswith("_")
         and isinstance(value, TypeAliasType)
         and value.__module__ == module.__name__
+        and get_origin(value.__value__) is Literal
     }
-    # Everything below compares this against the docs. Left to itself an
-    # inventory that came back short — or empty — would agree with a table
-    # filtered by the same names and prove nothing at all.
-    assert len(aliases) == _VOCABULARIES, (
-        f"expected {_VOCABULARIES} vocabulary types, found {sorted(aliases)}"
-    )
+    # Everything below compares this against the docs, so an empty side
+    # would agree with an empty table and prove nothing at all.
+    assert aliases, "no vocabulary type found at all; the scan stopped working"
     return aliases
 
 
@@ -337,6 +358,7 @@ def _type_table() -> dict[str, list[str]]:
             "" if value == '""' else value
             for value in re.findall(r"`([^`]*)`", cells[2])
         ]
+    assert rows, f"the {_TYPE_HEADING!r} section no longer holds a table"
     return rows
 
 
@@ -346,10 +368,10 @@ def test_the_guide_lists_every_typed_vocabulary() -> None:
     Both halves are read off the source: add a vocabulary to a resource
     module and this fails until the guide's table has a row for it.
     """
-    assert set(_type_table()) == set(_aliases())
+    assert set(_type_table()) == set(_vocabularies())
 
 
-@pytest.mark.parametrize("name", sorted(_aliases()))
+@pytest.mark.parametrize("name", sorted(_vocabularies()))
 def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     """Each row of that table is its type's values, all of them (#68).
 
@@ -359,7 +381,7 @@ def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
     """
     listed = _type_table()[name]
     assert len(listed) == len(set(listed)), f"the guide repeats a value: {listed}"
-    assert set(listed) == set(get_args(_aliases()[name].__value__))
+    assert set(listed) == set(get_args(_vocabularies()[name].__value__))
 
 
 def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:

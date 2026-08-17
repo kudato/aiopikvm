@@ -146,9 +146,11 @@ async for chunk in kvm.msd.download("boot.iso", compress="zstd"):
     ...
 ```
 
-`compress` is typed as `Compression`: `"lzma"`, `"zstd"`, or `""`/`"none"`
-for the image verbatim. The Pi does the compressing, so the two real modes
-trade transfer size against how fast the device can fill the connection.
+`compress` is typed as
+[`Compression`](error-handling.md#values-the-type-checker-catches), which has
+a mode for the image verbatim as well as the two real ones. The Pi does the
+compressing, so those two trade transfer size against how fast the device can
+fill the connection.
 
 ## Drive parameters
 

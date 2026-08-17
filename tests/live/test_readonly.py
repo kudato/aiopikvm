@@ -142,9 +142,14 @@ async def test_redfish_refuses_an_unknown_reset_type(live: PiKVM) -> None:
     This is the one POST in this file, and it changes nothing: kvmd validates
     ``ResetType`` against its list before dispatching anything, and the value
     sent here is deliberately one no version could ever implement.
+
+    ``ResetType`` narrows the parameter for a type checker only, so the value
+    still goes out over the wire and comes back a 400. CI type-checks ``src/``
+    alone, so the ignore below documents the deliberate violation rather than
+    being verified by anything (#68).
     """
     with pytest.raises(APIError) as info:
-        await live.redfish.reset("aiopikvm-does-not-exist")
+        await live.redfish.reset("aiopikvm-does-not-exist")  # type: ignore[arg-type]
     assert info.value.status_code == 400
 
 
