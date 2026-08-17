@@ -51,7 +51,9 @@ class HIDState(_Base):
 
     Mirrors the shape returned by ``GET /api/hid``. ``connected`` reports
     whether the target host has the HID plugged in, and only MCU-based
-    backends can tell — it is ``None`` on OTG.
+    backends can tell — it is ``None`` on OTG. Those are the same backends
+    that implement :meth:`HIDResource.set_connected`, so a ``None`` here is
+    also what says that call would do nothing.
     """
 
     enabled: bool

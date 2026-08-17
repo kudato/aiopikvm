@@ -158,11 +158,17 @@ async def test_reset(mock_api: respx.MockRouter, client: PiKVM) -> None:
     await client.hid.reset()
 
 
-async def test_set_connected(mock_api: respx.MockRouter, client: PiKVM) -> None:
+@pytest.mark.parametrize(("connected", "sent"), [(True, "1"), (False, "0")])
+async def test_set_connected(
+    mock_api: respx.MockRouter, client: PiKVM, connected: bool, sent: str
+) -> None:
+    # kvmd reads the flag through its bool validator, which takes 1/0 — and
+    # rejects the request outright if the parameter is missing.
     mock_api.post("/api/hid/set_connected").mock(
         return_value=httpx.Response(200, json=OK)
     )
-    await client.hid.set_connected(True)
+    await client.hid.set_connected(connected)
+    assert mock_api.calls[-1].request.url.params["connected"] == sent
 
 
 async def test_set_params(mock_api: respx.MockRouter, client: PiKVM) -> None:

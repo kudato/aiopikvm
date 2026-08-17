@@ -147,14 +147,30 @@ keyboard offers no choice at all, while its mouse still switches between
 
 ## Connection control
 
+`set_connected()` unplugs the emulated keyboard and mouse from the target
+host, and plugs them back in. **Only MCU-based boards do it** — the Arduino
+or Pico wired over serial or SPI, which is what a v1 board and a DIY build
+use. A v2 or v3 runs the OTG backend, where kvmd accepts the call, answers
+200 and does nothing: no plugin but the MCU one implements it, and the base
+implementation ignores its argument.
+
+Nothing in the response says which of the two happened, so read the state:
+
 ```python
-# Disconnect HID
-await kvm.hid.set_connected(False)
+state = await kvm.hid.get_state()
+if state.connected is None:
+    print("This board cannot unplug its HID; set_connected() would do nothing")
+else:
+    await kvm.hid.set_connected(False)  # host stops seeing the keyboard
+    await kvm.hid.set_connected(True)
+```
 
-# Reconnect HID
-await kvm.hid.set_connected(True)
+`reset()` is a different thing and every backend implements it. kvmd drops
+the input still queued and releases the keys and buttons the host sees as
+held — which is what to reach for after a script died mid-shortcut and left
+a modifier stuck:
 
-# Reset HID subsystem
+```python
 await kvm.hid.reset()
 ```
 

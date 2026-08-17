@@ -58,15 +58,35 @@ class HIDResource(BaseResource):
         await self._post("/api/hid/set_params", params=params)
 
     async def set_connected(self, connected: bool) -> None:
-        """Set the HID connection state.
+        """Unplug the emulated HID from the target host, or plug it back in.
+
+        Only the MCU-based HID backends do this — the Arduino or Pico wired
+        over serial or SPI, which is what a v1 board and a DIY build use. On
+        every other backend, the OTG one of a v2 or v3 board included, kvmd
+        accepts the call, answers 200 and does nothing at all: the base
+        implementation ignores its argument and no plugin but the MCU one
+        overrides it.
+
+        ``HIDState.connected`` is the signal to read first. A backend that
+        cannot unplug the HID reports ``None`` there, so a ``None`` before
+        this call means the call is a no-op, and the value never becoming
+        what was asked for means the same thing. Reading it back is the only
+        way to tell: nothing in the response says whether anything happened.
+
+        :meth:`reset` is not affected — every backend implements that one.
 
         Args:
-            connected: Whether HID should be connected.
+            connected: Whether the host should see the HID as plugged in.
         """
         await self._post("/api/hid/set_connected", params={"connected": int(connected)})
 
     async def reset(self) -> None:
-        """Reset the HID subsystem."""
+        """Reset the HID subsystem.
+
+        Every backend implements this, unlike :meth:`set_connected`: kvmd
+        drops the input still queued and releases the keys and buttons the
+        host sees as held, and an MCU board resets the microcontroller too.
+        """
         await self._post("/api/hid/reset")
 
     async def get_keymaps(self) -> HIDKeymaps:
