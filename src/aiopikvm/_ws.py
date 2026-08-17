@@ -21,7 +21,7 @@ import logging
 import ssl
 import struct
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from types import TracebackType
 from typing import Any, NamedTuple, Self
 from urllib.parse import urlparse, urlunparse
@@ -44,6 +44,7 @@ _OP_PING = 0
 _OP_KEY = 1
 _OP_MOUSE_BUTTON = 2
 _OP_MOUSE_MOVE = 3
+_OP_MOUSE_RELATIVE = 4
 _OP_MOUSE_WHEEL = 5
 _OP_PONG = 255
 """kvmd's binary operations, as dispatched by ``exposed_ws(<int>)``."""
@@ -725,19 +726,159 @@ class PiKVMWebSocket:
             WebSocketError: The client is not connected, or the connection
                 broke before the frame could be sent.
         """
+        await self._send_delta(_OP_MOUSE_WHEEL, "mouse_wheel", delta_x, delta_y)
+
+    async def send_mouse_wheel_batch(
+        self, deltas: Iterable[tuple[int, int]], *, squash: bool = False
+    ) -> None:
+        """Send several wheel steps in one frame.
+
+        Args:
+            deltas: ``(delta_x, delta_y)`` steps, in the order they happened.
+                An empty batch is a frame kvmd does nothing with.
+            squash: Ask kvmd to add the steps together instead of reporting
+                each one. See :meth:`send_mouse_relative_batch`, which squashes
+                by the same rule.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
+        await self._send_deltas(_OP_MOUSE_WHEEL, "mouse_wheel", deltas, squash=squash)
+
+    async def send_mouse_relative(self, delta_x: int, delta_y: int) -> None:
+        """Move the mouse by an amount, rather than to a position.
+
+        This needs the mouse in a relative mode: kvmd drops a relative event
+        while the current mouse is absolute, and drops
+        :meth:`send_mouse_move` while it is relative — in both cases without
+        a word to the sender. ``kvm.hid.set_params(mouse_output="usb_rel")``
+        switches it, and ``HIDState.mouse.absolute`` says which mode is on.
+
+        Deltas are steps in kvmd's own range, -127 to 127, clamped rather than
+        rejected — by kvmd for a JSON event and here for a binary one, which
+        has nowhere to put a larger number. A gesture longer than one step
+        therefore takes several events, which is what
+        :meth:`send_mouse_relative_batch` is for.
+
+        Args:
+            delta_x: Horizontal step, -127 to 127. Positive moves right.
+            delta_y: Vertical step, -127 to 127. Positive moves down.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
+        await self._send_delta(_OP_MOUSE_RELATIVE, "mouse_relative", delta_x, delta_y)
+
+    async def send_mouse_relative_batch(
+        self, deltas: Iterable[tuple[int, int]], *, squash: bool = False
+    ) -> None:
+        """Send several relative steps in one frame.
+
+        One frame for a burst of movement is what kvmd's own web UI does: it
+        collects the deltas a mouse produced between two screen refreshes and
+        sends them together, rather than a frame per browser event.
+
+        With *squash*, kvmd adds consecutive steps up instead of reporting
+        each one, and starts a new sum whenever the running total would leave
+        the -127 to 127 a HID report can carry. Fewer reports reach the host
+        that way, at the cost of the shape of the path between them — and a
+        batch that adds up to nothing sends nothing at all, since kvmd drops a
+        final sum of ``(0, 0)``.
+
+        Args:
+            deltas: ``(delta_x, delta_y)`` steps, in the order they happened.
+                An empty batch is a frame kvmd does nothing with.
+            squash: Add the steps together where they fit into one report.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
+        await self._send_deltas(
+            _OP_MOUSE_RELATIVE, "mouse_relative", deltas, squash=squash
+        )
+
+    async def _send_delta(
+        self, op: int, event_type: str, delta_x: int, delta_y: int
+    ) -> None:
+        """Send one step of a delta event.
+
+        A single step keeps the shape kvmd's own web UI sends for one: a
+        ``delta`` object rather than a list of one, and no squash flag, which
+        means nothing for a step that has nothing to be added to.
+
+        Args:
+            op: kvmd operation number for the binary encoding.
+            event_type: kvmd event name for the JSON encoding.
+            delta_x: Horizontal step.
+            delta_y: Vertical step.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
         if self._binary:
-            # The leading byte is kvmd's squash flag, which only means
-            # anything for a batch of deltas; one step is one step.
-            packed = b"\x00" + struct.pack(
-                ">bb",
-                _clamp(delta_x, _DELTA_MIN, _DELTA_MAX),
-                _clamp(delta_y, _DELTA_MIN, _DELTA_MAX),
+            await self._send_bin(
+                op, b"\x00" + _pack_delta(delta_x, delta_y), event_type
             )
-            await self._send_bin(_OP_MOUSE_WHEEL, packed, "mouse_wheel")
+        else:
+            await self._send_event(event_type, {"delta": {"x": delta_x, "y": delta_y}})
+
+    async def _send_deltas(
+        self,
+        op: int,
+        event_type: str,
+        deltas: Iterable[tuple[int, int]],
+        *,
+        squash: bool,
+    ) -> None:
+        """Send a batch of steps of a delta event.
+
+        Args:
+            op: kvmd operation number for the binary encoding.
+            event_type: kvmd event name for the JSON encoding.
+            deltas: The steps, in the order they happened.
+            squash: Ask kvmd to add them together where they fit one report.
+
+        Raises:
+            WebSocketError: The client is not connected, or the connection
+                broke before the frame could be sent.
+        """
+        steps = list(deltas)
+        if self._binary:
+            payload = bytes([0b01 if squash else 0]) + b"".join(
+                _pack_delta(delta_x, delta_y) for (delta_x, delta_y) in steps
+            )
+            await self._send_bin(op, payload, event_type)
         else:
             await self._send_event(
-                "mouse_wheel", {"delta": {"x": delta_x, "y": delta_y}}
+                event_type,
+                {
+                    "delta": [
+                        {"x": delta_x, "y": delta_y} for (delta_x, delta_y) in steps
+                    ],
+                    "squash": squash,
+                },
             )
+
+
+def _pack_delta(delta_x: int, delta_y: int) -> bytes:
+    """Pack one step the way kvmd's binary delta handlers unpack it.
+
+    Args:
+        delta_x: Horizontal step.
+        delta_y: Vertical step.
+
+    Returns:
+        The pair as two signed bytes, clamped into the range that fits.
+    """
+    return struct.pack(
+        ">bb",
+        _clamp(delta_x, _DELTA_MIN, _DELTA_MAX),
+        _clamp(delta_y, _DELTA_MIN, _DELTA_MAX),
+    )
 
 
 def _clamp(value: int, low: int, high: int) -> int:

@@ -643,6 +643,57 @@ async def test_send_mouse_wheel() -> None:
     }
 
 
+async def test_send_mouse_relative() -> None:
+    """kvmd takes a single step as an object, the way its web UI sends it."""
+    ws, conn = connected()
+    await ws.send_mouse_relative(3, -4)
+    assert sent(conn) == {
+        "event_type": "mouse_relative",
+        "event": {"delta": {"x": 3, "y": -4}},
+    }
+
+
+@pytest.mark.parametrize(
+    ("method", "event_type"),
+    [
+        ("send_mouse_relative_batch", "mouse_relative"),
+        ("send_mouse_wheel_batch", "mouse_wheel"),
+    ],
+)
+@pytest.mark.parametrize("squash", [False, True])
+async def test_send_delta_batch(method: str, event_type: str, squash: bool) -> None:
+    """A batch is a list of deltas plus the flag kvmd reads beside it (#60)."""
+    ws, conn = connected()
+    await getattr(ws, method)([(1, 2), (3, 4)], squash=squash)
+    assert sent(conn) == {
+        "event_type": event_type,
+        "event": {
+            "delta": [{"x": 1, "y": 2}, {"x": 3, "y": 4}],
+            "squash": squash,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "method", ["send_mouse_relative_batch", "send_mouse_wheel_batch"]
+)
+async def test_send_delta_batch_takes_any_iterable(method: str) -> None:
+    """A caller draining a queue should not have to build a list first."""
+    ws, conn = connected()
+    await getattr(ws, method)((step, -step) for step in (1, 2))
+    assert sent(conn)["event"]["delta"] == [{"x": 1, "y": -1}, {"x": 2, "y": -2}]
+
+
+@pytest.mark.parametrize(
+    "method", ["send_mouse_relative_batch", "send_mouse_wheel_batch"]
+)
+async def test_send_an_empty_delta_batch(method: str) -> None:
+    """kvmd builds an empty delta list and does nothing with it."""
+    ws, conn = connected()
+    await getattr(ws, method)([])
+    assert sent(conn)["event"] == {"delta": [], "squash": False}
+
+
 async def test_send_on_a_broken_connection() -> None:
     """A dead socket must not leak the websockets exception to the caller."""
     ws, conn = connected()
@@ -756,6 +807,62 @@ async def test_binary_mouse_wheel_clamps() -> None:
     ws, conn = connected(binary=True)
     await ws.send_mouse_wheel(1000, -1000)
     assert sent_bytes(conn) == bytes([5, 0]) + struct.pack(">bb", 127, -127)
+
+
+async def test_binary_mouse_relative() -> None:
+    """op 4 has the same shape as the wheel: a squash flag, then pairs (#60)."""
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_relative(3, -4)
+    assert sent_bytes(conn) == frame("mouse_relative")
+    assert sent_bytes(conn) == bytes([4, 0]) + struct.pack(">bb", 3, -4)
+
+
+@pytest.mark.parametrize(
+    ("method", "op"),
+    [("send_mouse_relative_batch", 4), ("send_mouse_wheel_batch", 5)],
+)
+@pytest.mark.parametrize(("squash", "flag"), [(False, 0b00), (True, 0b01)])
+async def test_binary_delta_batch(
+    method: str, op: int, squash: bool, flag: int
+) -> None:
+    """kvmd reads the flag out of the first byte, then unpacks pairs (#60)."""
+    ws, conn = connected(binary=True)
+    await getattr(ws, method)([(1, 2), (-3, -4)], squash=squash)
+    assert sent_bytes(conn) == bytes([op, flag]) + struct.pack(">bbbb", 1, 2, -3, -4)
+
+
+async def test_binary_relative_batch_matches_the_recorded_frame() -> None:
+    """The device took this one, pairs and all (#60)."""
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_relative_batch([(1, 2), (-3, -4)])
+    assert sent_bytes(conn) == frame("mouse_relative_batch")
+
+
+async def test_binary_squashed_wheel_batch_matches_the_recorded_frame() -> None:
+    """kvmd added these two steps into one report when it was recorded (#60)."""
+    ws, conn = connected(binary=True)
+    await ws.send_mouse_wheel_batch([(0, -1), (0, -1)], squash=True)
+    assert sent_bytes(conn) == frame("mouse_wheel_batch_squashed")
+
+
+@pytest.mark.parametrize(
+    "method", ["send_mouse_relative_batch", "send_mouse_wheel_batch"]
+)
+async def test_binary_delta_batch_clamps_every_step(method: str) -> None:
+    ws, conn = connected(binary=True)
+    await getattr(ws, method)([(1000, 0), (0, -1000)])
+    assert sent_bytes(conn)[2:] == struct.pack(">bbbb", 127, 0, 0, -127)
+
+
+@pytest.mark.parametrize(
+    ("method", "op"),
+    [("send_mouse_relative_batch", 4), ("send_mouse_wheel_batch", 5)],
+)
+async def test_binary_empty_delta_batch(method: str, op: int) -> None:
+    """The frame is the op and the flag; kvmd's unpack loop runs zero times."""
+    ws, conn = connected(binary=True)
+    await getattr(ws, method)([])
+    assert sent_bytes(conn) == bytes([op, 0])
 
 
 async def test_binary_ping_frame() -> None:
