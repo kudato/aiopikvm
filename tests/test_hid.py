@@ -113,13 +113,17 @@ async def test_send_shortcut_no_keys(mock_api: respx.MockRouter, client: PiKVM) 
         await client.hid.send_shortcut()
 
 
-@pytest.mark.parametrize("key", ["", "Control Left", "ControlLeft,KeyC", "\t"])
+@pytest.mark.parametrize(
+    "key", ["", "Control Left", "ControlLeft,KeyC", "\t", "\n", "\xa0", "KeyA\r"]
+)
 async def test_send_shortcut_refuses_a_key_kvmd_would_split(
     mock_api: respx.MockRouter, client: PiKVM, key: str
 ) -> None:
-    # kvmd takes `keys` as one string and splits it on [,\t ]+, dropping what
-    # comes out empty. An empty key would vanish and the rest of the shortcut
-    # would be pressed with nothing said about it, so refuse it here instead.
+    # kvmd takes `keys` as one string, strips it, splits it on [,\t ]+ and
+    # drops what comes out empty. The strip is why every whitespace character
+    # counts and not just the two in the split: a "\n" key at either end of
+    # the shortcut is trimmed away as surely as an empty one, and the rest is
+    # pressed with nothing said about the key that vanished.
     with pytest.raises(ConfigurationError, match="cannot be part of a shortcut"):
         await client.hid.send_shortcut("ControlLeft", key)
     # No route is registered: a request escaping the check would fail here.

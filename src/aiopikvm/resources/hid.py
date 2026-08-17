@@ -7,8 +7,15 @@ from aiopikvm._base_resource import BaseResource
 from aiopikvm._exceptions import ConfigurationError
 from aiopikvm.models.hid import HIDKeymaps, HIDState, _HIDInactivity
 
-_SPLIT_CHARS = re.compile(r"[,\t ]")
-"""What kvmd splits a shortcut on, from its ``valid_string_list`` default."""
+_LOST_IN_A_SHORTCUT = re.compile(r"[,\s]")
+"""What a shortcut key cannot contain and still arrive as itself.
+
+kvmd takes the list as one string, strips it, splits it on ``[,\\t ]+`` and
+drops what comes out empty. The strip is why this is every whitespace
+character and not only the two the split names: a key of ``"\\n"`` at either
+end of the shortcut is trimmed off and then filtered away, exactly like an
+empty one.
+"""
 
 KEY_NAMES = frozenset({
     "AltLeft", "AltRight", "ArrowDown", "ArrowLeft", "ArrowRight",
@@ -38,11 +45,13 @@ is why they read like ``"KeyA"`` and ``"Digit1"`` rather than ``"a"`` and
 ``"1"``. Anything else is refused — ``"keya"`` and ``"a"`` included.
 
 Only one of the two transports says so. An HTTP call raises
-:class:`APIError` with HTTP 400 and kvmd's own message naming the key it
-would not take; a key sent over the WebSocket is dropped inside kvmd's
-handler with no answer of any kind, and nothing there tells a typo from a
-keystroke that landed. Checking a name that came from somewhere untrusted
-is what stands in for the answer the socket does not give::
+:class:`APIError` with HTTP 400, and its message names the key kvmd would
+not take — unless the name runs past 16 characters, which its validator
+refuses on length before it ever looks at the name. A key sent over the
+WebSocket is dropped inside kvmd's handler with no answer of any kind, and
+nothing there tells a typo from a keystroke that landed. Checking a name
+that came from somewhere untrusted is what stands in for the answer the
+socket does not give::
 
     if key not in KEY_NAMES:
         raise ValueError(f"kvmd has no key named {key!r}")
@@ -240,12 +249,13 @@ class HIDResource(BaseResource):
 
         Raises:
             ConfigurationError: If no keys are given, or if one of them is
-                empty or holds a comma, a space or a tab. kvmd takes the
-                shortcut as one string and splits it on exactly those
-                characters, throwing away what falls out empty, so such a key
-                would not survive the trip — an empty one vanishes and the
+                empty or holds a comma or any whitespace. kvmd takes the
+                shortcut as one string, strips it, splits it on commas,
+                spaces and tabs and throws away what falls out empty, so
+                such a key would not survive the trip: it vanishes and the
                 rest of the shortcut is pressed as if it had never been
-                asked for. No name in :data:`KEY_NAMES` contains any of them.
+                asked for. No name in :data:`KEY_NAMES` contains any of
+                those characters.
             APIError: If kvmd has no key by one of those names (HTTP 400).
                 It validates the whole list before pressing anything, so a
                 shortcut with one bad name sends nothing at all.
@@ -253,10 +263,10 @@ class HIDResource(BaseResource):
         if not keys:
             raise ConfigurationError("send_shortcut() requires at least one key")
         for key in keys:
-            if not key or _SPLIT_CHARS.search(key):
+            if not key or _LOST_IN_A_SHORTCUT.search(key):
                 raise ConfigurationError(
                     f"{key!r} cannot be part of a shortcut: kvmd splits the "
-                    "list on commas, spaces and tabs, and drops what is empty"
+                    "list on commas and whitespace, and drops what is empty"
                 )
         # The PiKVM endpoint reads `keys` as a single comma-separated value;
         # passing a list makes httpx send repeated params (keys=A&keys=B) and

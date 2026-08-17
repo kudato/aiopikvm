@@ -34,7 +34,7 @@ from aiopikvm.resources.hid import KEY_NAMES
 from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
 
-DOCS_DIR = Path(__file__).parent.parent / "docs"
+ROOT = Path(__file__).parent.parent
 
 
 class Case(NamedTuple):
@@ -215,16 +215,18 @@ def test_key_names_match_the_device_table() -> None:
 
 
 def test_documented_key_names_are_ones_kvmd_accepts() -> None:
-    """No example in the docs or the README types a key that does not exist.
+    """No example in the docs, the README or a docstring types a missing key.
 
     A wrong name in an example fails with HTTP 400 over HTTP and with nothing
     at all over the WebSocket, which is exactly the failure this catalogue
     exists to prevent (#77).
     """
     calls = re.compile(r"send_(?:key|shortcut)\(([^)]*)\)")
+    sources = [*ROOT.joinpath("docs").rglob("*.md"), ROOT / "README.md"]
+    sources += ROOT.joinpath("src").rglob("*.py")
     names = {
         name
-        for path in [*DOCS_DIR.rglob("*.md"), DOCS_DIR.parent / "README.md"]
+        for path in sources
         for call in calls.findall(path.read_text(encoding="utf-8"))
         for name in re.findall(r'"([^"]*)"', call)
     }

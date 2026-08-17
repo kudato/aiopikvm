@@ -96,7 +96,8 @@ await kvm.hid.send_key(key)
 ```
 
 Over HTTP the check is a convenience — `send_key()` raises `APIError` with
-HTTP 400 and kvmd's own message naming the key. Over the
+HTTP 400, and the message names the offending key unless it is longer than
+16 characters, which kvmd's validator refuses on length alone. Over the
 [WebSocket](websocket.md) it is the only signal there is: kvmd drops the
 frame inside its handler and answers nothing, so a typo and a keystroke that
 landed look exactly alike.

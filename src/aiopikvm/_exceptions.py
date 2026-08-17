@@ -18,8 +18,10 @@ class PiKVMError(Exception):
 class ConfigurationError(PiKVMError):
     """The client cannot use what it was given.
 
-    Raised for a base URL without a usable scheme and for credentials that
-    cannot be put into HTTP headers.
+    Raised before anything reaches the device: a base URL without a usable
+    scheme, credentials that cannot be put into HTTP headers, and arguments
+    the API could not carry — a call with no parameters at all, or a value
+    that kvmd's own encoding would silently mangle on the way in.
     """
 
 
