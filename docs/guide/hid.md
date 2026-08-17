@@ -75,6 +75,39 @@ await kvm.hid.send_key("KeyA", state=True)
 await kvm.hid.send_key("KeyA", state=False)
 ```
 
+### Key names
+
+The names are kvmd's, and they are written the way a browser reports them in
+`KeyboardEvent.code` — `"KeyA"`, not `"a"`; `"Digit1"`, not `"1"`. Matching
+is case-sensitive, so `"keya"` is refused like any other name kvmd does not
+know. The two sets are not the same, though: kvmd knows 115 names and the
+DOM defines around 200, so forwarding a browser's `code` straight through
+will eventually hand it something it has no entry for — `F13` and
+`NumpadEqual` are real `code` values with no key behind them here.
+
+`KEY_NAMES` holds every one kvmd does know:
+
+```python
+from aiopikvm.resources.hid import KEY_NAMES
+
+if key not in KEY_NAMES:
+    raise ValueError(f"kvmd has no key named {key!r}")
+await kvm.hid.send_key(key)
+```
+
+Over HTTP the check is a convenience — `send_key()` raises `APIError` with
+HTTP 400, and the message names the offending key unless it is longer than
+16 characters, which kvmd's validator refuses on length alone. Over the
+[WebSocket](websocket.md) it is the only signal there is: kvmd drops the
+frame inside its handler and answers nothing, so a typo and a keystroke that
+landed look exactly alike.
+
+kvmd exposes the table through no endpoint, so `KEY_NAMES` is a copy: it was
+read off a device running kvmd 4.186 and is checked against that capture by
+the test suite. A device on another version may know names it does not list,
+which is why nothing in the client enforces it — a name outside the set is
+sent as given.
+
 ## Keyboard shortcuts
 
 ```python

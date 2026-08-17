@@ -756,7 +756,11 @@ class PiKVMWebSocket:
 
         Args:
             key: Key name, one of kvmd's web names such as ``"KeyA"`` or
-                ``"ControlLeft"``. kvmd ignores an event it cannot map.
+                ``"ControlLeft"``; ``aiopikvm.resources.hid.KEY_NAMES`` holds
+                every one of them. kvmd ignores an event it cannot map, and
+                over this socket it does so without an answer of any kind —
+                there is no 400 here to tell a typo from a keystroke that
+                landed.
             state: ``True`` for press, ``False`` for release. kvmd holds the
                 key until the release arrives.
 

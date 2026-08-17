@@ -10,6 +10,8 @@ fact that the contract is now satisfied.
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from typing import Any, NamedTuple
 
 import pytest
@@ -28,8 +30,11 @@ from aiopikvm import (
 )
 from aiopikvm._ws import _STATE_MODELS, _as_state, _merge
 from aiopikvm.models.hid import _HIDInactivity
+from aiopikvm.resources.hid import KEY_NAMES
 from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
+
+ROOT = Path(__file__).parent.parent
 
 
 class Case(NamedTuple):
@@ -195,6 +200,37 @@ def test_every_captured_event_parses_into_its_model() -> None:
     assert parsed == set(_STATE_MODELS), (
         "the capture must exercise every subsystem the states API types"
     )
+
+
+def test_key_names_match_the_device_table() -> None:
+    """The exported catalogue is kvmd's own table, name for name (#77).
+
+    kvmd exposes it through no endpoint, so the fixture is the table read off
+    the device itself and this is what keeps the copy in the library honest.
+    """
+    assert KEY_NAMES == set(load_json("hid_keys")["keys"])
+    # The docs and the changelog quote the count; pin it so refreshing the
+    # fixture from a newer kvmd cannot leave them quietly wrong.
+    assert len(KEY_NAMES) == 115
+
+
+def test_documented_key_names_are_ones_kvmd_accepts() -> None:
+    """No example in the docs or the README types a key that does not exist.
+
+    A wrong name in an example fails with HTTP 400 over HTTP and with nothing
+    at all over the WebSocket, which is exactly the failure this catalogue
+    exists to prevent (#77).
+    """
+    calls = re.compile(r"send_(?:key|shortcut)\(([^)]*)\)")
+    sources = [*ROOT.joinpath("docs").rglob("*.md"), ROOT / "README.md"]
+    names = {
+        name
+        for path in sources
+        for call in calls.findall(path.read_text(encoding="utf-8"))
+        for name in re.findall(r'"([^"]*)"', call)
+    }
+    assert names, "no key name found in the docs; the pattern stopped matching"
+    assert names <= KEY_NAMES, sorted(names - KEY_NAMES)
 
 
 def test_the_capture_contains_a_partial_update() -> None:

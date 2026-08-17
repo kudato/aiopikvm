@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import PiKVM
+from aiopikvm import ConfigurationError, PiKVM
 from tests.fixtures import load_json
 
 OK = {"ok": True, "result": {}}
@@ -109,8 +109,25 @@ async def test_send_shortcut(mock_api: respx.MockRouter, client: PiKVM) -> None:
 
 
 async def test_send_shortcut_no_keys(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    with pytest.raises(ValueError, match="at least one key"):
+    with pytest.raises(ConfigurationError, match="at least one key"):
         await client.hid.send_shortcut()
+
+
+@pytest.mark.parametrize(
+    "key", ["", "Control Left", "ControlLeft,KeyC", "\t", "\n", "\xa0", "KeyA\r"]
+)
+async def test_send_shortcut_refuses_a_key_kvmd_would_split(
+    mock_api: respx.MockRouter, client: PiKVM, key: str
+) -> None:
+    # kvmd takes `keys` as one string, strips it, splits it on [,\t ]+ and
+    # drops what comes out empty. The strip is why every whitespace character
+    # counts and not just the two in the split: a "\n" key at either end of
+    # the shortcut is trimmed away as surely as an empty one, and the rest is
+    # pressed with nothing said about the key that vanished.
+    with pytest.raises(ConfigurationError, match="cannot be part of a shortcut"):
+        await client.hid.send_shortcut("ControlLeft", key)
+    # No route is registered: a request escaping the check would fail here.
+    assert not mock_api.calls, "nothing may go out once a key is refused"
 
 
 async def test_send_mouse_move(mock_api: respx.MockRouter, client: PiKVM) -> None:

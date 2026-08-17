@@ -208,6 +208,42 @@ async def test_websocket_states_type_what_the_device_sends(live: PiKVM) -> None:
     assert isinstance(seen["hid"], HIDState)
 
 
+async def test_hid_refuses_a_key_it_has_no_name_for(live: PiKVM) -> None:
+    """A name outside ``KEY_NAMES`` is refused before anything is typed (#77).
+
+    Two POSTs that press nothing: kvmd runs every key through
+    ``valid_hid_key`` before it touches the HID, and ``"NoSuchKey"`` is a name
+    no version has. It is deliberately short — the validator refuses anything
+    over 16 characters on length alone, with a message that names no key.
+
+    The shortcut is the one worth asking about, and the answer is not in the
+    response: a kvmd that pressed ``ControlLeft`` first and only then refused
+    would return the same 400 and the same message. The inactivity counter is
+    what tells them apart, since kvmd bumps it from inside the HID call — an
+    unchanged one is the device saying nothing was pressed.
+    """
+    if (await live.hid.get_state()).jiggler.active:
+        pytest.skip("the jiggler resets the inactivity counter on its own")
+    before = await live.hid.get_inactivity()
+    assert before > 0, "nothing may have touched the HID just before this"
+
+    with pytest.raises(APIError) as caught:
+        await live.hid.send_key("NoSuchKey")
+    assert caught.value.status_code == 400
+    assert caught.value.error == "ValidatorError"
+    assert "NoSuchKey" in (caught.value.error_msg or "")
+
+    with pytest.raises(APIError) as caught:
+        await live.hid.send_shortcut("ControlLeft", "NoSuchKey")
+    assert caught.value.status_code == 400
+    assert caught.value.error == "ValidatorError"
+
+    assert await live.hid.get_inactivity() >= before, (
+        "the refused shortcut pressed something: kvmd validates the list "
+        "before it presses any of it, so the counter must not have reset"
+    )
+
+
 async def test_hid_mouse_reports_which_motion_it_takes(live: PiKVM) -> None:
     """Only one of the two motion events does anything, and this says which.
 

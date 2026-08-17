@@ -1,9 +1,68 @@
 """HID API — keyboard, mouse, text input."""
 
+import re
 from typing import Any
 
 from aiopikvm._base_resource import BaseResource
+from aiopikvm._exceptions import ConfigurationError
 from aiopikvm.models.hid import HIDKeymaps, HIDState, _HIDInactivity
+
+_LOST_IN_A_SHORTCUT = re.compile(r"[,\s]")
+"""What a shortcut key cannot contain and still arrive as itself.
+
+kvmd takes the list as one string, strips it, splits it on ``[,\\t ]+`` and
+drops what comes out empty; then its key validator strips each item again.
+That is why this is every whitespace character and not only the two the
+split names — a key of ``"\\n"`` is trimmed away like an empty one, and a
+padded ``"KeyA\\r"`` arrives as a different key than the one asked for.
+"""
+
+KEY_NAMES = frozenset({
+    "AltLeft", "AltRight", "ArrowDown", "ArrowLeft", "ArrowRight",
+    "ArrowUp", "AudioVolumeDown", "AudioVolumeMute", "AudioVolumeUp",
+    "Backquote", "Backslash", "Backspace", "BracketLeft", "BracketRight",
+    "CapsLock", "Comma", "ContextMenu", "ControlLeft", "ControlRight",
+    "Convert", "Delete", "Digit0", "Digit1", "Digit2", "Digit3", "Digit4",
+    "Digit5", "Digit6", "Digit7", "Digit8", "Digit9", "End", "Enter",
+    "Equal", "Escape", "F1", "F10", "F11", "F12", "F2", "F20", "F3", "F4",
+    "F5", "F6", "F7", "F8", "F9", "Home", "Insert", "IntlBackslash",
+    "IntlRo", "IntlYen", "KanaMode", "KeyA", "KeyB", "KeyC", "KeyD", "KeyE",
+    "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL", "KeyM", "KeyN",
+    "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW",
+    "KeyX", "KeyY", "KeyZ", "MetaLeft", "MetaRight", "Minus", "NonConvert",
+    "NumLock", "Numpad0", "Numpad1", "Numpad2", "Numpad3", "Numpad4",
+    "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9", "NumpadAdd",
+    "NumpadDecimal", "NumpadDivide", "NumpadEnter", "NumpadMultiply",
+    "NumpadSubtract", "PageDown", "PageUp", "Pause", "Period", "Power",
+    "PrintScreen", "Quote", "ScrollLock", "Semicolon", "ShiftLeft",
+    "ShiftRight", "Slash", "Space", "Tab",
+})  # fmt: skip
+"""Every key name kvmd accepts, matched case-sensitively.
+
+These are the keys of kvmd's ``WEB_TO_EVDEV`` table, which is where its
+validator looks: the names a browser puts in ``KeyboardEvent.code``, which
+is why they read like ``"KeyA"`` and ``"Digit1"`` rather than ``"a"`` and
+``"1"``. Anything else is refused — ``"keya"`` and ``"a"`` included.
+
+Only one of the two transports says so. An HTTP call raises
+:class:`APIError` with HTTP 400, and its message names the key kvmd would
+not take — except from :meth:`HIDResource.send_key`, where a name past 16
+characters is refused on length alone and the message names nothing at all.
+A key sent over the
+WebSocket is dropped inside kvmd's handler with no answer of any kind, and
+nothing there tells a typo from a keystroke that landed. Checking a name
+that came from somewhere untrusted is what stands in for the answer the
+socket does not give::
+
+    if key not in KEY_NAMES:
+        raise ValueError(f"kvmd has no key named {key!r}")
+    await ws.send_key(key, state=True)
+
+The set is kvmd 4.186's, recorded from the device behind this project's
+fixtures; no endpoint exposes the table, so this cannot be read from a
+device at runtime. Another version may know more names — nothing in the
+client enforces the set, and a name outside it is sent as given.
+"""
 
 
 class HIDResource(BaseResource):
@@ -166,9 +225,13 @@ class HIDResource(BaseResource):
         """Send a single key event.
 
         Args:
-            key: Key name.
+            key: Key name, one of :data:`KEY_NAMES` and matched
+                case-sensitively.
             state: Key state (``True`` = press, ``False`` = release,
                 ``None`` = press and release).
+
+        Raises:
+            APIError: If kvmd has no key by that name (HTTP 400).
         """
         params: dict[str, Any] = {"key": key}
         if state is not None:
@@ -182,13 +245,30 @@ class HIDResource(BaseResource):
         reverse order, with a fixed 50 ms delay between events.
 
         Args:
-            *keys: Key names forming the shortcut.
+            *keys: Key names forming the shortcut, each one of
+                :data:`KEY_NAMES` and matched case-sensitively.
 
         Raises:
-            ValueError: If no keys are given.
+            ConfigurationError: If no keys are given, or if one of them is
+                empty or holds a comma or any whitespace. kvmd takes the
+                shortcut as one string, strips it, splits it on commas,
+                spaces and tabs and throws away what falls out empty, so
+                such a key would not survive the trip: it vanishes and the
+                rest of the shortcut is pressed as if it had never been
+                asked for. No name in :data:`KEY_NAMES` contains any of
+                those characters.
+            APIError: If kvmd has no key by one of those names (HTTP 400).
+                It validates the whole list before pressing anything, so a
+                shortcut with one bad name sends nothing at all.
         """
         if not keys:
-            raise ValueError("send_shortcut() requires at least one key")
+            raise ConfigurationError("send_shortcut() requires at least one key")
+        for key in keys:
+            if not key or _LOST_IN_A_SHORTCUT.search(key):
+                raise ConfigurationError(
+                    f"{key!r} cannot be part of a shortcut: kvmd splits the "
+                    "list on commas and whitespace, and drops what is empty"
+                )
         # The PiKVM endpoint reads `keys` as a single comma-separated value;
         # passing a list makes httpx send repeated params (keys=A&keys=B) and
         # the server keeps only the first key.
