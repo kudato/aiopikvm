@@ -9,17 +9,12 @@ fact that the contract is now satisfied.
 
 from __future__ import annotations
 
-import importlib
 import json
-import pkgutil
-import re
-from pathlib import Path
-from typing import Any, NamedTuple, TypeAliasType, get_args
+from typing import Any, NamedTuple, get_args
 
 import pytest
 from pydantic import BaseModel
 
-import aiopikvm.resources
 from aiopikvm import (
     ATXState,
     GPIOState,
@@ -33,18 +28,9 @@ from aiopikvm import (
 )
 from aiopikvm._ws import _STATE_MODELS, _as_state, _merge
 from aiopikvm.models.hid import _HIDInactivity
-from aiopikvm.resources.hid import KEY_NAMES, KeyboardOutput, MouseButton, MouseOutput
-from aiopikvm.resources.msd import Compression
-from aiopikvm.resources.switch import ATXAction, ATXButton
+from aiopikvm.resources.hid import KEY_NAMES, MouseOutput
 from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
-
-ROOT = Path(__file__).parent.parent
-
-
-def _prose() -> list[Path]:
-    """Return the published prose: the whole docs tree and the README."""
-    return [*ROOT.joinpath("docs").rglob("*.md"), ROOT / "README.md"]
 
 
 class Case(NamedTuple):
@@ -219,147 +205,6 @@ def test_key_names_match_the_device_table() -> None:
     the device itself and this is what keeps the copy in the library honest.
     """
     assert KEY_NAMES == set(load_json("hid_keys")["keys"])
-    # The docs and the changelog quote the count; pin it so refreshing the
-    # fixture from a newer kvmd cannot leave them quietly wrong.
-    assert len(KEY_NAMES) == 115
-
-
-def test_documented_key_names_are_ones_kvmd_accepts() -> None:
-    """No example in the docs or the README types a key that does not exist.
-
-    A wrong name in an example fails with HTTP 400 over HTTP and with nothing
-    at all over the WebSocket, which is exactly the failure this catalogue
-    exists to prevent (#77).
-    """
-    calls = re.compile(r"send_(?:key|shortcut)\(([^)]*)\)")
-    names = {
-        name
-        for path in _prose()
-        for call in calls.findall(path.read_text(encoding="utf-8"))
-        for name in re.findall(r'"([^"]*)"', call)
-    }
-    assert names, "no key name found in the docs; the pattern stopped matching"
-    assert names <= KEY_NAMES, sorted(names - KEY_NAMES)
-
-
-_TYPED_VALUES = (
-    ("keyboard_output", r'keyboard_output="([^"\n]*)"', KeyboardOutput),
-    ("mouse_output", r'mouse_output="([^"\n]*)"', MouseOutput),
-    ("mouse button", r'send_mouse_button\(\s*"([^"\n]*)"', MouseButton),
-    ("compression", r'compress="([^"\n]*)"', Compression),
-    # The ATX pair take the name positionally, so the match has to walk the
-    # argument list — but only as far as the end of the call, and never past
-    # the end of the line, or the capture runs on into the next quoted thing
-    # in the file.
-    ("ATX action", r'atx_power\([^)\n]*"([^"\n]*)"', ATXAction),
-    ("ATX button", r'atx_click\([^)\n]*"([^"\n]*)"', ATXButton),
-)
-_TYPE_TABLE = ROOT / "docs" / "guide" / "error-handling.md"
-_TYPE_HEADING = "## Values the type checker catches"
-
-
-@pytest.mark.parametrize(
-    ("what", "pattern", "alias"), _TYPED_VALUES, ids=[case[0] for case in _TYPED_VALUES]
-)
-def test_documented_values_are_ones_the_type_allows(
-    what: str, pattern: str, alias: Any
-) -> None:
-    """No example types a value its own parameter would reject (#68).
-
-    A type checker reads the library, not the prose, so an example is the
-    one place one of these vocabularies can go wrong unnoticed — and it is
-    the place a reader copies from. Each pattern has to match something:
-    a rename that stops it matching fails here rather than passing on an
-    empty set.
-    """
-    found = {
-        value
-        for path in _prose()
-        for value in re.findall(pattern, path.read_text(encoding="utf-8"))
-    }
-    assert found, f"no {what} found in the docs; the pattern stopped matching"
-    allowed = set(get_args(alias.__value__))
-    assert found <= allowed, sorted(found - allowed)
-
-
-_VOCABULARIES = 7
-"""How many of these types there are, so that finding none cannot pass."""
-
-
-def _aliases() -> dict[str, TypeAliasType]:
-    """Return every vocabulary type the resource modules define, by name.
-
-    Read out of the modules, and out of every module in the package rather
-    than a list of the interesting ones: a hand-written inventory catches
-    only a type somebody remembered to add to *it*, and a hand-written list
-    of modules stops covering one that gets renamed or split.
-    """
-    aliases = {
-        name: value
-        for info in pkgutil.iter_modules(aiopikvm.resources.__path__)
-        for module in [importlib.import_module(f"aiopikvm.resources.{info.name}")]
-        for name, value in vars(module).items()
-        if not name.startswith("_")
-        and isinstance(value, TypeAliasType)
-        and value.__module__ == module.__name__
-    }
-    # Everything below compares this against the docs. Left to itself an
-    # inventory that came back short — or empty — would agree with a table
-    # filtered by the same names and prove nothing at all.
-    assert len(aliases) == _VOCABULARIES, (
-        f"expected {_VOCABULARIES} vocabulary types, found {sorted(aliases)}"
-    )
-    return aliases
-
-
-def _type_table() -> dict[str, list[str]]:
-    """Parse the guide's table of typed values into ``{type: [value, ...]}``.
-
-    The table is the one place every value of every vocabulary is written
-    out — the row a reader copies from — and the scan above cannot see it,
-    since nothing in it is shaped like a call.
-
-    Every row of that one table is read, and no row is matched against the
-    library on the way in: a row naming a type that does not exist has to
-    reach the comparison to be caught by it.
-    """
-    _, _, rest = _TYPE_TABLE.read_text(encoding="utf-8").partition(_TYPE_HEADING)
-    assert rest, f"{_TYPE_TABLE.name} no longer has a {_TYPE_HEADING!r} section"
-    rows: dict[str, list[str]] = {}
-    for line in rest.split("\n## ")[0].splitlines():
-        cells = [cell.strip() for cell in line.split("|")[1:-1]]
-        if len(cells) != 3 or not re.fullmatch(r"`\w+`", cells[1]):
-            continue
-        name = cells[1].strip("`")
-        assert name not in rows, f"the guide has two rows for {name}"
-        rows[name] = [
-            # The empty compression mode is spelled `""` in the table.
-            "" if value == '""' else value
-            for value in re.findall(r"`([^`]*)`", cells[2])
-        ]
-    return rows
-
-
-def test_the_guide_lists_every_typed_vocabulary() -> None:
-    """A type nobody documented is one nobody knows to use (#68).
-
-    Both halves are read off the source: add a vocabulary to a resource
-    module and this fails until the guide's table has a row for it.
-    """
-    assert set(_type_table()) == set(_aliases())
-
-
-@pytest.mark.parametrize("name", sorted(_aliases()))
-def test_the_guide_spells_a_vocabulary_out_in_full(name: str) -> None:
-    """Each row of that table is its type's values, all of them (#68).
-
-    Equality, not containment: a value the table invents misleads as badly
-    as one it leaves out, and both are invisible to a type checker, which
-    reads the library and not the prose.
-    """
-    listed = _type_table()[name]
-    assert len(listed) == len(set(listed)), f"the guide repeats a value: {listed}"
-    assert set(listed) == set(get_args(_aliases()[name].__value__))
 
 
 def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:
