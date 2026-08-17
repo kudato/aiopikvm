@@ -215,9 +215,55 @@ async with kvm.ws() as ws:                  # keeps the streamer up
     await ws.send_mouse_move(*to_kvmd(960, 540))
 ```
 
-Absolute positioning also needs the mouse in absolute mode; `usb_rel` and
-`ps2` send relative motion instead, which this client does not expose yet
-([#60](https://github.com/kudato/aiopikvm/issues/60)).
+Absolute positioning also needs the mouse in absolute mode. kvmd drops a
+`send_mouse_move()` while the mouse is relative, and drops
+`send_mouse_relative()` while it is absolute — in both cases without a word to
+the sender, and with the inactivity counter bumped either way, so nothing about
+the exchange says the report went nowhere. `HIDState.mouse.absolute` is which
+mode is on, and `mouse.outputs.available` is what the device can switch to:
+
+```python
+state = await kvm.hid.get_state()
+if state.mouse.absolute:
+    await ws.send_mouse_move(0, 0)
+else:
+    await ws.send_mouse_relative(10, 0)
+```
+
+### Relative movement
+
+```python
+await kvm.hid.set_params(mouse_output="usb_rel")   # switches the gadget
+
+async with kvm.ws() as ws:
+    await ws.send_mouse_relative(10, 0)   # ten steps right
+    await ws.send_mouse_relative(0, -10)  # ten steps up
+```
+
+Steps are in the same `-127` to `127` range as the wheel, clamped rather than
+rejected, so a longer gesture is several events — which is what batching is for.
+
+### Batching
+
+Both relative motion and the wheel can go in one frame, which is what kvmd's own
+web UI does: it collects the deltas a mouse produced between two screen
+refreshes and sends them together rather than one frame per browser event.
+
+```python
+async with kvm.ws() as ws:
+    await ws.send_mouse_relative_batch([(5, 0), (5, 0), (5, 2)])
+    await ws.send_mouse_wheel_batch([(0, -5), (0, -5)], squash=True)
+```
+
+With `squash`, kvmd adds consecutive steps up instead of reporting each one,
+starting a new sum whenever the running total would leave the `-127` to `127` a
+report can carry. Fewer reports reach the host, at the cost of the shape of the
+path between them. Two details worth knowing:
+
+- A squashed batch that adds up to `(0, 0)` sends **nothing** — kvmd drops a
+  final sum of zero. Without `squash`, a `(0, 0)` step is a report like any
+  other.
+- An empty batch is a frame kvmd does nothing with; it is not an error.
 
 ### Mouse buttons
 
@@ -246,12 +292,15 @@ rejected — not the browser's pixel deltas. kvmd's web UI sends a single step p
 gesture, sized by its scroll-rate setting (1 to 25, `5` by default) and negated,
 so a scroll-down gesture reaches the device as `delta_y = -5`.
 
+Several steps can go in one frame with `send_mouse_wheel_batch()`, described
+under [batching](#batching) below.
+
 ## The binary channel
 
 kvmd accepts HID input in two encodings over the same socket. The JSON events
 above are one; the other is a compact binary frame whose first byte is an
-operation number — `1` key, `2` mouse button, `3` absolute move, `5` wheel, and
-`0` ping, which kvmd answers with `255`. Both reach the same handlers and the
+operation number — `1` key, `2` mouse button, `3` absolute move, `4` relative
+move, `5` wheel, and `0` ping, which kvmd answers with `255`. Both reach the same handlers and the
 same validators, and kvmd's own web UI uses the binary one for every keystroke
 and mouse move, since it is a few bytes instead of a JSON object to parse.
 

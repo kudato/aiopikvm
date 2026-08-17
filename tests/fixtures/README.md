@@ -118,6 +118,12 @@ Alongside the input frames it holds both ping exchanges (the JSON `pong` event
 and binary op `255`), and an operation kvmd has no handler for, which it
 answers with nothing at all.
 
+The mouse on the recording device was in its absolute mode, which is why the
+relative frames are recorded as accepted rather than as movement: kvmd decodes
+them and bumps the counter, and its mouse device then drops the report for
+being in the wrong mode. Recording them as movement would mean switching
+`mouse_output` on somebody's device, which recreates the USB gadget.
+
 Input frames reach the HID, so this one was recorded with the USB gadget not
 attached to any host — `keyboard.online` and `mouse.online` both `false` — and
 with frames that do nothing even where a host is listening: a lone `ControlLeft`

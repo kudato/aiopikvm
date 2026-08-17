@@ -179,6 +179,20 @@ async def test_websocket_ping_is_answered(live: PiKVM, binary: bool) -> None:
         assert f"{ws.version.major}.{ws.version.minor}" == reported
 
 
+async def test_hid_mouse_reports_which_motion_it_takes(live: PiKVM) -> None:
+    """Only one of the two motion events does anything, and this says which.
+
+    kvmd drops a relative event while the mouse is absolute and an absolute one
+    while it is relative, both without telling the sender, so a caller has to
+    read the mode rather than try it (#60). Nothing is sent here — the check is
+    that the state carries the answer.
+    """
+    state = await live.hid.get_state()
+    assert isinstance(state.mouse.absolute, bool)
+    assert state.mouse.outputs is not None
+    assert state.mouse.outputs.active in state.mouse.outputs.available
+
+
 async def _client_counts(ws: PiKVMWebSocket, seconds: float = 2.0) -> list[int]:
     """Collect the ``clients`` counts kvmd broadcasts on *ws*.
 

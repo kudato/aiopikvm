@@ -1,5 +1,5 @@
 {
-  "description": "kvmd 4.186's binary WebSocket channel on GET /api/ws, recorded by hand: the capture tool only records GETs, and every frame here is one this client sent. The first byte of a frame is kvmd's operation number, dispatched by exposed_ws(<int>) in apps/kvmd/api/hid.py and server.py. Each input frame is recorded with /api/hid/inactivity read before and after it: kvmd bumps that counter from inside the handler, so a reset to 0 is the device saying it decoded and accepted the frame, and an unchanged counter is it dropping one its validators refused.",
+  "description": "kvmd 4.186's binary WebSocket channel on GET /api/ws, recorded by hand: the capture tool only records GETs, and every frame here is one this client sent. The first byte of a frame is kvmd's operation number, dispatched by exposed_ws(<int>) in apps/kvmd/api/hid.py and server.py. The mouse on the recording device was in its absolute mode (mouse.outputs.active = usb, with usb_rel available), which is why the relative frames are recorded as accepted rather than as movement: kvmd decodes them and counts them, and its mouse device then drops the report because it is not in a relative mode. Each input frame is recorded with /api/hid/inactivity read before and after it: kvmd bumps that counter from inside the handler, so a reset to 0 is the device saying it decoded and accepted the frame, and an unchanged counter is it dropping one its validators refused.",
   "safety": "Input frames reach the HID. This was recorded with the USB gadget not attached to any host -- keyboard.online and mouse.online were both false -- so nothing was typed or clicked anywhere; the frames chosen are inert in any case (a lone ControlLeft press and release, a wheel of zero, a mouse move to the centre, a middle-button release). The socket was opened with stream=0, so the video pipeline was not touched. Nothing here needs undoing, but re-recording it means sending input to somebody's device, so ask first.",
   "steps": [
     {
@@ -71,6 +71,33 @@
       "note": "op 5: the squash flag, then one signed pair; zero steps still count as input"
     },
     {
+      "name": "mouse_relative",
+      "frame": "040003fc",
+      "inactivity_before": 25,
+      "inactivity_after": 1,
+      "accepted": true,
+      "expected_accepted": true,
+      "note": "op 4: the squash flag, then one signed pair -- the same shape as the wheel. kvmd decoded it (the counter reset) while the mouse was in its absolute mode, where the report itself goes no further: the handler counts the event either way"
+    },
+    {
+      "name": "mouse_relative_batch",
+      "frame": "04000102fdfc",
+      "inactivity_before": 2,
+      "inactivity_after": 0,
+      "accepted": true,
+      "expected_accepted": true,
+      "note": "several pairs in one frame, squash off: one report each"
+    },
+    {
+      "name": "mouse_wheel_batch_squashed",
+      "frame": "050100ff00ff",
+      "inactivity_before": 2,
+      "inactivity_after": 0,
+      "accepted": true,
+      "expected_accepted": true,
+      "note": "squash on, in the first byte: kvmd adds the steps up while the running total fits a report, so these two arrive as one"
+    },
+    {
       "name": "mouse_button",
       "frame": "02006d6964646c65",
       "inactivity_before": 2,
@@ -96,6 +123,15 @@
       "accepted": false,
       "expected_accepted": false,
       "note": "three bytes where struct.unpack wants five: dropped the same silent way"
+    },
+    {
+      "name": "delta_batch_odd_length",
+      "frame": "040001",
+      "inactivity_before": 2,
+      "inactivity_after": 2,
+      "accepted": false,
+      "expected_accepted": false,
+      "note": "a pair and a half: struct.unpack fails on the last two bytes and the whole batch is dropped"
     },
     {
       "name": "hid_baseline",

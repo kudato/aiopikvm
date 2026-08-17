@@ -18,6 +18,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `PiKVMWebSocket.version`, the kvmd version from the `loop` event as a
   comparable `KvmdVersion` tuple. It is the only version signal the socket
   carries, and the client ignored it (#82).
+- `PiKVMWebSocket.send_mouse_relative()`, the WebSocket half of relative mouse
+  motion — the client had only the HTTP fallback. kvmd drops a relative event
+  while the mouse is in its absolute mode and drops an absolute one while it is
+  relative, in both cases silently, so `HIDState.mouse.absolute` is what says
+  which of the two will do anything (#60).
+- `PiKVMWebSocket.send_mouse_relative_batch()` and `send_mouse_wheel_batch()`
+  put several steps in one frame, the way kvmd's own web UI sends a burst of
+  movement. `squash` asks kvmd to add consecutive steps together where they fit
+  into one report — fewer reports for the host, and nothing at all sent when a
+  squashed batch adds up to zero (#60).
 - `aiopikvm.resources.redfish.RESET_TYPES`, the six `ResetType` values kvmd
   accepts. The DMTF schema defines more, and kvmd refuses every one of them
   before taking any action (#78).
