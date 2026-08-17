@@ -428,6 +428,24 @@ def test_what_a_contained_group_is_made_to_say(
     assert "http://proxy.local:3128" in passed
 
 
+async def test_a_group_the_caller_raised_is_left_alone(
+    mock_api: respx.MockRouter,
+) -> None:
+    """``stream()`` yields inside its own try, so their block reports here.
+
+    That is what maps a transport failure met while the body is read, and it
+    would just as happily read a task group of the caller's own making as a
+    failure to connect — turning their error into a ``ConnectError`` that
+    says nothing about what they were doing (#69).
+    """
+    mock_api.get("/api/msd/read").respond(200, content=b"payload")
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ExceptionGroup) as caught:
+            async with kvm.stream("GET", "/api/msd/read"):
+                raise ExceptionGroup("mine", [ValueError("my own failure")])
+    assert caught.value.exceptions[0].args[0] == "my own failure"
+
+
 def test_a_group_holding_a_group_still_says_what_went_wrong() -> None:
     """anyio nests one task group inside another, and only leaves talk."""
     nested = ExceptionGroup(

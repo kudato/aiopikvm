@@ -360,10 +360,9 @@ async def test_a_proxy_from_the_environment_is_refused_at_the_handshake(
     """InvalidProxy is a WebSocketException, so it would read as a failed
     connection rather than as the setting it is (#69).
 
-    The environment is checked for its port alone when the socket is built —
-    it is shared with every other program on the machine — so the rest of
-    what *websockets* refuses in it still arrives here, and has to arrive as
-    a setting.
+    What the environment names is left to *websockets* to read, so every
+    fault in it arrives here rather than being looked for beforehand — and a
+    permanent misconfiguration has to arrive as a setting.
     """
     monkeypatch.setenv("HTTPS_PROXY", "http://proxy.local:3128/path")
     with pytest.raises(ConfigurationError, match="Cannot use the proxy"):

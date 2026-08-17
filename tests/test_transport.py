@@ -125,6 +125,27 @@ class _UnspeakablePath(os.PathLike[str]):
         raise self._raised
 
 
+class _UnprintablePath(os.PathLike[str]):
+    """A path object that will not say what it is, either."""
+
+    def __fspath__(self) -> str:
+        raise RuntimeError("this object was not ready to be asked")
+
+    def __repr__(self) -> str:
+        raise RuntimeError("and it will not describe itself either")
+
+
+def test_a_path_object_that_will_not_describe_itself_is_still_reported() -> None:
+    """The message is built from the value, so its repr runs inside the catch.
+
+    ``__repr__`` belongs to the same author as ``__fspath__`` and can raise
+    for the same reasons; one that does would leave the hierarchy through the
+    very clause written to keep it inside (#69).
+    """
+    with pytest.raises(ConfigurationError, match="whose repr raises"):
+        resolve_verify_ssl(_UnprintablePath())
+
+
 @pytest.mark.parametrize(
     "raised",
     [
@@ -280,6 +301,31 @@ def test_a_proxy_host_the_two_would_spell_differently_is_refused() -> None:
     """
     with pytest.raises(ConfigurationError, match="punycode"):
         resolve_proxy("http://faß.de:3128")
+
+
+def test_a_proxy_host_only_websockets_would_encode_is_refused() -> None:
+    """httpx refuses ``☃.net`` outright and *websockets* encodes it (#69).
+
+    Left to httpx, that refusal arrives while the client is being built,
+    where the only thing left to blame is the PiKVM URL — so a proxy fault
+    would be reported as a fault in something else entirely.
+    """
+    with pytest.raises(ConfigurationError, match="Cannot use the proxy"):
+        resolve_proxy("http://☃.net:3128")
+
+
+def test_a_password_does_not_travel_into_the_message() -> None:
+    """An exception outlives the setting it came from, in logs and reports.
+
+    The password identifies nothing a reader of the message needs, and the
+    rest of the URL is what says which proxy went wrong (#69).
+    """
+    with pytest.raises(ConfigurationError) as caught:
+        resolve_proxy("http://alice:s3cret@proxy.local:3128/path")
+    message = str(caught.value)
+    assert "s3cret" not in message
+    assert "alice" in message
+    assert "proxy.local:3128" in message
 
 
 @pytest.mark.parametrize(

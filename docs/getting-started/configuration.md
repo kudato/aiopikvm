@@ -65,13 +65,18 @@ own TLS settings for the requests while the socket keeps using these.
     keeps the two from being configured differently.
 
 !!! warning "`verify_ssl=True` is the one setting the two do not share"
-    It is passed on as it came, and each library then builds its own context:
-    httpx verifies against certifi's roots — or against `SSL_CERT_FILE` and
-    `SSL_CERT_DIR` when the environment names them and `trust_env` is on —
-    while `websockets` verifies against the system store. On a device whose CA
-    is in one and not the other, one half of the client connects and the other
-    does not. Pass the bundle or a context instead, and both verify against the
-    same certificates.
+    It is passed on as it came, and each library then builds its own context.
+    httpx verifies against certifi's roots, or against `SSL_CERT_FILE` and
+    `SSL_CERT_DIR` when the environment names them and `trust_env` is on;
+    `websockets` asks `ssl.create_default_context()`, which verifies against
+    the system store, or against those same two variables whenever they are
+    set — `trust_env` is httpx's idea, and OpenSSL has never heard of it.
+
+    So the two agree on a machine that sets them and is trusted, and part
+    company on one that sets neither, and again on one that sets them with
+    `trust_env=False`. On a device whose CA is in one store and not the other,
+    one half of the client connects and the other does not. Pass the bundle or
+    a context instead, and both verify against the same certificates.
 
 ## Proxies
 
@@ -97,9 +102,11 @@ Three more are refused because the libraries would not use them alike:
   httpcore fills in 1080 and `websockets` fills in 80, and the one setting
   reaches two different proxies without either of them saying so;
 - a host that is not ASCII and the two spell differently. httpx encodes it by
-  UTS 46 and `websockets` by IDNA 2003, which agree on `münchen.de` and part
+  IDNA 2008 and `websockets` by IDNA 2003, which agree on `münchen.de` and part
   company over `faß.de` — `xn--fa-hia.de` for the requests, `fass.de` for the
-  socket. Write such a host in its punycode form and both read it alike;
+  socket — while `☃.net` httpx refuses to encode at all and `websockets`
+  encodes happily. Write such a host in its punycode form and both read it
+  alike;
 - credentials the two would send differently. httpx percent-decodes the user
   information and `websockets` sends it as written, so
   `http://user:p%40ss@proxy.local:3128` authenticates the requests as `p@ss`

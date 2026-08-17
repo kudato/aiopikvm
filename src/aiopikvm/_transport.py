@@ -12,8 +12,9 @@ takes every one of those, ignoring the parts it has no use for and sending
 the lone username as ``username:``. A port above 65535 httpx takes and
 *websockets* refuses. For a ``socks5://`` URL with no usable port the two
 pick different defaults — 1080 and 80. A host that is not ASCII they spell
-differently, httpx by UTS 46 and *websockets* by IDNA 2003, so ``faß.de`` is
-``xn--fa-hia.de`` for one and ``fass.de`` for the other. And credentials
+differently, httpx by IDNA 2008 and *websockets* by IDNA 2003, so ``faß.de``
+is ``xn--fa-hia.de`` for one and ``fass.de`` for the other — and ``☃.net``
+httpx will not encode at all while *websockets* is happy to. And credentials
 httpx percent-decodes before sending, while *websockets* sends them as
 written.
 
@@ -35,14 +36,20 @@ refuses a setting that was working or misses one that was not, so no guess is
 made: the libraries read the environment as they always have, and this
 package's part is to keep what they raise about it inside ``PiKVMError``.
 
-Three divergences are left standing, because closing them would mean changing
+These divergences are left standing, because closing them would mean changing
 what a working setting already does:
 
-* ``verify_ssl=True`` is passed on as it came. httpx then verifies against
-  certifi's roots — or against ``SSL_CERT_FILE`` and ``SSL_CERT_DIR`` when the
-  environment names them and is trusted — and *websockets* against the system
-  store. Building a context here to settle it would silently move httpx off
-  the roots it has always used.
+* ``verify_ssl=True`` is passed on as it came, and each library then builds
+  its own context. httpx verifies against certifi's roots, or against
+  ``SSL_CERT_FILE`` and ``SSL_CERT_DIR`` when the environment names them and
+  *trust_env* is on; *websockets* asks :func:`ssl.create_default_context`,
+  which verifies against the system store, or against those same two
+  variables whenever they are set — *trust_env* is httpx's idea and OpenSSL
+  has never heard of it. So the two agree on a machine that sets them and is
+  trusted, and part company on one that sets neither, and again on one that
+  sets them with *trust_env* off. Building a context here to settle it would
+  silently move httpx off the roots it has always used. An ``https://`` proxy
+  is verified against those same roots, so it divides the two the same way.
 * A ``socks5://`` proxy resolves the device's name through the proxy for the
   requests and on this machine for the socket, httpcore sending the name
   itself and *websockets* asking for ``socks5`` without remote resolution.
@@ -117,7 +124,7 @@ def resolve_verify_ssl(verify_ssl: VerifySSL) -> bool | ssl.SSLContext:
         # anything at all, TypeError included when what arrived was not a
         # path in the first place. The cause is kept, so nothing is hidden.
         raise ConfigurationError(
-            f"Cannot read a path out of {verify_ssl!r}: {exc}"
+            f"Cannot read a path out of {_named(verify_ssl)}: {exc}"
         ) from exc
     try:
         if os.path.isdir(path):
@@ -125,9 +132,30 @@ def resolve_verify_ssl(verify_ssl: VerifySSL) -> bool | ssl.SSLContext:
         return ssl.create_default_context(cafile=path)
     except (OSError, ValueError) as exc:
         raise ConfigurationError(
-            f"Cannot verify TLS against {verify_ssl!r}: {exc}. The path must "
-            "be a PEM bundle, or a directory of them prepared with c_rehash."
+            f"Cannot verify TLS against {_named(verify_ssl)}: {exc}. The path "
+            "must be a PEM bundle, or a directory of them prepared with "
+            "c_rehash."
         ) from exc
+
+
+def _named(value: object) -> str:
+    """Put a value into a message without trusting its ``__repr__``.
+
+    The same argument that makes ``__fspath__`` worth guarding against makes
+    ``__repr__`` worth it: both belong to whoever wrote the object, and a
+    message built from one that raises would leave the hierarchy through the
+    clause meant to keep it inside.
+
+    Args:
+        value: Whatever the caller passed.
+
+    Returns:
+        Its repr, or a name for its type when the repr raises.
+    """
+    try:
+        return repr(value)
+    except Exception:
+        return f"a {type(value).__name__} whose repr raises"
 
 
 def resolve_proxy(proxy: str | None) -> str | None:
@@ -151,8 +179,48 @@ def resolve_proxy(proxy: str | None) -> str | None:
     """
     if proxy is None:
         return None
-    _refuse_unusable(proxy, f"the proxy {proxy!r}")
+    _refuse_unusable(proxy, f"the proxy {mask_proxy(proxy)!r}")
     return proxy
+
+
+def mask_proxy(proxy: str) -> str:
+    """Hide the password in a proxy URL on its way into a message.
+
+    An exception carries further than the setting it came from — into logs,
+    into a bug report — and the password is the one part of the URL that
+    identifies nothing.
+
+    Args:
+        proxy: Proxy URL as it was written.
+
+    Returns:
+        The URL with its password replaced, or unchanged when it has none or
+        holds nothing a password could be read out of.
+    """
+    return _without_password(proxy, proxy)
+
+
+def _without_password(text: str, proxy: str) -> str:
+    """Take the proxy's password out of whatever is about to be reported.
+
+    Both libraries quote the URL they were given in the exceptions they
+    raise, credentials and all, and those exceptions are quoted in turn here.
+    So the message is scrubbed rather than only the part of it built here.
+
+    Args:
+        text: What is about to be reported.
+        proxy: The proxy URL whose password is not to appear in it.
+
+    Returns:
+        The text, with any occurrence of the password replaced.
+    """
+    try:
+        password = urllib.parse.urlsplit(proxy).password
+    except ValueError:
+        return text
+    if not password:
+        return text
+    return text.replace(f":{password}@", ":***@")
 
 
 def httpx_environment_proxies() -> dict[str, str]:
@@ -194,7 +262,9 @@ def _refuse_unusable(proxy: str, source: str) -> None:
     except (websockets.exceptions.InvalidProxy, ValueError) as exc:
         # parse_proxy reads the port through urlsplit's property, which
         # raises a bare ValueError rather than its own InvalidProxy.
-        raise ConfigurationError(f"Cannot use {source}: {exc}") from exc
+        raise ConfigurationError(
+            f"Cannot use {source}: {_without_password(str(exc), proxy)}"
+        ) from exc
     # parse_proxy fills a missing port in with its own default, so the raw
     # one has to be read again to see that there was none.
     _refuse_split_socks_port(parsed.scheme, urllib.parse.urlsplit(proxy).port, source)
@@ -228,10 +298,18 @@ def _refuse_split_target(
     """
     try:
         by_httpx = httpx.Proxy(url=proxy)
-    except (ValueError, httpx.InvalidURL):
-        # A URL httpx will not have at all, such as a socks4:// one. It
-        # refuses it itself, and names the proxy when it does.
+    except ValueError:
+        # A scheme httpx has no transport for, such as socks4://. It refuses
+        # that one itself, and quotes the URL when it does, so the caller is
+        # told what the message is about.
         return
+    except httpx.InvalidURL as exc:
+        # A host httpx will not encode and *websockets* will, ``☃.net`` among
+        # them. Left to httpx this surfaces while the client is being built,
+        # where nothing knows to blame the proxy rather than the PiKVM URL.
+        raise ConfigurationError(
+            f"Cannot use {source}: {_without_password(str(exc), proxy)}"
+        ) from exc
     host_by_httpx = by_httpx.url.raw_host.decode()
     if host_by_httpx != parsed.host:
         raise ConfigurationError(

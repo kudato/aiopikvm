@@ -27,6 +27,7 @@ from aiopikvm._exceptions import (
 from aiopikvm._transport import (
     VerifySSL,
     httpx_environment_proxies,
+    mask_proxy,
     resolve_proxy,
     resolve_verify_ssl,
 )
@@ -147,8 +148,9 @@ class PiKVM:
                 cannot load a CA bundle from, or *proxy* is one the two
                 libraries would not use alike. A proxy the *environment*
                 sets is left to httpx, whose rules for reading it are its
-                own; what it raises about one is reported as a
-                :class:`ConnectError` when the request goes out.
+                own; what it raises about one is reported when the client is
+                entered, if httpx refuses the URL outright, and otherwise as
+                a :class:`ConnectError` when the request goes out.
         """
         self._url = url.rstrip("/")
         self._user = user
@@ -415,6 +417,12 @@ class PiKVM:
             APIError: Server returned any other error status (>= 400).
         """
         client = self._ensure_client()
+        # An exception raised in the caller's own block arrives back here, at
+        # the yield, and is caught by the clauses below. That is what maps a
+        # transport failure met while the body is being read; it also means a
+        # group of the caller's own making would be read as a failure to
+        # connect, so once the response is theirs, groups are left alone.
+        theirs = False
         try:
             async with client.stream(
                 method,
@@ -429,6 +437,7 @@ class PiKVM:
                     # response.text from raising httpx.ResponseNotRead.
                     await response.aread()
                 self._raise_for_status(response)
+                theirs = True
                 yield response
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
@@ -446,6 +455,8 @@ class PiKVM:
         except httpx.TransportError as exc:
             raise ConnectError(str(exc)) from exc
         except ExceptionGroup as exc:
+            if theirs:
+                raise
             raise ConnectError(self._connection_failed(exc)) from exc
 
     def _connection_failed(self, group: ExceptionGroup[Exception]) -> str:
@@ -475,10 +486,12 @@ class PiKVM:
             else:
                 said.append(f"{type(exc).__name__}: {exc}")
         if self._proxy is not None:
-            said.append(f"the connection goes through the proxy {self._proxy!r}")
+            said.append(
+                f"the connection goes through the proxy {mask_proxy(self._proxy)!r}"
+            )
         elif self._trust_env and (environment := httpx_environment_proxies()):
             names = ", ".join(f"{key.upper()}_PROXY" for key in sorted(environment))
-            said.append(f"the environment sets {names}, which httpx reads")
+            said.append(f"the environment sets {names}, which httpx may read")
         return "; ".join(said)
 
     # --- Resources (lazy) ----------------------------------------------
