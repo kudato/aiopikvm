@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, get_args
 
 import pytest
 from pydantic import BaseModel
@@ -30,11 +30,18 @@ from aiopikvm import (
 )
 from aiopikvm._ws import _STATE_MODELS, _as_state, _merge
 from aiopikvm.models.hid import _HIDInactivity
-from aiopikvm.resources.hid import KEY_NAMES
+from aiopikvm.resources.hid import KEY_NAMES, KeyboardOutput, MouseButton, MouseOutput
+from aiopikvm.resources.msd import Compression
+from aiopikvm.resources.switch import ATXAction, ATXButton
 from tests.fixtures import DATA_DIR, load_json, load_jsonl, load_result, manifest
 from tests.helpers import undeclared_fields
 
 ROOT = Path(__file__).parent.parent
+
+
+def _prose() -> list[Path]:
+    """Return every Markdown file a reader of this project might copy from."""
+    return [*ROOT.joinpath("docs").rglob("*.md"), ROOT / "README.md"]
 
 
 class Case(NamedTuple):
@@ -222,15 +229,63 @@ def test_documented_key_names_are_ones_kvmd_accepts() -> None:
     exists to prevent (#77).
     """
     calls = re.compile(r"send_(?:key|shortcut)\(([^)]*)\)")
-    sources = [*ROOT.joinpath("docs").rglob("*.md"), ROOT / "README.md"]
     names = {
         name
-        for path in sources
+        for path in _prose()
         for call in calls.findall(path.read_text(encoding="utf-8"))
         for name in re.findall(r'"([^"]*)"', call)
     }
     assert names, "no key name found in the docs; the pattern stopped matching"
     assert names <= KEY_NAMES, sorted(names - KEY_NAMES)
+
+
+_TYPED_VALUES = (
+    ("keyboard_output", r'keyboard_output="([^"]*)"', KeyboardOutput),
+    ("mouse_output", r'mouse_output="([^"]*)"', MouseOutput),
+    ("mouse button", r'send_mouse_button\(\s*"([^"]*)"', MouseButton),
+    ("compression", r'compress="([^"]*)"', Compression),
+    ("ATX action", r'atx_power\([^)]*,\s*"([^"]*)"\)', ATXAction),
+    ("ATX button", r'atx_click\([^)]*,\s*"([^"]*)"\)', ATXButton),
+)
+
+
+@pytest.mark.parametrize(
+    ("what", "pattern", "alias"), _TYPED_VALUES, ids=[case[0] for case in _TYPED_VALUES]
+)
+def test_documented_values_are_ones_the_type_allows(
+    what: str, pattern: str, alias: Any
+) -> None:
+    """No example types a value its own parameter would reject (#68).
+
+    A type checker reads the library, not the prose, so an example is the
+    one place one of these vocabularies can go wrong unnoticed — and it is
+    the place a reader copies from. Each pattern has to match something:
+    a rename that stops it matching fails here rather than passing on an
+    empty set.
+    """
+    found = {
+        value
+        for path in _prose()
+        for value in re.findall(pattern, path.read_text(encoding="utf-8"))
+    }
+    assert found, f"no {what} found in the docs; the pattern stopped matching"
+    allowed = set(get_args(alias.__value__))
+    assert found <= allowed, sorted(found - allowed)
+
+
+def test_mouse_outputs_the_device_offers_are_ones_the_client_types() -> None:
+    """What a real kvmd advertises as switchable is inside ``MouseOutput``.
+
+    The one direction a capture can prove: the outputs kvmd lists for the
+    mouse it is running have to be values this client will let a caller ask
+    for. The reverse is not checkable here — a capture shows the backend's
+    own subset, not everything kvmd's validator accepts. The keyboard side
+    is left out for that reason: it is empty under ``otg``, so a subset
+    assertion on it would hold whatever the type said (#68).
+    """
+    available = load_result("hid")["mouse"]["outputs"]["available"]
+    assert available, "the capture advertises no mouse output to check against"
+    assert set(available) <= set(get_args(MouseOutput.__value__))
 
 
 def test_the_capture_contains_a_partial_update() -> None:

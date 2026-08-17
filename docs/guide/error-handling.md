@@ -96,6 +96,63 @@ The usual cause is an `http://` base URL that PiKVM's nginx redirects to
 fix the URL rather than the symptom. Pass `follow_redirects=True` to the
 client if you have a proxy that legitimately redirects.
 
+## Values the type checker catches
+
+Several parameters take one of a short list of names kvmd knows, and a name
+outside it is an HTTP 400 — a mistake that otherwise only shows up when the
+call runs. Those parameters carry a literal type, so a typo is a type error
+instead:
+
+| Parameter | Type | Values |
+|---|---|---|
+| `hid.set_params(keyboard_output=…)` | `KeyboardOutput` | `usb`, `ps2`, `disabled` |
+| `hid.set_params(mouse_output=…)` | `MouseOutput` | `usb`, `usb_win98`, `usb_rel`, `ps2`, `disabled` |
+| `hid.send_mouse_button()`, `ws.send_mouse_button()` | `MouseButton` | `left`, `right`, `middle`, `up`, `down` |
+| `msd.download(compress=…)` | `Compression` | `""`, `none`, `lzma`, `zstd` |
+| `switch.atx_power()` | `ATXAction` | `on`, `off`, `off_hard`, `reset_hard` |
+| `switch.atx_click()` | `ATXButton` | `power`, `power_long`, `reset` |
+| `redfish.reset()` | `ResetType` | `On`, `ForceOn`, `ForceOff`, `GracefulShutdown`, `ForceRestart`, `PushPowerButton` |
+
+Each lives in the resource module whose parameter it belongs to, so a
+variable holding one can be annotated:
+
+```python
+from aiopikvm.resources.hid import MouseButton
+
+button: MouseButton = "left"
+await kvm.hid.send_mouse_button(button)
+```
+
+The annotation is the point: without it mypy infers `str` for that variable
+and refuses the call. Write it where the value is written down, not at the
+call site.
+
+For a name that arrives at runtime — out of a config file, off a UI — the
+values are on the type:
+
+```python
+from typing import get_args
+from aiopikvm.resources.hid import MouseButton
+
+if name not in get_args(MouseButton.__value__):
+    raise ValueError(f"kvmd has no mouse button named {name!r}")
+```
+
+Two things these types deliberately do not do. They do not enforce anything
+at runtime: the client sends what it is handed, so a value some later kvmd
+understands still goes through with a `cast` or a
+`# type: ignore[arg-type]`. And they stay out of the response models, where
+a literal type would turn a value this release has not seen into a
+`ResponseError` instead of a string the caller can look at and decide about.
+
+`ResetType` is matched by kvmd as written. Every other list here is
+lowercased before matching, so a device would also take `"USB"` or
+`"Left"` — only the canonical spelling is typed.
+
+Key names are the one vocabulary left as plain `str`. There are 115 of
+them, and a key is usually computed rather than written out, so they are a
+runtime set instead: see [`KEY_NAMES`](hid.md#key-names).
+
 ## Usage patterns
 
 ### Catch all errors

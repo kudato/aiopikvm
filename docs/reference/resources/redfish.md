@@ -4,4 +4,6 @@
     options:
       show_bases: false
 
+::: aiopikvm.resources.redfish.ResetType
+
 ::: aiopikvm.resources.redfish.RESET_TYPES

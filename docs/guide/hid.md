@@ -149,6 +149,10 @@ await kvm.hid.send_mouse_button("left", state=False)
 await kvm.hid.send_mouse_button("right")
 ```
 
+kvmd knows five buttons, and `MouseButton` is the type that holds them:
+`left`, `right`, `middle`, and `up`/`down` — the side buttons a browser
+reports as back and forward, not wheel directions.
+
 ### Mouse wheel
 
 ```python
@@ -175,10 +179,23 @@ await kvm.hid.set_params(mouse_output="usb_rel")
 await kvm.hid.set_params(jiggler=True)
 ```
 
-Valid output names come from the state: `state.keyboard.outputs.available`
-and `state.mouse.outputs.available`. Either list can be empty — an OTG
-keyboard offers no choice at all, while its mouse still switches between
-`usb` and `usb_rel`.
+The output names are typed — `KeyboardOutput` is `usb`, `ps2` or `disabled`,
+`MouseOutput` adds `usb_win98` and `usb_rel` — so a typo is a type error
+rather than an HTTP 400. That is kvmd's validator, though, and passing it is
+not the same as taking effect. kvmd checks the name against the fixed list
+whatever backend is running, then hands it to a backend that may have no use
+for it: an OTG keyboard discards `keyboard_output` outright and still answers
+200.
+
+What the running backend can switch between is in the state:
+`state.keyboard.outputs.available` and `state.mouse.outputs.available`.
+Either can be empty — an OTG keyboard offers no choice at all, while its
+mouse still moves between `usb` and `usb_rel`. A name kvmd knows but the
+backend does not have is dropped silently under a 200, so read the state back
+to see what took.
+
+Switching the mouse recreates the USB gadget, which the host sees as the
+keyboard and mouse being unplugged and plugged back in.
 
 ## Connection control
 

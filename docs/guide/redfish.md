@@ -135,7 +135,11 @@ answers 204 and does nothing at all, so there is no error to catch — check
 
 ### Reset types
 
-kvmd accepts these six, matched **case-sensitively**:
+kvmd accepts these six, matched **case-sensitively** — unlike every other
+vocabulary in this client, which it lowercases first. `reset()` takes them
+as the `ResetType` type, so a name from the wider DMTF schema is a type
+error rather than an HTTP 400, and `RESET_TYPES` is the same list to check
+against at runtime:
 
 ```python
 from aiopikvm.resources.redfish import RESET_TYPES

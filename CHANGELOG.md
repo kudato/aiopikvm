@@ -41,11 +41,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `send_shortcut()` raise `APIError` with HTTP 400, while the WebSocket drops
   the frame inside kvmd's handler and answers nothing at all. No endpoint
   exposes the table, so the catalogue is a copy read off a device running
-  kvmd 4.186 and pinned to that capture by a contract test; nothing in the client enforces it, since a later kvmd may
-  know more names (#77).
+  kvmd 4.186 and pinned to that capture by a contract test; nothing in the
+  client enforces it, since a later kvmd may know more names (#77).
 - `aiopikvm.resources.redfish.RESET_TYPES`, the six `ResetType` values kvmd
   accepts. The DMTF schema defines more, and kvmd refuses every one of them
   before taking any action (#78).
+- Literal types for the short vocabularies kvmd takes as strings:
+  `KeyboardOutput`, `MouseOutput` and `MouseButton` in
+  `aiopikvm.resources.hid` — the last shared by the REST call and the
+  WebSocket one — `Compression` in `aiopikvm.resources.msd`, `ATXAction` and
+  `ATXButton` in `aiopikvm.resources.switch`, and `ResetType` in
+  `aiopikvm.resources.redfish`, where `RESET_TYPES` is now read off the type
+  instead of written out a second time. A misspelled output or button used to
+  reach the device and come back as HTTP 400, or, over the WebSocket, as
+  nothing at all; it is a type error now. `get_args()` gives the values for a
+  name that only exists at runtime (#68).
 - Typed exceptions for the failures kvmd actually distinguishes: `BusyError`
   (HTTP 409, kvmd's `IsBusyError` — ATX, MSD and GPIO all raise it while an
   earlier operation is still running), `UnavailableError` (HTTP 503, subsystem
@@ -150,6 +160,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** the parameters those literal types cover are no longer `str`:
+  `hid.set_params()`, `hid.send_mouse_button()`, `ws.send_mouse_button()`,
+  `msd.download(compress=…)`, `switch.atx_power()`, `switch.atx_click()` and
+  `redfish.reset()`. Nothing changes on the wire — the client still sends
+  whatever it is handed — but a caller passing a variable inferred as `str`
+  now needs it annotated with the type, or a `cast`, which fails a strict
+  build that used to pass. The types stay out of the response models, where
+  one would turn a value from a kvmd this release has not seen into a
+  `ResponseError`. Key names are left as `str` for the same reason they are a
+  runtime set: there are 115 of them, and a key is usually computed rather
+  than written down (#68).
 - **Breaking:** `HIDResource.send_shortcut()` raises `ConfigurationError`
   instead of `ValueError` when called with no keys, and now refuses a key
   that is empty or holds a comma or any whitespace. kvmd takes the shortcut

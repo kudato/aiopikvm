@@ -1,10 +1,35 @@
 """Switch API — multi-port KVM switch and EDID."""
 
-from typing import Any
+from typing import Any, Literal
 
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._exceptions import ConfigurationError, ResponseError
 from aiopikvm.models.switch import EDID, SwitchState
+
+type ATXAction = Literal["on", "off", "off_hard", "reset_hard"]
+"""The power actions :meth:`SwitchResource.atx_power` takes.
+
+``"on"`` and ``"off"`` are short presses of the power switch — the first
+only against a port whose host is off, the second leaving the OS to decide
+what a press means. ``"off_hard"`` holds the power switch down and
+``"reset_hard"`` presses the reset one instead.
+
+This is kvmd's ATX vocabulary rather than the switch's own: the same
+validator serves ``/api/atx/power``, where :class:`ATXResource` spells each
+value out as a method of its own. kvmd lowercases the value before it
+looks, so only the canonical spelling is typed.
+"""
+
+type ATXButton = Literal["power", "power_long", "reset"]
+"""The buttons :meth:`SwitchResource.atx_click` presses.
+
+``"power"`` is a short press and ``"power_long"`` the same switch held down
+for several seconds; ``"reset"`` is the other front-panel switch. Unlike
+:data:`ATXAction`, none of these looks at what state the host is in.
+
+Shared with ``/api/atx/click`` and lowercased on the way in, exactly as
+:data:`ATXAction` is.
+"""
 
 
 class SwitchResource(BaseResource):
@@ -252,25 +277,29 @@ class SwitchResource(BaseResource):
             params["bootloader"] = 1
         await self._post("/api/switch/reset", params=params)
 
-    async def atx_power(self, port: int | float, action: str) -> None:
+    async def atx_power(self, port: int | float, action: ATXAction) -> None:
         """ATX power control for a specific port.
 
         Args:
             port: Port number (``0``-``19`` or unit.port notation).
-            action: Power action (``"on"``, ``"off"``, ``"off_hard"``,
-                ``"reset_hard"``).
+            action: Power action, one of :data:`ATXAction`.
+
+        Raises:
+            APIError: If kvmd does not know the action (HTTP 400).
         """
         await self._post(
             "/api/switch/atx/power", params={"port": port, "action": action}
         )
 
-    async def atx_click(self, port: int | float, button: str) -> None:
+    async def atx_click(self, port: int | float, button: ATXButton) -> None:
         """Simulate an ATX button click for a specific port.
 
         Args:
             port: Port number (``0``-``19`` or unit.port notation).
-            button: Button to simulate (``"power"``, ``"power_long"``,
-                ``"reset"``).
+            button: Button to press, one of :data:`ATXButton`.
+
+        Raises:
+            APIError: If kvmd does not know the button (HTTP 400).
         """
         await self._post(
             "/api/switch/atx/click", params={"port": port, "button": button}

@@ -46,6 +46,7 @@ from aiopikvm.models.hid import HIDKeymaps, HIDState
 from aiopikvm.models.msd import MSDState
 from aiopikvm.models.streamer import OCRInfo, StreamerState
 from aiopikvm.models.switch import SwitchState
+from aiopikvm.resources.hid import MouseButton
 
 logger = logging.getLogger(__name__)
 
@@ -809,12 +810,15 @@ class PiKVMWebSocket:
         else:
             await self._send_event("mouse_move", {"to": {"x": to_x, "y": to_y}})
 
-    async def send_mouse_button(self, button: str, state: bool) -> None:
+    async def send_mouse_button(self, button: MouseButton, state: bool) -> None:
         """Send a mouse button event.
 
         Args:
-            button: One of ``"left"``, ``"right"``, ``"middle"``, ``"up"``
-                (browser back) or ``"down"`` (browser forward).
+            button: Button name, one of
+                ``aiopikvm.resources.hid.MouseButton``. A name kvmd does not
+                know is dropped inside its handler with no answer of any
+                kind, the way a bad key name is — there is no 400 on this
+                socket to tell a typo from a click that landed.
             state: ``True`` for press, ``False`` for release.
 
         Raises:

@@ -1,7 +1,7 @@
 """HID API — keyboard, mouse, text input."""
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._exceptions import ConfigurationError
@@ -62,6 +62,51 @@ The set is kvmd 4.186's, recorded from the device behind this project's
 fixtures; no endpoint exposes the table, so this cannot be read from a
 device at runtime. Another version may know more names — nothing in the
 client enforces the set, and a name outside it is sent as given.
+
+This is a runtime set rather than a type, unlike the smaller vocabularies
+below. A key name is usually computed — read out of a browser event, a
+config file, a table of shortcuts — and a static list of 115 members would
+be in the way far more often than it caught a typo.
+"""
+
+type KeyboardOutput = Literal["usb", "ps2", "disabled"]
+"""What :meth:`HIDResource.set_params` takes as ``keyboard_output``.
+
+These three are what kvmd's own validator accepts; anything else is
+HTTP 400. It lowercases the value first, so a device would also take
+``"USB"`` — only the canonical spelling is typed here.
+
+Being accepted is not being applied. kvmd validates against this list
+whatever HID backend is running, and *then* hands the value to a backend
+that may have no use for it: ``otg`` discards ``keyboard_output`` outright
+and still answers 200. What the running backend can switch between is
+``HIDState.keyboard.outputs.available``, which is empty when there is no
+choice to make.
+"""
+
+type MouseOutput = Literal["usb", "usb_win98", "usb_rel", "ps2", "disabled"]
+"""What :meth:`HIDResource.set_params` takes as ``mouse_output``.
+
+``"usb"`` is the absolute mouse, ``"usb_rel"`` the relative one, and
+``"usb_win98"`` an absolute mouse with a workaround for Windows 98's
+driver. Which of them the target host obeys is
+``HIDState.mouse.absolute``.
+
+The same two-step as :data:`KeyboardOutput`: kvmd validates the name
+against this list on every backend, then applies it only if the running
+backend has that mouse — ``HIDState.mouse.outputs.available`` is the list
+that does. A name it does not have is dropped without a word, under an
+HTTP 200. Switching also recreates the USB gadget, which the host sees as
+the keyboard and mouse being unplugged and put back.
+"""
+
+type MouseButton = Literal["left", "right", "middle", "up", "down"]
+"""The mouse buttons kvmd knows, over REST and over the WebSocket alike.
+
+``"up"`` and ``"down"`` are the side buttons a browser reports as back and
+forward — not wheel directions, which are
+:meth:`HIDResource.send_mouse_wheel`. kvmd lowercases the name before it
+looks it up, so only the canonical spelling is typed.
 """
 
 
@@ -92,20 +137,27 @@ class HIDResource(BaseResource):
     async def set_params(
         self,
         *,
-        keyboard_output: str | None = None,
-        mouse_output: str | None = None,
+        keyboard_output: KeyboardOutput | None = None,
+        mouse_output: MouseOutput | None = None,
         jiggler: bool | None = None,
     ) -> None:
         """Set HID output parameters.
 
         Args:
-            keyboard_output: Keyboard output type. Valid values are the ones
-                ``HIDState.keyboard.outputs.available`` lists.
-            mouse_output: Mouse output type, e.g. ``"usb"`` (absolute) or
-                ``"usb_rel"`` (relative); see
-                ``HIDState.mouse.outputs.available``.
+            keyboard_output: Keyboard output type, one of
+                :data:`KeyboardOutput`. Which of them the running backend can
+                actually switch to is ``HIDState.keyboard.outputs.available``.
+            mouse_output: Mouse output type, one of :data:`MouseOutput` —
+                ``"usb"`` for the absolute mouse, ``"usb_rel"`` for the
+                relative one; see ``HIDState.mouse.outputs.available``.
             jiggler: Whether the mouse jiggler moves the pointer while the
                 host is idle.
+
+        Raises:
+            APIError: If kvmd does not know one of these output names
+                (HTTP 400). An output it knows but the running backend does
+                not have is *not* an error: it is dropped under an HTTP 200,
+                so read the state back to see what took.
         """
         params: dict[str, str | int] = {}
         if keyboard_output is not None:
@@ -278,14 +330,17 @@ class HIDResource(BaseResource):
         )
 
     async def send_mouse_button(
-        self, button: str, *, state: bool | None = None
+        self, button: MouseButton, *, state: bool | None = None
     ) -> None:
         """Send a mouse button event.
 
         Args:
-            button: Button name (e.g. ``"left"``, ``"right"``).
+            button: Button name, one of :data:`MouseButton`.
             state: Button state (``True`` = press, ``False`` = release,
                 ``None`` = click).
+
+        Raises:
+            APIError: If kvmd has no button by that name (HTTP 400).
         """
         params: dict[str, Any] = {"button": button}
         if state is not None:
