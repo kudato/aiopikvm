@@ -44,20 +44,23 @@ what a working setting already does:
   its own context. httpx reads ``SSL_CERT_FILE``, or ``SSL_CERT_DIR`` when
   the first is unset, and certifi's roots when neither is — one source, never
   both, and only while *trust_env* is on. *websockets* asks
-  :func:`ssl.create_default_context`, which takes OpenSSL's default paths:
-  both variables at once wherever they are set, and this machine's own store
-  otherwise. *trust_env* is httpx's idea and OpenSSL has never heard of it.
-  So the two verify against the same certificates when exactly one of the
-  variables is set, and part company on a machine that sets neither, on one
-  that sets both — httpx uses the file and ignores the directory there — and
-  on one that sets them with *trust_env* off. Building a context here to
-  settle it would silently move httpx off the roots it has always used.
-* An ``https://`` proxy is verified by neither of those, and not by
-  *verify_ssl* either. httpx leaves the proxy leg to httpcore's own default,
-  the system store with certifi added to it, and *websockets* to
-  ``proxy_ssl``, which stays at ``True`` and means the system store alone. A
-  context passed for the device reaches the device, not the proxy in front of
-  it.
+  :func:`ssl.create_default_context`, which loads OpenSSL's default paths:
+  a file and a hashed directory, filled in independently, each from its
+  variable where that is set and from OpenSSL's own compiled-in path where it
+  is not. So setting one variable narrows httpx to what it names and leaves
+  the socket trusting that *and* whatever the build's other default path
+  holds — which is a full system store on one machine and nothing at all on
+  another. *trust_env* is httpx's idea and OpenSSL has never heard of it.
+  The two therefore verify against the same certificates only by accident,
+  and building a context here to settle it would silently move httpx off the
+  roots it has always used.
+* An ``https://`` proxy is not verified by *verify_ssl*: a context passed for
+  the device reaches the device, not the proxy in front of it. httpx leaves
+  that leg to httpcore's own default, :func:`ssl.create_default_context` with
+  certifi loaded on top, and *websockets* to ``proxy_ssl``, which stays at
+  ``True`` and has asyncio build the same context without the certifi part.
+  Both legs therefore read ``SSL_CERT_FILE`` and ``SSL_CERT_DIR``, whatever
+  *trust_env* says, since it is OpenSSL that reads them and not httpx.
 * A ``socks5://`` proxy resolves the device's name through the proxy for the
   requests and on this machine for the socket, httpcore sending the name
   itself and *websockets* asking for ``socks5`` without remote resolution.
@@ -70,6 +73,7 @@ import re
 import ssl
 import urllib.parse
 import urllib.request
+from collections.abc import Iterable
 
 import httpx
 import websockets.exceptions
@@ -90,6 +94,17 @@ a client certificate is supplied, through
 
 _SOCKS_SCHEMES = ("socks5", "socks5h")
 """Schemes the two libraries give different default ports to."""
+
+_REMOVED_BY_URLSPLIT = "\t\r\n"
+"""What :func:`urllib.parse.urlsplit` deletes from a URL before parsing it.
+
+*websockets* parses a proxy with :func:`urllib.parse.urlparse`, which is
+urlsplit underneath, so what it reads and quotes back is the URL with these
+gone. httpx has a parser of its own and refuses a URL holding one outright,
+quoting it as it was written. A password written with any of them therefore
+reaches a message in either spelling, and the setting itself is quoted here in
+the second.
+"""
 
 _HTTPX_PROXY_ENV_KEYS = ("all", "http", "https")
 """Keys :func:`urllib.request.getproxies` files a proxy under that httpx reads.
@@ -244,8 +259,29 @@ def _without_password(text: str, proxy: str) -> str:
         The text, with any occurrence of the password replaced.
     """
     for password in _passwords_in(proxy):
-        text = text.replace(f":{password}@", ":***@")
+        text = _however_written(password).sub(":***@", text)
     return text
+
+
+def _however_written(password: str) -> re.Pattern[str]:
+    """Match a password wherever the characters urlsplit drops were written.
+
+    A password read after those characters were dropped is not the string the
+    message carries: ``s3c\\nret`` as written is ``s3cret`` once urlsplit has
+    been through it, and replacing the second spelling leaves the first
+    standing. The two differ only by characters urlsplit deletes, so the
+    pattern allows them anywhere.
+
+    Args:
+        password: The password in one of its spellings.
+
+    Returns:
+        A pattern matching the userinfo separator, that password however it
+        was spelled, and the ``@`` that closes it.
+    """
+    anywhere = f"[{re.escape(_REMOVED_BY_URLSPLIT)}]*"
+    spelt = anywhere.join(re.escape(char) for char in password)
+    return re.compile(f":{anywhere}{spelt}{anywhere}@")
 
 
 def _passwords_in(proxy: str) -> set[str]:
@@ -256,9 +292,14 @@ def _passwords_in(proxy: str) -> set[str]:
     — an unclosed ``[::1`` among them — and left the password standing in the
     message that was refusing it. What is left is the same rule urlsplit
     applies, up to the last ``@`` of the authority and past the first ``:``,
-    and it cannot fail. urlsplit is asked as well, because it strips tabs and
-    newlines before parsing, so a password written with one in it reaches a
-    message in two forms: as written here, and as the libraries print it.
+    and it cannot fail.
+
+    It is applied twice: to the URL as written, and to the URL with the
+    characters urlsplit deletes taken out of it. A tab or a newline written
+    into the ``//`` that opens the authority hides the password from the
+    first reading — there is no ``//`` left to find a netloc after — and
+    urlsplit, which is asked as well, answers with nothing at all for a
+    netloc it refuses outright, however it was spelled.
 
     Args:
         proxy: Proxy URL as it was written.
@@ -268,12 +309,13 @@ def _passwords_in(proxy: str) -> set[str]:
         carries none.
     """
     found: set[str] = set()
-    netloc = re.split(r"[/?#]", proxy.partition("//")[2], maxsplit=1)[0]
-    userinfo, at, _ = netloc.rpartition("@")
-    if at:
-        _, colon, written = userinfo.partition(":")
-        if colon and written:
-            found.add(written)
+    for text in (proxy, _as_urlsplit_reads(proxy)):
+        netloc = re.split(r"[/?#]", text.partition("//")[2], maxsplit=1)[0]
+        userinfo, at, _ = netloc.rpartition("@")
+        if at:
+            _, colon, written = userinfo.partition(":")
+            if colon and written:
+                found.add(written)
     try:
         parsed = urllib.parse.urlsplit(proxy).password
     except ValueError:
@@ -281,6 +323,20 @@ def _passwords_in(proxy: str) -> set[str]:
     if parsed:
         found.add(parsed)
     return found
+
+
+def _as_urlsplit_reads(proxy: str) -> str:
+    """The URL with the characters urlsplit drops taken out of it.
+
+    Args:
+        proxy: Proxy URL as it was written.
+
+    Returns:
+        The same URL as every parser downstream of urlsplit sees it.
+    """
+    for char in _REMOVED_BY_URLSPLIT:
+        proxy = proxy.replace(char, "")
+    return proxy
 
 
 def httpx_environment_proxies() -> dict[str, str]:
@@ -300,20 +356,52 @@ def httpx_environment_proxies() -> dict[str, str]:
     return {key: settings[key] for key in _HTTPX_PROXY_ENV_KEYS if key in settings}
 
 
-def proxy_settings_are_environment_variables() -> bool:
-    """Whether what :func:`httpx_environment_proxies` found is really the environment.
+def proxy_environment_variables(keys: Iterable[str]) -> list[str]:
+    """Name the variables that set a proxy for *keys*, as they are spelled.
 
-    ``urllib.request.getproxies`` answers with the environment *or*, when it
-    holds nothing, with what macOS and Windows have configured system-wide.
-    httpx reads it that way too, so those settings genuinely reach it — but
-    naming them ``HTTPS_PROXY`` in a message would invent a variable nobody
-    set.
+    ``urllib`` files a proxy under the lowercase of whatever the variable's
+    name has before ``_proxy``, and reads every spelling of it:
+    ``https_proxy``, ``HTTPS_PROXY`` and ``Https_Proxy`` all reach the
+    ``https`` key, and where more than one is set the all-lowercase one wins.
+    Uppercasing the key to name the variable would send the reader after a
+    variable nobody set, so what is named here is what the environment
+    actually spells.
+
+    An empty answer for a key that :func:`httpx_environment_proxies` did find
+    means the setting is not the environment's at all:
+    ``urllib.request.getproxies`` falls back on what macOS and Windows have
+    configured system-wide, and httpx reads it that way too.
+
+    Args:
+        keys: Proxy keys to look for, as
+            :func:`urllib.request.getproxies` keys them.
 
     Returns:
-        ``True`` when the environment is the source, ``False`` when the
-        answer came from the machine's own settings instead.
+        The names of the variables that set one, sorted, and empty when the
+        environment names none of them.
     """
-    return bool(urllib.request.getproxies_environment())
+    wanted = set(keys)
+    return sorted(
+        name
+        for name, value in os.environ.items()
+        if value and _proxy_key(name) in wanted
+    )
+
+
+def _proxy_key(name: str) -> str:
+    """The key ``urllib`` would file an environment variable's proxy under.
+
+    Args:
+        name: Environment variable name, as the environment spells it.
+
+    Returns:
+        The lowercase scheme it sets a proxy for, or ``""`` when it sets
+        none.
+    """
+    lowered = name.lower()
+    if len(name) > 5 and lowered.endswith("_proxy"):
+        return lowered[:-6]
+    return ""
 
 
 def _refuse_unusable(proxy: str, source: str) -> None:

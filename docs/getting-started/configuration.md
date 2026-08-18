@@ -68,28 +68,37 @@ own TLS settings for the requests while the socket keeps using these.
     It is passed on as it came, and each library then builds its own context.
     httpx reads `SSL_CERT_FILE`, or `SSL_CERT_DIR` when the first is unset,
     and certifi's roots when neither is — one source, never both, and only
-    while `trust_env` is on. `websockets` asks
-    `ssl.create_default_context()`, which takes OpenSSL's default paths: both
-    variables at once wherever they are set, and the machine's own store
-    otherwise. `trust_env` is httpx's idea, and OpenSSL has never heard of it.
+    while `trust_env` is on. `websockets` asks `ssl.create_default_context()`,
+    which loads OpenSSL's default paths: a file **and** a hashed directory,
+    filled in one at a time, each from its variable where that is set and
+    from the path OpenSSL was compiled with where it is not. `trust_env` is
+    httpx's idea, and OpenSSL has never heard of it.
 
     | Environment | httpx verifies against | `websockets` verifies against |
     |---|---|---|
-    | neither variable | certifi | the system store |
-    | `SSL_CERT_FILE` only | that file | that file |
-    | `SSL_CERT_DIR` only | that directory | that directory |
+    | neither variable | certifi | both compiled-in paths |
+    | `SSL_CERT_FILE` only | that file | that file **and** the compiled-in directory |
+    | `SSL_CERT_DIR` only | that directory | that directory **and** the compiled-in file |
     | both | the file only | the file **and** the directory |
     | both, `trust_env=False` | certifi | the file and the directory |
 
-    On a device whose CA is in one store and not the other, one half of the
-    client connects and the other does not. Pass the bundle or a context
-    instead, and both verify against the same certificates.
+    `ssl.get_default_verify_paths()` prints that compiled-in pair as
+    `openssl_cafile` and `openssl_capath` — a full system store on one build
+    and an empty directory on another. Wherever a variable is unset the
+    socket falls back on the compiled-in path for that slot and httpx never
+    does, so setting one of the two narrows httpx and only adds to
+    `websockets`. On a device whose CA is in one store and not the other, one
+    half of the client connects and the other does not. Pass the bundle or a
+    context instead, and both verify against the same certificates.
 
-    An `https://` proxy is verified by none of that, and not by `verify_ssl`
-    either: httpx leaves the proxy leg to httpcore's own default — the system
-    store with certifi added — and `websockets` to its `proxy_ssl`, which
-    stays at `True` and means the system store alone. A context passed for
-    the device reaches the device, not the proxy in front of it.
+    An `https://` proxy is verified by `verify_ssl` in neither library: a
+    context passed for the device reaches the device, not the proxy in front
+    of it. httpx leaves that leg to httpcore's own default —
+    `ssl.create_default_context()` with certifi loaded on top — and
+    `websockets` to its `proxy_ssl`, which stays at `True` and has asyncio
+    build the same context without the certifi part. So `SSL_CERT_FILE` and
+    `SSL_CERT_DIR` reach both proxy legs, `trust_env` or not: it is OpenSSL
+    that reads them there, not httpx.
 
 ## Proxies
 
@@ -141,8 +150,9 @@ untouched.
 Without a `proxy`, both of them read the environment — `HTTPS_PROXY`,
 `WSS_PROXY`, `NO_PROXY` and the rest — which is what `trust_env=True` leaves
 them doing. Pass `trust_env=False` to connect directly whatever the
-environment says; in httpx that also switches off `SSL_CERT_FILE` and
-`SSL_CERT_DIR`, which it reads only when `verify_ssl=True`.
+environment says; in httpx that also switches off its own reading of
+`SSL_CERT_FILE` and `SSL_CERT_DIR`, which it does only when `verify_ssl=True`.
+OpenSSL goes on reading them for an `https://` proxy either way, as above.
 
 Those variables are **not** held to the bar above, and the one-proxy-for-both
 promise does not extend to them. Deciding which variable each library reads
@@ -158,10 +168,20 @@ reproducing two sets of rules that disagree with each other:
 
 A guess at that lands wrong in both directions — refusing a setting that was
 working, or missing one that was not — so no guess is made. What the client
-does promise is that neither library's complaint escapes `PiKVMError`: a port
-outside 0–65535 arrives from httpx as an `OverflowError` inside an
-`ExceptionGroup` and becomes a `ConnectError` naming the variable, and from
-`websockets` as a bare `ValueError` that becomes a `WebSocketError`.
+does promise is that neither library's complaint escapes `PiKVMError`. A port
+outside 0–65535 shows what that takes: httpx builds a client with it and only
+fails when it connects, and what it fails with depends on where the port goes
+first. A proxy named by hostname sends it to the resolver, as the service to
+look one up for, and the failure comes back in the resolver's own words —
+saying nothing about a port, and arriving as an ordinary `httpx.ConnectError`
+that becomes a `ConnectError` saying the same. A proxy named by IP literal is
+not resolved at all, so the port reaches `connect()`, which raises an
+`OverflowError` inside an `ExceptionGroup` httpx never mapped. That becomes a
+`ConnectError` too — and since the group prints nothing but a count of what
+it holds, the message is built here: what each exception in it said, and
+which variables could be behind it, named and never quoted. `websockets`
+refuses the same port outright, as a bare `ValueError` that becomes a
+`WebSocketError`.
 
 A `socks5://` proxy also needs a package neither library depends on: `socksio`
 for the requests, `python-socks` for the socket. Without them the client raises

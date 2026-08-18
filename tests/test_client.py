@@ -1,8 +1,10 @@
 """PiKVM client lifecycle tests."""
 
 import importlib.util
+import os
 import ssl
 import urllib.request
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +13,13 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import ConfigurationError, ConnectError, PiKVM, PiKVMError
+from aiopikvm import (
+    ConfigurationError,
+    ConnectError,
+    ConnectionTimeoutError,
+    PiKVM,
+    PiKVMError,
+)
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._client import _RESOURCE_NAMES
 
@@ -344,6 +352,22 @@ def test_a_bad_proxy_port_is_not_blamed_on_the_pikvm_url() -> None:
     assert "PiKVM URL" not in message
 
 
+def _without_proxy_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Take every proxy variable this machine happens to set out of the way.
+
+    ``urllib`` reads any spelling of ``<scheme>_proxy`` and prefers the
+    all-lowercase one, so a developer's own ``https_proxy`` would otherwise
+    outrank the ``HTTPS_PROXY`` these tests set and send them at a proxy that
+    is not there.
+
+    Args:
+        monkeypatch: The fixture the variables are removed through.
+    """
+    for name in list(os.environ):
+        if name.lower().endswith("_proxy"):
+            monkeypatch.delenv(name)
+
+
 async def test_a_connect_failure_httpx_has_no_name_for_stays_in_the_hierarchy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -358,6 +382,7 @@ async def test_a_connect_failure_httpx_has_no_name_for_stays_in_the_hierarchy(
     that the group does not reach the caller, and that the message says
     enough to find the variable.
     """
+    _without_proxy_variables(monkeypatch)
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:99999")
     async with PiKVM("https://127.0.0.1:9") as kvm:
         with pytest.raises(ConnectError) as caught:
@@ -375,6 +400,7 @@ async def test_a_streaming_connect_failure_stays_in_the_hierarchy_too(
     An MSD image download is the call that goes through it, and a group
     escaping there would be no less outside ``PiKVMError`` (#69).
     """
+    _without_proxy_variables(monkeypatch)
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:99999")
     async with PiKVM("https://127.0.0.1:9") as kvm:
         with pytest.raises(ConnectError, match="0-65535"):
@@ -398,6 +424,20 @@ async def test_an_ordinary_connect_failure_reads_as_it_always_did(
     assert "PROXY" not in str(caught.value)
 
 
+def _without_proxy_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Take every proxy variable this machine happens to set out of the way.
+
+    ``urllib`` reads any spelling of ``<scheme>_proxy``, so a developer's own
+    ``http_proxy`` would otherwise decide what these tests see.
+
+    Args:
+        monkeypatch: The fixture the variables are removed through.
+    """
+    for name in list(os.environ):
+        if name.lower().endswith("_proxy"):
+            monkeypatch.delenv(name)
+
+
 def test_what_a_contained_group_is_made_to_say(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -409,9 +449,8 @@ def test_what_a_contained_group_is_made_to_say(
     credentials (#69).
     """
     group = ExceptionGroup("connecting", [OverflowError("port must be 0-65535")])
-    named = {"https": "http://user:s3cret@proxy.local:3128"}
-    monkeypatch.setattr("urllib.request.getproxies", lambda: named)
-    monkeypatch.setattr("urllib.request.getproxies_environment", lambda: named)
+    _without_proxy_variables(monkeypatch)
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:s3cret@proxy.local:3128")
 
     read = PiKVM("https://pikvm.local")._connection_failed(group)
     assert "OverflowError: port must be 0-65535" in read
@@ -427,6 +466,54 @@ def test_what_a_contained_group_is_made_to_say(
     assert "http://proxy.local:3128" in passed
 
 
+def test_the_variable_named_is_the_one_the_environment_spells(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POSIX names it in lowercase, and urllib prefers that spelling (#69).
+
+    Uppercasing the key urllib files a proxy under would name a variable
+    nobody set, and send the reader looking for one that is not there — the
+    more so as the lowercase spelling is the one httpx ends up reading when
+    both are set.
+    """
+    _without_proxy_variables(monkeypatch)
+    monkeypatch.setenv("https_proxy", "http://proxy.local:3128")
+    group = ExceptionGroup("connecting", [OverflowError("port must be 0-65535")])
+
+    read = PiKVM("https://pikvm.local")._connection_failed(group)
+    assert "the environment sets https_proxy" in read
+    assert "HTTPS_PROXY" not in read
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://other.local:3128")
+    both = PiKVM("https://pikvm.local")._connection_failed(group)
+    assert "HTTPS_PROXY, https_proxy" in both
+
+
+async def test_a_proxy_the_requests_never_saw_is_not_blamed_for_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With an external client these settings reached the socket alone (#69).
+
+    The request went out through a client somebody else built, carrying
+    whatever proxy *they* configured. Naming this object's own settings would
+    describe a client that was not involved.
+    """
+    _without_proxy_variables(monkeypatch)
+    monkeypatch.setenv("HTTPS_PROXY", "http://environment.local:3128")
+    group = ExceptionGroup("connecting", [OverflowError("port must be 0-65535")])
+
+    async with httpx.AsyncClient() as http:
+        theirs = PiKVM(
+            "https://pikvm.local",
+            proxy="http://ours.local:3128",
+            http_client=http,
+        )
+        read = theirs._connection_failed(group)
+    assert "OverflowError: port must be 0-65535" in read
+    assert "ours.local" not in read
+    assert "HTTPS_PROXY" not in read
+
+
 def test_a_proxy_no_variable_set_is_not_blamed_on_a_variable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -437,16 +524,90 @@ def test_a_proxy_no_variable_set_is_not_blamed_on_a_variable(
     so they are worth naming — but calling them ``HTTPS_PROXY`` would invent
     a variable nobody set, and send the reader looking for it (#69).
     """
+    _without_proxy_variables(monkeypatch)
     monkeypatch.setattr(
         "urllib.request.getproxies", lambda: {"https": "http://proxy.local:3128"}
     )
-    monkeypatch.setattr("urllib.request.getproxies_environment", dict)
 
     read = PiKVM("https://pikvm.local")._connection_failed(
         ExceptionGroup("connecting", [OverflowError("port must be 0-65535")])
     )
     assert "HTTPS_PROXY" not in read
     assert "this machine is configured with a proxy for https" in read
+
+
+class _FailingBody(httpx.AsyncByteStream):
+    """A request body whose own task group fails part-way through sending."""
+
+    def __init__(self, failure: ExceptionGroup[Exception]) -> None:
+        self._failure = failure
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"the first chunk"
+        raise self._failure
+
+
+async def test_a_group_the_caller_sent_the_body_from_is_left_alone(
+    mock_api: respx.MockRouter,
+) -> None:
+    """The body of a request is the caller's own code, running here (#69).
+
+    ``MSDResource.upload()`` sends whatever they iterate, and an iterator
+    that runs its own task group fails as a group. It reaches the same clause
+    a failure to connect does, and answering it with a ``ConnectError``
+    blamed on the proxy would bury what they were doing and take ``except*``
+    away from them.
+    """
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ExceptionGroup) as caught:
+            await kvm.request(
+                "POST",
+                "/api/msd/write",
+                content=_FailingBody(
+                    ExceptionGroup("mine", [ValueError("my own failure")])
+                ),
+                headers={"Content-Length": "15"},
+            )
+    assert caught.value.exceptions[0].args[0] == "my own failure"
+
+
+async def test_a_grouped_connect_failure_from_a_body_is_still_contained(
+    mock_api: respx.MockRouter,
+) -> None:
+    """What is inside the group decides, on this side of the yield too (#69).
+
+    The connection breaking while the body goes out is a connection failure
+    however it was wrapped, and the contract for it is ``ConnectError``.
+    """
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ConnectError, match="the peer hung up"):
+            await kvm.request(
+                "POST",
+                "/api/msd/write",
+                content=_FailingBody(
+                    ExceptionGroup(
+                        "sending", [httpx.RemoteProtocolError("the peer hung up")]
+                    )
+                ),
+                headers={"Content-Length": "15"},
+            )
+
+
+async def test_a_grouped_timeout_is_reported_as_a_timeout(
+    mock_api: respx.MockRouter,
+) -> None:
+    """httpx derives every timeout from ``TransportError`` (#69).
+
+    So a group holding one is a group of transport failures, and reading it
+    as a ``ConnectError`` told the caller the connection failed where the
+    documented answer — and the answer to the very same exception ungrouped —
+    is ``ConnectionTimeoutError``.
+    """
+    mock_api.get("/api/msd/read").respond(200, content=b"payload")
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ConnectionTimeoutError, match="took too long"):
+            async with kvm.stream("GET", "/api/msd/read"):
+                raise ExceptionGroup("reading", [httpx.ReadTimeout("took too long")])
 
 
 async def test_a_group_the_caller_raised_is_left_alone(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Self
@@ -28,7 +28,7 @@ from aiopikvm._transport import (
     VerifySSL,
     httpx_environment_proxies,
     mask_proxy,
-    proxy_settings_are_environment_variables,
+    proxy_environment_variables,
     resolve_proxy,
     resolve_verify_ssl,
 )
@@ -62,30 +62,62 @@ _RESOURCE_NAMES = (
 )
 
 
-def _only_transport_failures(group: ExceptionGroup[Exception]) -> bool:
-    """Whether a group holds nothing but httpx transport failures.
+def _leaves(group: BaseExceptionGroup[BaseException]) -> Iterator[BaseException]:
+    """Every exception a group holds, in the order it holds them.
 
-    A body read the caller runs inside a task group of their own comes back
-    as an ``ExceptionGroup`` even when what went wrong is the connection, and
-    a group whose every leaf is one of httpx's transport errors is a
-    connection failure however it was wrapped. One that also holds something
-    else is theirs, and folding it into a ``ConnectError`` would lose the
-    rest of what it says.
+    anyio nests one task group inside another, so what a group says is what
+    its leaves say; the groups on the way down carry nothing but a count.
 
     Args:
         group: The group to look inside, however deeply it nests.
 
-    Returns:
-        ``True`` when every exception in it is an :class:`httpx.TransportError`.
+    Yields:
+        Each exception that is not itself a group.
     """
     pending: list[BaseException] = list(group.exceptions)
     while pending:
-        exc = pending.pop()
+        exc = pending.pop(0)
         if isinstance(exc, BaseExceptionGroup):
             pending.extend(exc.exceptions)
-        elif not isinstance(exc, httpx.TransportError):
-            return False
-    return True
+        else:
+            yield exc
+
+
+def _grouped_failure(
+    group: ExceptionGroup[Exception],
+) -> type[ConnectionTimeoutError] | type[ConnectError] | None:
+    """Which failure a group amounts to, when it is one this client can name.
+
+    httpx maps what it knows into its own exceptions one at a time, and a
+    failure that comes out of a task group is not one of them: the group
+    itself is a plain ``ExceptionGroup``, so the clauses above it never fire.
+    That happens on both sides of the call — inside httpcore, where anyio
+    connects, and inside the caller's own code, which reaches here through an
+    async request body, an event hook, or a transport of their making. Only
+    the leaves say which it was, so they decide: a group made of nothing but
+    connection failures is one, and a group holding anything else is the
+    caller's to handle with ``except*``, whole.
+
+    An :class:`OverflowError` counts as a connection failure because it is
+    the one this client was written for: a proxy port outside 0-65535, which
+    ``connect()`` raises about from inside anyio's task group. A leaf that is
+    an :class:`OSError` does not — anyio gathers those into a single
+    ``OSError`` of its own, so a grouped one is far likelier to be a caller
+    writing what they read to a full disk than a socket failing.
+
+    Args:
+        group: The group that came out of httpx.
+
+    Returns:
+        The exception class to report it as, or ``None`` when it is not this
+        client's to name.
+    """
+    leaves = list(_leaves(group))
+    if all(isinstance(exc, httpx.TimeoutException) for exc in leaves):
+        return ConnectionTimeoutError
+    if all(isinstance(exc, httpx.TransportError | OverflowError) for exc in leaves):
+        return ConnectError
+    return None
 
 
 class PiKVM:
@@ -288,6 +320,12 @@ class PiKVM:
     ) -> httpx.Response:
         """Send an HTTP request and return the raw response.
 
+        What the caller's own code raises on the way — a streamed *content*
+        body, an event hook or a transport on an external client — is not
+        rewritten into one of these: it reaches them as it was raised, the
+        structure of an ``ExceptionGroup`` included, so ``except*`` still
+        picks it apart.
+
         Args:
             method: HTTP method (GET, POST, etc.).
             path: URL path relative to the PiKVM base URL.
@@ -348,7 +386,15 @@ class PiKVM:
             # in-flight connections after a one-second shutdown timeout.
             raise ConnectError(str(exc)) from exc
         except ExceptionGroup as exc:
-            raise ConnectError(self._connection_failed(exc)) from exc
+            failed = _grouped_failure(exc)
+            if failed is None:
+                # Nothing in it is a connection failure, so it came out of the
+                # caller's own code — the body iterator this request is
+                # sending, an event hook, a transport of their making. Calling
+                # that a failure to connect would bury what they were doing
+                # and take ``except*`` away from them.
+                raise
+            raise failed(self._connection_failed(exc)) from exc
 
         self._raise_for_status(response)
         return response
@@ -421,6 +467,11 @@ class PiKVM:
     ) -> AsyncIterator[httpx.Response]:
         """Open a streaming HTTP connection.
 
+        An exception raised inside the ``async with`` block arrives here on
+        its way out, and is left as it is unless it is a transport failure —
+        one raised while the body was being read is the connection failing,
+        whether or not the caller wrapped it in a task group of their own.
+
         Args:
             method: HTTP method.
             path: URL path.
@@ -446,11 +497,9 @@ class PiKVM:
         client = self._ensure_client()
         # An exception raised in the caller's own block arrives back here, at
         # the yield, and is caught by the clauses below. That is what maps a
-        # transport failure met while the body is being read; it also means a
-        # group of the caller's own making would be read as a failure to
-        # connect, so once the response has been handed over, only a group
-        # made entirely of transport failures is still read as one.
-        handed_over = False
+        # transport failure met while the body is being read — and what makes
+        # a group need looking inside, since one raised in their block reaches
+        # the same clause as one raised while connecting.
         try:
             async with client.stream(
                 method,
@@ -465,7 +514,6 @@ class PiKVM:
                     # response.text from raising httpx.ResponseNotRead.
                     await response.aread()
                 self._raise_for_status(response)
-                handed_over = True
                 yield response
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
@@ -483,11 +531,12 @@ class PiKVM:
         except httpx.TransportError as exc:
             raise ConnectError(str(exc)) from exc
         except ExceptionGroup as exc:
-            if handed_over and not _only_transport_failures(exc):
+            failed = _grouped_failure(exc)
+            if failed is None:
                 # Their block raised, and not about the connection. Reading
                 # it as a failure to connect would bury what they were doing.
                 raise
-            raise ConnectError(self._connection_failed(exc)) from exc
+            raise failed(self._connection_failed(exc)) from exc
 
     def _connection_failed(self, group: ExceptionGroup[Exception]) -> str:
         """Spell out a connect failure httpcore had no name for.
@@ -496,11 +545,16 @@ class PiKVM:
         map comes out of the task group anyio connects in, as an
         ``ExceptionGroup`` that prints how many exceptions it holds and none
         of what they say. A proxy port outside 0-65535 arrives this way, as
-        an ``OverflowError`` from ``getaddrinfo``. A group can also reach
-        here already carrying httpx's own exceptions, when the caller reads
-        the body inside a task group of their own; either way the proxy in
-        use is worth naming — by variable rather than by value, the
-        environment's being shared with every other program on the machine.
+        an ``OverflowError`` from ``connect()``. A group can also reach here
+        already carrying httpx's own exceptions, when the caller reads the
+        body inside a task group of their own; either way the proxy in use is
+        worth naming — by variable rather than by value, the environment's
+        being shared with every other program on the machine.
+
+        The proxy is only named when this client configured it. With an
+        external *http_client* these settings reached the WebSocket alone,
+        and the request that failed went through a client somebody else
+        configured, whose proxy is not this object's to guess at.
 
         Args:
             group: The group that came out of httpx.
@@ -509,22 +563,18 @@ class PiKVM:
             What every exception in it said, and where a proxy could be
             standing in the way.
         """
-        pending: list[BaseException] = list(group.exceptions)
-        said: list[str] = []
-        while pending:
-            exc = pending.pop(0)
-            if isinstance(exc, BaseExceptionGroup):
-                pending.extend(exc.exceptions)
-            else:
-                said.append(f"{type(exc).__name__}: {exc}")
+        said = [f"{type(exc).__name__}: {exc}" for exc in _leaves(group)]
+        if self._external_client:
+            return "; ".join(said)
         if self._proxy is not None:
             said.append(
                 f"the connection goes through the proxy {mask_proxy(self._proxy)!r}"
             )
         elif self._trust_env and (settings := httpx_environment_proxies()):
-            if proxy_settings_are_environment_variables():
-                names = ", ".join(f"{key.upper()}_PROXY" for key in sorted(settings))
-                said.append(f"the environment sets {names}, which httpx may read")
+            if names := proxy_environment_variables(settings):
+                said.append(
+                    f"the environment sets {', '.join(names)}, which httpx may read"
+                )
             else:
                 # getproxies() answers with the system-wide settings on macOS
                 # and Windows when the environment holds nothing, and httpx

@@ -12,6 +12,7 @@ import pytest
 from aiopikvm import ConfigurationError
 from aiopikvm._transport import (
     httpx_environment_proxies,
+    proxy_environment_variables,
     resolve_proxy,
     resolve_verify_ssl,
 )
@@ -266,11 +267,20 @@ def test_only_the_variables_httpx_reads_are_reported(
     ``WS_PROXY`` is *websockets*' alone and httpx never looks at it, so
     naming it in a message about the requests would send the reader after
     the wrong variable. ``FTP_PROXY`` reaches neither library.
+
+    The environment is replaced rather than added to, since a machine of its
+    own with ``ALL_PROXY`` set answers with a key this test never named.
     """
-    monkeypatch.setenv("HTTP_PROXY", "http://plain.local:3128")
-    monkeypatch.setenv("HTTPS_PROXY", "http://secure.local:3128")
-    monkeypatch.setenv("WS_PROXY", "http://socket.local:3128")
-    monkeypatch.setenv("FTP_PROXY", "http://files.local:3128")
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "HTTP_PROXY": "http://plain.local:3128",
+            "HTTPS_PROXY": "http://secure.local:3128",
+            "WS_PROXY": "http://socket.local:3128",
+            "FTP_PROXY": "http://files.local:3128",
+        },
+    )
     assert sorted(httpx_environment_proxies()) == ["http", "https"]
 
 
@@ -282,6 +292,46 @@ def test_no_proxy_variables_at_all_is_an_empty_answer(
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr("urllib.request.getproxies", dict)
     assert httpx_environment_proxies() == {}
+
+
+def test_the_variables_behind_the_settings_are_named_as_written(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """urllib files any spelling under the same key, and POSIX writes it low.
+
+    Building the name back out of the key would name ``HTTPS_PROXY`` on a
+    machine that set ``https_proxy`` — a variable nobody set, and the one
+    spelling urllib prefers when both are there (#69). Only the keys httpx
+    reads are answered for, so ``WS_PROXY`` is left out the same way it is
+    left out of the settings themselves.
+    """
+    monkeypatch.setattr(
+        os,
+        "environ",
+        {
+            "https_proxy": "http://secure.local:3128",
+            "HTTP_PROXY": "http://plain.local:3128",
+            "WS_PROXY": "http://socket.local:3128",
+            "EMPTY_PROXY": "",
+        },
+    )
+    settings = httpx_environment_proxies()
+    assert proxy_environment_variables(settings) == ["HTTP_PROXY", "https_proxy"]
+
+
+def test_a_system_wide_proxy_is_behind_no_variable_at_all(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """macOS and Windows answer ``getproxies()`` from their own settings.
+
+    httpx reads those too, so they are worth reporting — but there is no
+    variable to name, and the empty answer is what says so (#69).
+    """
+    monkeypatch.setattr(os, "environ", {})
+    monkeypatch.setattr(
+        "urllib.request.getproxies", lambda: {"https": "http://proxy.local:3128"}
+    )
+    assert proxy_environment_variables(httpx_environment_proxies()) == []
 
 
 @pytest.mark.parametrize(
@@ -395,6 +445,34 @@ def test_a_password_written_with_a_newline_is_hidden_in_both_forms() -> None:
     message = str(caught.value)
     assert "s3c\nret" not in message
     assert "s3cret" not in message
+
+
+@pytest.mark.parametrize(
+    ("proxy", "written"),
+    [
+        ("http:/\n/alice:s3cret@proxy.local/path", "s3cret"),
+        ("http:/\n/alice:s3c\nret@proxy.local/path", "s3c\nret"),
+        ("http:/\t/alice:s3c\tret@proxy.local/path", "s3c\tret"),
+        ("http:/\n/alice:s3cret@[::1", "s3cret"),
+    ],
+)
+def test_a_password_survives_a_url_whose_slashes_were_written_apart(
+    proxy: str, written: str
+) -> None:
+    """One of those characters inside the ``//`` hid the password (#69).
+
+    Reading the URL as written finds no authority at all — there is no ``//``
+    left to read one after — so the only password found was urlsplit's, which
+    is the URL with the character taken out and not the spelling the message
+    carries. The URL is therefore read both ways, and the last case is the
+    one that needs both: urlsplit refuses an unclosed ``[::1`` outright.
+    """
+    with pytest.raises(ConfigurationError) as caught:
+        resolve_proxy(proxy)
+    message = str(caught.value)
+    assert written not in message
+    assert "s3cret" not in message
+    assert ":***@" in message
 
 
 @pytest.mark.parametrize(
