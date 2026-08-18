@@ -785,7 +785,7 @@ async def test_send_key() -> None:
 
 
 async def test_send_key_can_ask_kvmd_to_release_it() -> None:
-    """A press and its release in one event, which nothing can split (#74)."""
+    """A press and its release asked for in one event (#74)."""
     ws, conn = connected()
     await ws.send_key("KeyA", state=True, finish=True)
     assert sent(conn) == {
@@ -885,9 +885,8 @@ async def test_send_on_a_broken_connection() -> None:
 # A frame checked against `frame(...)` was sent to a real device and accepted
 # by it: the ws_binary scenario records each one with kvmd's inactivity
 # counter read before and after, and kvmd only bumps that counter for a frame
-# it decoded. Not every frame below has a recording — a test asserting on
-# bytes it spelled out itself is testing this file's idea of the layout, and
-# each one says so in its own docstring.
+# it decoded. A test that spells the bytes out instead is checking this file's
+# idea of the layout against itself, which is worth knowing when one fails.
 
 
 def binary_step(name: str) -> dict[str, Any]:
@@ -1095,8 +1094,8 @@ async def test_binary_key_carries_finish_in_bit_1(
     """kvmd reads the state out of bit 0 and *finish* out of bit 1 (#74).
 
     Bit 1 asks for a release rather than being one, and asking is all it is:
-    ``ControlLeft`` is among the keys kvmd exempts, so on the device these
-    frames were recorded against it would press the key and hold it. What is
+    ``ControlLeft`` is among the keys kvmd exempts, so the row that presses
+    it and asks would be answered with a press and nothing else. What is
     under test here is the byte, not what kvmd then does with it.
 
     Leaving *finish* off has to change nothing, so the two frames without it

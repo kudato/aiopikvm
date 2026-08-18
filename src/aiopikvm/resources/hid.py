@@ -317,7 +317,8 @@ class HIDResource(BaseResource):
                 the parameter only in the branch that reads *state*, so it
                 goes out only alongside one; a release parses it and does
                 nothing with it. Silently ignored by kvmd older than 4.33,
-                which leaves the key held.
+                which presses the key and leaves it down — *state* is still
+                honoured there, so a release still releases.
 
         Raises:
             APIError: If kvmd has no key by that name (HTTP 400).

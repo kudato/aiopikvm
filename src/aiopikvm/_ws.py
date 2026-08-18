@@ -761,8 +761,12 @@ class PiKVMWebSocket:
         and the keys really do come up. CH9329 only discards what it had
         queued and leaves them down, and over HTTP nothing clears anything at
         all. *finish* asks kvmd to release the key in the same event that
-        pressed it, which is the one keystroke a lost connection cannot
-        interrupt halfway, on any backend and before the close is noticed.
+        pressed it, so the release is owed to nothing that can go away: no
+        second call, no second frame, and nothing left for the connection to
+        interrupt. kvmd still puts two reports on the wire, and CH9329 still
+        queues them one at a time, so a clear landing between the two can
+        take the release with it — but the window is a queue rather than a
+        network.
 
         Both channels carry it from kvmd 4.33 on. Older ones part company,
         and not in the harmless direction: the JSON handler drops a field it
@@ -770,8 +774,8 @@ class PiKVMWebSocket:
         handler validates the whole flags byte as a boolean, so a frame
         carrying bit 1 fails that check and is thrown away entire. Nothing
         happens, and nothing comes back to say so — a press lost that way
-        types nothing, and a release lost that way leaves the key held for
-        good, which is the very thing *finish* is for.
+        types nothing, and a release lost that way leaves the key down until
+        something else lets it up, which is the very thing *finish* is for.
 
         Args:
             key: Key name, one of kvmd's web names such as ``"KeyA"`` or

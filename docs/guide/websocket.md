@@ -384,8 +384,9 @@ a press asking for the release is `0b11`.
     `1` and nothing else, so a frame carrying bit 1 fails validation and is
     dropped entire — no answer comes back to say so, and `state` is lost
     along with the flag. A press thrown away that way types nothing; a
-    release thrown away that way leaves the key held for good, which is the
-    failure `finish` exists to prevent. This is the one place an older
+    release thrown away that way leaves the key down until something else
+    lets it up, which is the failure `finish` exists to prevent. This is the
+    one place an older
     device does worse than ignore the flag: over JSON, and over HTTP, it
     ignores what it cannot name and still does what `state` asked.
 
