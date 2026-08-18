@@ -44,13 +44,17 @@ what a working setting already does:
   its own context. httpx reads ``SSL_CERT_FILE``, or ``SSL_CERT_DIR`` when
   the first is unset, and certifi's roots when neither is — one source, never
   both, and only while *trust_env* is on. *websockets* asks
-  :func:`ssl.create_default_context`, which loads OpenSSL's default paths:
-  a file and a hashed directory, filled in independently, each from its
+  :func:`ssl.create_default_context`, which fills two OpenSSL slots
+  independently — a bundle file and a hashed directory — each from its
   variable where that is set and from OpenSSL's own compiled-in path where it
-  is not. So setting one variable narrows httpx to what it names and leaves
-  the socket trusting that *and* whatever the build's other default path
-  holds — which is a full system store on one machine and nothing at all on
-  another. *trust_env* is httpx's idea and OpenSSL has never heard of it.
+  is not, and which on Windows loads the native ``ROOT`` and ``CA`` stores on
+  top of both. So a variable *replaces* the slot it names rather than adding
+  to it, for the socket as much as for httpx: pointing ``SSL_CERT_FILE`` at
+  certifi's bundle took the socket's own context from 191 roots to certifi's
+  136 on the machine this was measured on, since the 191 came from the
+  compiled-in file and naming a file puts that aside. What the socket keeps
+  is the *other* slot — a full system store on one build and nothing at all
+  on another. *trust_env* is httpx's idea and OpenSSL has never heard of it.
   The two therefore verify against the same certificates only by accident,
   and building a context here to settle it would silently move httpx off the
   roots it has always used.
@@ -101,9 +105,9 @@ _REMOVED_BY_URLSPLIT = "\t\r\n"
 *websockets* parses a proxy with :func:`urllib.parse.urlparse`, which is
 urlsplit underneath, so what it reads and quotes back is the URL with these
 gone. httpx has a parser of its own and refuses a URL holding one outright,
-quoting it as it was written. A password written with any of them therefore
-reaches a message in either spelling, and the setting itself is quoted here in
-the second.
+naming the character and its position rather than quoting the URL at all. The
+setting is quoted here as the caller wrote it, though, so a password written
+with any of these reaches a message in both spellings and both are masked.
 """
 
 _HTTPX_PROXY_ENV_KEYS = ("all", "http", "https")
@@ -269,8 +273,18 @@ def _however_written(password: str) -> re.Pattern[str]:
     A password read after those characters were dropped is not the string the
     message carries: ``s3c\\nret`` as written is ``s3cret`` once urlsplit has
     been through it, and replacing the second spelling leaves the first
-    standing. The two differ only by characters urlsplit deletes, so the
-    pattern allows them anywhere.
+    standing. The two differ only by characters urlsplit deletes, so what goes
+    into the pattern is the spelling neither of them has — the password with
+    those characters taken out — and the class between the letters covers
+    however many were written back in.
+
+    Interleaving the password *as written* is what the pattern must not do. A
+    password holding a tab or a newline would put a literal into it that the
+    class beside it matches too, and against a subject that does not match,
+    every way of splitting a run of them between the two is tried before the
+    match is refused: measured, 0.014 s for 16 such characters, 0.225 s for
+    20 and 3.6 s for 24, about sixteen times longer for every four. A proxy
+    URL is the caller's own setting, so that is reachable.
 
     Args:
         password: The password in one of its spellings.
@@ -280,8 +294,8 @@ def _however_written(password: str) -> re.Pattern[str]:
         was spelled, and the ``@`` that closes it.
     """
     anywhere = f"[{re.escape(_REMOVED_BY_URLSPLIT)}]*"
-    spelt = anywhere.join(re.escape(char) for char in password)
-    return re.compile(f":{anywhere}{spelt}{anywhere}@")
+    spelt = [re.escape(char) for char in _as_urlsplit_reads(password)]
+    return re.compile(":" + anywhere.join(["", *spelt, ""]) + "@")
 
 
 def _passwords_in(proxy: str) -> set[str]:
@@ -301,12 +315,20 @@ def _passwords_in(proxy: str) -> set[str]:
     urlsplit, which is asked as well, answers with nothing at all for a
     netloc it refuses outright, however it was spelled.
 
+    One password is beyond all three readings: one written out of nothing but
+    the characters urlsplit deletes, in a URL that hid its authority the same
+    way. ``http:/\\n/u:\\t@h/path`` answers with an empty set — there is no
+    ``//`` to read an authority after, and by the time there is, the tab that
+    was the password has been deleted along with it. What stands in the
+    message is then a tab, which is nobody's secret, so it is left standing
+    rather than given a third reading of its own.
+
     Args:
         proxy: Proxy URL as it was written.
 
     Returns:
         The password in every form it could appear in, empty when the URL
-        carries none.
+        carries none and for the one spelling above.
     """
     found: set[str] = set()
     for text in (proxy, _as_urlsplit_reads(proxy)):
@@ -339,6 +361,32 @@ def _as_urlsplit_reads(proxy: str) -> str:
     return proxy
 
 
+def _chainable(exc: BaseException, proxy: str) -> BaseException | None:
+    """The exception to chain, unless chaining it would print the password.
+
+    A message built here is scrubbed, and ``raise ... from exc`` then prints
+    what it was built from directly underneath it. *websockets* quotes the
+    whole proxy URL in its ``InvalidProxy``, so a traceback whose
+    ``ConfigurationError`` says ``:***@`` carried the password two lines
+    above it, into every log and bug report that traceback reaches. httpx
+    quotes the URL through its own repr, which masks the password, or names
+    the offending character and nothing else; and neither library says
+    anything worth hiding about a proxy that has no password. So the cause is
+    dropped only where it is the leak, and kept everywhere else, where it
+    names the type and the frame that refused the URL.
+
+    Args:
+        exc: The exception the library raised.
+        proxy: The proxy URL whose password is not to reach a traceback.
+
+    Returns:
+        The exception itself when what it says carries no password, and
+        ``None``, which suppresses the chain, when it does.
+    """
+    said = _said(exc)
+    return exc if _without_password(said, proxy) == said else None
+
+
 def httpx_environment_proxies() -> dict[str, str]:
     """The proxies the environment holds that httpx could read.
 
@@ -362,10 +410,15 @@ def proxy_environment_variables(keys: Iterable[str]) -> list[str]:
     ``urllib`` files a proxy under the lowercase of whatever the variable's
     name has before ``_proxy``, and reads every spelling of it:
     ``https_proxy``, ``HTTPS_PROXY`` and ``Https_Proxy`` all reach the
-    ``https`` key, and where more than one is set the all-lowercase one wins.
-    Uppercasing the key to name the variable would send the reader after a
-    variable nobody set, so what is named here is what the environment
-    actually spells.
+    ``https`` key. Which of them the key ends up holding is not decided by
+    case: a second pass goes over the names ending in a literal lowercase
+    ``_proxy`` and lets each one it meets overwrite what is there, so between
+    ``https_proxy`` and ``HTTPS_proxy`` the winner is whichever the
+    environment holds later, while ``HTTPS_PROXY`` — which that pass skips
+    over — loses to either. Since that order is the environment's own and not
+    something to read off a name, every spelling that is set is named here
+    rather than a guess at the one in force. Uppercasing the key to name the
+    variable would send the reader after a variable nobody set.
 
     An empty answer for a key that :func:`httpx_environment_proxies` did find
     means the setting is not the environment's at all:
@@ -426,7 +479,7 @@ def _refuse_unusable(proxy: str, source: str) -> None:
         # raises a bare ValueError rather than its own InvalidProxy.
         raise ConfigurationError(
             f"Cannot use {source}: {_without_password(str(exc), proxy)}"
-        ) from exc
+        ) from _chainable(exc, proxy)
     # parse_proxy fills a missing port in with its own default, so the raw
     # one has to be read again to see that there was none.
     _refuse_split_socks_port(parsed.scheme, urllib.parse.urlsplit(proxy).port, source)
@@ -468,14 +521,14 @@ def _refuse_split_target(
             f"Cannot use {source}: {_without_password(str(exc), proxy)}. The "
             "WebSocket would connect through it and the requests could not. "
             "socks5:// and socks5h:// are the SOCKS spellings both speak."
-        ) from exc
+        ) from _chainable(exc, proxy)
     except httpx.InvalidURL as exc:
         # A host httpx will not encode and *websockets* will, ``☃.net`` among
         # them. Left to httpx this surfaces while the client is being built,
         # where nothing knows to blame the proxy rather than the PiKVM URL.
         raise ConfigurationError(
             f"Cannot use {source}: {_without_password(str(exc), proxy)}"
-        ) from exc
+        ) from _chainable(exc, proxy)
     host_by_httpx = by_httpx.url.raw_host.decode()
     if host_by_httpx != parsed.host:
         raise ConfigurationError(

@@ -3,7 +3,10 @@
 import os
 import re
 import ssl
+import time
 import tomllib
+import traceback
+import urllib.request
 from pathlib import Path
 
 import certifi
@@ -12,6 +15,7 @@ import pytest
 from aiopikvm import ConfigurationError
 from aiopikvm._transport import (
     httpx_environment_proxies,
+    mask_proxy,
     proxy_environment_variables,
     resolve_proxy,
     resolve_verify_ssl,
@@ -300,10 +304,11 @@ def test_the_variables_behind_the_settings_are_named_as_written(
     """urllib files any spelling under the same key, and POSIX writes it low.
 
     Building the name back out of the key would name ``HTTPS_PROXY`` on a
-    machine that set ``https_proxy`` — a variable nobody set, and the one
-    spelling urllib prefers when both are there (#69). Only the keys httpx
-    reads are answered for, so ``WS_PROXY`` is left out the same way it is
-    left out of the settings themselves.
+    machine that set ``https_proxy`` — a variable nobody set (#69). Every
+    spelling that is set is named instead, since which of them urllib ends up
+    reading is decided by the environment's order rather than by their case.
+    Only the keys httpx reads are answered for, so ``WS_PROXY`` is left out
+    the same way it is left out of the settings themselves.
     """
     monkeypatch.setattr(
         os,
@@ -473,6 +478,95 @@ def test_a_password_survives_a_url_whose_slashes_were_written_apart(
     assert written not in message
     assert "s3cret" not in message
     assert ":***@" in message
+
+
+@pytest.mark.parametrize(
+    ("proxy", "written"),
+    [
+        ("http://alice:s3cret@proxy.local:3128/path", "s3cret"),
+        ("gopher://alice:s3cret@proxy.local:3128", "s3cret"),
+        ("socks4://alice:s3cret@proxy.local:1080", "s3cret"),
+        ("http://alice:s3cret@☃.net:3128", "s3cret"),
+        ("http://alice:s3c\nret@proxy.local:3128", "s3c\nret"),
+    ],
+)
+def test_a_password_does_not_travel_into_the_traceback_either(
+    proxy: str, written: str
+) -> None:
+    """Scrubbing the message left ``from exc`` printing the URL below it (#69).
+
+    *websockets* quotes the whole proxy URL in its ``InvalidProxy``, so a
+    ``ConfigurationError`` whose own message says ``:***@`` carried the
+    password two lines above it — and a traceback is precisely what an
+    exception is turned into on its way somewhere else: a log, a bug report,
+    a crash handler. One URL here for each of the three clauses that chain a
+    library's exception under a message built out of it.
+    """
+    with pytest.raises(ConfigurationError) as caught:
+        resolve_proxy(proxy)
+    printed = "".join(traceback.format_exception(caught.value))
+    assert written not in printed
+    assert "s3cret" not in printed
+
+
+def test_a_refusal_that_says_nothing_secret_keeps_its_cause() -> None:
+    """Only the leak is dropped, not the chain (#69).
+
+    What the library raised names the parser that refused the URL and the
+    frame it refused it in, and a proxy with no password has nothing to hide
+    in it. Answering the leak by suppressing every cause would have thrown
+    that away for every URL, on account of the ones that carry a password.
+    """
+    with pytest.raises(ConfigurationError) as caught:
+        resolve_proxy("gopher://proxy.local:3128")
+    assert isinstance(caught.value.__cause__, BaseException)
+    assert "gopher" in str(caught.value.__cause__)
+
+
+def test_a_password_of_control_characters_is_masked_without_backtracking() -> None:
+    """The pattern must not hold a character its own class matches too (#69).
+
+    Joining the password's characters with a class that overlaps them makes
+    every way of splitting a run of them into a branch to try. Measured on the
+    pattern this replaced, a password of 30 newlines took 13.6 s to mask and
+    each further pair of newlines multiplied that by about four; the pattern
+    built out of the password with those characters removed takes 14 µs and
+    matches the same two spellings. A proxy URL is the caller's own setting,
+    so a password written with a newline in it is theirs to write.
+    """
+    proxy = "http://alice:" + "\n" * 30 + "@proxy.local:3128"
+    started = time.perf_counter()
+    masked = mask_proxy(proxy)
+    assert time.perf_counter() - started < 2.0
+    assert masked == "http://alice:***@proxy.local:3128"
+
+
+def test_urllib_decides_between_spellings_by_order_and_not_by_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Which is why every spelling is named, and not the likely winner (#69).
+
+    ``getproxies_environment`` makes two passes. The first takes a name in any
+    case, the second only one ending in a literal lowercase ``_proxy``, and
+    each pass lets a later variable overwrite an earlier one — so
+    ``HTTPS_proxy`` and ``https_proxy`` are decided between by the order the
+    environment holds them in, and only ``HTTPS_PROXY``, which the second pass
+    steps over, reliably loses. A message naming one of them would be right by
+    luck.
+    """
+
+    def read(*named: tuple[str, str]) -> str:
+        monkeypatch.setattr(os, "environ", dict(named))
+        return urllib.request.getproxies_environment()["https"]
+
+    upper = ("HTTPS_proxy", "http://upper.local:3128")
+    lower = ("https_proxy", "http://lower.local:3128")
+    shouted = ("HTTPS_PROXY", "http://shouted.local:3128")
+
+    assert read(upper, lower) == lower[1]
+    assert read(lower, upper) == upper[1]
+    assert read(shouted, lower) == lower[1]
+    assert read(lower, shouted) == lower[1]
 
 
 @pytest.mark.parametrize(

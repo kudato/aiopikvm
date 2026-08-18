@@ -65,31 +65,38 @@ own TLS settings for the requests while the socket keeps using these.
     keeps the two from being configured differently.
 
 !!! warning "`verify_ssl=True` is the one setting the two do not share"
-    It is passed on as it came, and each library then builds its own context.
-    httpx reads `SSL_CERT_FILE`, or `SSL_CERT_DIR` when the first is unset,
-    and certifi's roots when neither is — one source, never both, and only
-    while `trust_env` is on. `websockets` asks `ssl.create_default_context()`,
-    which loads OpenSSL's default paths: a file **and** a hashed directory,
-    filled in one at a time, each from its variable where that is set and
-    from the path OpenSSL was compiled with where it is not. `trust_env` is
-    httpx's idea, and OpenSSL has never heard of it.
+    It is passed on as it came, and each library then builds its own context
+    out of different material.
 
-    | Environment | httpx verifies against | `websockets` verifies against |
-    |---|---|---|
-    | neither variable | certifi | both compiled-in paths |
-    | `SSL_CERT_FILE` only | that file | that file **and** the compiled-in directory |
-    | `SSL_CERT_DIR` only | that directory | that directory **and** the compiled-in file |
-    | both | the file only | the file **and** the directory |
-    | both, `trust_env=False` | certifi | the file and the directory |
+    **httpx** builds one from a single source: `SSL_CERT_FILE` if that is
+    set, otherwise `SSL_CERT_DIR` if that is, otherwise certifi's roots. One
+    of the three, never two — and it reads the variables at all only while
+    `trust_env` is on, which is what makes `trust_env=False` mean "certifi"
+    here rather than "the system store".
 
-    `ssl.get_default_verify_paths()` prints that compiled-in pair as
-    `openssl_cafile` and `openssl_capath` — a full system store on one build
-    and an empty directory on another. Wherever a variable is unset the
-    socket falls back on the compiled-in path for that slot and httpx never
-    does, so setting one of the two narrows httpx and only adds to
-    `websockets`. On a device whose CA is in one store and not the other, one
-    half of the client connects and the other does not. Pass the bundle or a
-    context instead, and both verify against the same certificates.
+    **`websockets`** asks `ssl.create_default_context()`, which fills two
+    OpenSSL slots independently: a bundle file and a hashed directory. Each
+    is taken from its variable where that is set, and from the path OpenSSL
+    was compiled with where it is not — `ssl.get_default_verify_paths()`
+    prints that compiled-in pair as `openssl_cafile` and `openssl_capath`, a
+    full system store on one build and an empty directory on another. On
+    Windows the same call also loads the native `ROOT` and `CA` certificate
+    stores, on top of both slots. certifi it never reads, and `trust_env` it
+    has never heard of: it is OpenSSL reading the environment there, not
+    httpx.
+
+    So a variable **replaces** the slot it names rather than adding to it,
+    for the socket as much as for httpx. Pointing `SSL_CERT_FILE` at
+    certifi's bundle on the machine this was measured on took the socket's
+    own context from 191 roots to certifi's 136 — 57 roots gone, not 136
+    gained: the 191 came from the compiled-in file, and naming a file puts
+    that aside. What the socket keeps is the *other* slot, whatever that
+    build filled it with, plus the native stores on Windows.
+
+    The two therefore verify against the same certificates only by accident.
+    On a device whose CA is in one store and not the other, one half of the
+    client connects and the other does not. Pass the bundle or a context
+    instead, and both verify against the same certificates.
 
     An `https://` proxy is verified by `verify_ssl` in neither library: a
     context passed for the device reaches the device, not the proxy in front

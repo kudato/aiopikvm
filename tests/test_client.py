@@ -352,22 +352,6 @@ def test_a_bad_proxy_port_is_not_blamed_on_the_pikvm_url() -> None:
     assert "PiKVM URL" not in message
 
 
-def _without_proxy_variables(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Take every proxy variable this machine happens to set out of the way.
-
-    ``urllib`` reads any spelling of ``<scheme>_proxy`` and prefers the
-    all-lowercase one, so a developer's own ``https_proxy`` would otherwise
-    outrank the ``HTTPS_PROXY`` these tests set and send them at a proxy that
-    is not there.
-
-    Args:
-        monkeypatch: The fixture the variables are removed through.
-    """
-    for name in list(os.environ):
-        if name.lower().endswith("_proxy"):
-            monkeypatch.delenv(name)
-
-
 async def test_a_connect_failure_httpx_has_no_name_for_stays_in_the_hierarchy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -427,8 +411,10 @@ async def test_an_ordinary_connect_failure_reads_as_it_always_did(
 def _without_proxy_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     """Take every proxy variable this machine happens to set out of the way.
 
-    ``urllib`` reads any spelling of ``<scheme>_proxy``, so a developer's own
-    ``http_proxy`` would otherwise decide what these tests see.
+    ``urllib`` reads any spelling of ``<scheme>_proxy``, and which one it ends
+    up reading depends on the order the environment holds them in rather than
+    on their case — so a developer's own ``http_proxy`` would otherwise decide
+    what these tests see.
 
     Args:
         monkeypatch: The fixture the variables are removed through.
@@ -469,12 +455,13 @@ def test_what_a_contained_group_is_made_to_say(
 def test_the_variable_named_is_the_one_the_environment_spells(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """POSIX names it in lowercase, and urllib prefers that spelling (#69).
+    """POSIX names it in lowercase, and urllib reads every spelling (#69).
 
     Uppercasing the key urllib files a proxy under would name a variable
-    nobody set, and send the reader looking for one that is not there — the
-    more so as the lowercase spelling is the one httpx ends up reading when
-    both are set.
+    nobody set, and send the reader looking for one that is not there. Where
+    both spellings are set, both are named: which of them urllib reads is
+    decided by the order the environment holds them in, and a message that
+    picked one would be right by luck.
     """
     _without_proxy_variables(monkeypatch)
     monkeypatch.setenv("https_proxy", "http://proxy.local:3128")
@@ -676,6 +663,32 @@ def test_a_group_holding_a_group_still_says_what_went_wrong() -> None:
     )
     said = PiKVM("https://pikvm.local")._connection_failed(nested)
     assert "ValueError: the port was hopeless" in said
+
+
+def test_a_nested_group_is_read_in_the_order_it_holds_things() -> None:
+    """The message lists the leaves, so the order is the one it reports in.
+
+    Flattening with a queue moved them: a nested group's children went behind
+    everything standing beside it, so ``outer(inner(a, b), c)`` read as
+    ``c, a, b`` and the message described a sequence of failures the group
+    never held (#69).
+    """
+    nested = ExceptionGroup(
+        "outer",
+        [
+            ExceptionGroup(
+                "inner",
+                [ValueError("the first thing"), ValueError("the second thing")],
+            ),
+            ValueError("the last thing"),
+        ],
+    )
+    said = PiKVM("https://pikvm.local")._connection_failed(nested)
+    assert said.startswith(
+        "ValueError: the first thing; "
+        "ValueError: the second thing; "
+        "ValueError: the last thing"
+    )
 
 
 async def test_an_unusable_ca_bundle_in_the_environment_is_a_configuration_error(

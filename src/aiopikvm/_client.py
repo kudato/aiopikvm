@@ -72,13 +72,19 @@ def _leaves(group: BaseExceptionGroup[BaseException]) -> Iterator[BaseException]
         group: The group to look inside, however deeply it nests.
 
     Yields:
-        Each exception that is not itself a group.
+        Each exception that is not itself a group, depth first: a nested
+        group's leaves arrive where that group stood, rather than after
+        everything standing beside it.
     """
-    pending: list[BaseException] = list(group.exceptions)
+    # A stack rather than recursion, because how deeply the groups nest is the
+    # caller's to decide and a deep enough nesting would answer a connection
+    # failure with a RecursionError. Reversed on the way in, so that popping
+    # off the end takes the exceptions in the order the group holds them.
+    pending: list[BaseException] = list(reversed(group.exceptions))
     while pending:
-        exc = pending.pop(0)
+        exc = pending.pop()
         if isinstance(exc, BaseExceptionGroup):
-            pending.extend(exc.exceptions)
+            pending.extend(reversed(exc.exceptions))
         else:
             yield exc
 
