@@ -302,8 +302,8 @@ class HIDResource(BaseResource):
 
         Nine is what kvmd 4.34 and after exempt. 4.33, the release that
         introduced the flag, exempted six: a mapping bug spelled the control
-        pair ``{ControlRight, ControlRight}`` and gave the ``Meta`` keys no
-        entry at all, so that one version releases ``ControlLeft``,
+        pair ``{ControlRight, ControlRight}`` and left the ``Meta`` keys out
+        of the modifier set, so that one version releases ``ControlLeft``,
         ``MetaLeft`` and ``MetaRight`` like any ordinary key.
 
         Args:

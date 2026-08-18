@@ -755,17 +755,23 @@ class PiKVMWebSocket:
     async def send_key(self, key: str, *, state: bool, finish: bool = False) -> None:
         """Send a keyboard key event.
 
-        A socket that drops leaves every key kvmd is holding held, and this
-        is the socket dying with the process that was typing. *finish* asks
-        kvmd to release the key in the same event that pressed it, which is
-        the one keystroke a lost connection cannot interrupt halfway.
+        A process that dies between a press and its release owes a release
+        nobody will send. kvmd covers some of that itself: closing the socket
+        clears its keyboard, which on the OTG backend means an all-up report
+        and the keys really do come up. CH9329 only discards what it had
+        queued and leaves them down, and over HTTP nothing clears anything at
+        all. *finish* asks kvmd to release the key in the same event that
+        pressed it, which is the one keystroke a lost connection cannot
+        interrupt halfway, on any backend and before the close is noticed.
 
         Both channels carry it from kvmd 4.33 on. Older ones part company,
         and not in the harmless direction: the JSON handler drops a field it
-        has no name for and presses the key anyway, while the binary handler
-        validates the whole flags byte as a boolean, so a frame carrying bit
-        1 fails that check and is thrown away entire. The press does not
-        happen either, and nothing comes back to say so.
+        has no name for and still does what *state* asked, while the binary
+        handler validates the whole flags byte as a boolean, so a frame
+        carrying bit 1 fails that check and is thrown away entire. Nothing
+        happens, and nothing comes back to say so — a press lost that way
+        types nothing, and a release lost that way leaves the key held for
+        good, which is the very thing *finish* is for.
 
         Args:
             key: Key name, one of kvmd's web names such as ``"KeyA"`` or
@@ -784,8 +790,8 @@ class PiKVMWebSocket:
                 counts as one for the sake of ``Alt+SysRq``. Asking for it on
                 one of those nine presses the key and leaves it held. kvmd
                 4.33 exempted six of the nine — a mapping bug left
-                ``ControlLeft`` and both ``Meta`` keys out of the set — and
-                4.34 fixed it.
+                ``ControlLeft`` and both ``Meta`` keys out of the modifier
+                set — and 4.34 fixed it.
 
         Raises:
             ConfigurationError: The key name cannot go into a binary frame,
@@ -795,6 +801,13 @@ class PiKVMWebSocket:
                 broke before the frame could be sent.
         """
         if self._binary:
+            # The bit goes out as asked even on a release, where kvmd reads
+            # it and then does nothing with it. Clearing it there would spare
+            # kvmd 4.32 a frame it throws away whole, but this channel is
+            # documented byte for byte and chosen by callers who want to say
+            # what goes on the wire; a bit quietly dropped would make that
+            # documentation a lie. The rule both channels follow is to send
+            # the flag wherever kvmd reads it, not wherever it acts on it.
             flags = (0b01 if state else 0) | (0b10 if finish else 0)
             await self._send_bin(
                 _OP_KEY, bytes([flags]) + _name_bytes(key, "Key"), "key"

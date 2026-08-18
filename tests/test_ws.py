@@ -785,7 +785,7 @@ async def test_send_key() -> None:
 
 
 async def test_send_key_can_ask_kvmd_to_release_it() -> None:
-    """The socket dying is what leaves keys held, so one event does both (#74)."""
+    """A press and its release in one event, which nothing can split (#74)."""
     ws, conn = connected()
     await ws.send_key("KeyA", state=True, finish=True)
     assert sent(conn) == {
@@ -882,11 +882,12 @@ async def test_send_on_a_broken_connection() -> None:
 
 # --- Sending over the binary channel -------------------------------------
 #
-# Nearly every frame these build was sent to a real device and accepted by
-# it: the ws_binary scenario records each one with kvmd's inactivity counter
-# read before and after, and kvmd only bumps that counter for a frame it
-# decoded. The exceptions are the two frames carrying `finish`, which no
-# device has been asked to accept — the test that builds them says so.
+# A frame checked against `frame(...)` was sent to a real device and accepted
+# by it: the ws_binary scenario records each one with kvmd's inactivity
+# counter read before and after, and kvmd only bumps that counter for a frame
+# it decoded. Not every frame below has a recording — a test asserting on
+# bytes it spelled out itself is testing this file's idea of the layout, and
+# each one says so in its own docstring.
 
 
 def binary_step(name: str) -> dict[str, Any]:
@@ -1091,7 +1092,12 @@ async def test_binary_key_name_of_the_full_length_is_sent() -> None:
 async def test_binary_key_carries_finish_in_bit_1(
     state: bool, finish: bool, flags: int, recorded: str | None
 ) -> None:
-    """kvmd reads the state out of bit 0 and the release out of bit 1 (#74).
+    """kvmd reads the state out of bit 0 and *finish* out of bit 1 (#74).
+
+    Bit 1 asks for a release rather than being one, and asking is all it is:
+    ``ControlLeft`` is among the keys kvmd exempts, so on the device these
+    frames were recorded against it would press the key and hold it. What is
+    under test here is the byte, not what kvmd then does with it.
 
     Leaving *finish* off has to change nothing, so the two frames without it
     are checked against the recording a real device accepted rather than

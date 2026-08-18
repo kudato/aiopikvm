@@ -102,9 +102,10 @@ older than 4.33, which does not read the parameter at all.
 
 The table is kvmd 4.34 and after. 4.33, the release that introduced the flag,
 exempted six of the nine: a mapping bug spelled the control pair
-`{ControlRight, ControlRight}` and left the `Meta` keys out of the set
-entirely, so on that one version `finish` releases `ControlLeft`, `MetaLeft`
-and `MetaRight` like any ordinary key.
+`{ControlRight, ControlRight}` and left the `Meta` keys out of the modifier
+set, so on that one version `finish` releases `ControlLeft`, `MetaLeft` and
+`MetaRight` like any ordinary key. Both `Meta` keys are in its key map — it
+is only the set the release clause consults that they are missing from.
 
 !!! note
     `send_key("KeyA")` with no `state` **is** the press-and-release above:

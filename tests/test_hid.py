@@ -134,8 +134,9 @@ async def test_send_key_leaves_finish_out_where_kvmd_would_not_read_it(
     """Without *state*, kvmd never looks at the flag (#74).
 
     Its handler reads ``finish`` inside the branch that reads ``state``; the
-    other branch calls the same press-and-release itself. Sending it anyway
-    would put a parameter on the wire that names something kvmd ignores.
+    other branch passes its own ``finish=True`` and never looks at the query
+    at all. Sending it anyway would put a parameter on the wire that names
+    something kvmd ignores.
     """
     mock_api.post("/api/hid/events/send_key").mock(
         return_value=httpx.Response(200, json=OK)

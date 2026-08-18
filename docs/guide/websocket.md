@@ -232,9 +232,13 @@ answering anything at all — over this socket there is no 400 to tell a typo
 from a keystroke that landed, which is why a name from an untrusted source is
 worth checking against the set before it goes out.
 
-The socket dropping is exactly what leaves a key held: the press arrived and
-the process that owed the release is gone. `finish=True` puts both in one
-event, and kvmd applies it to every key except the eight modifiers and
+The socket dropping is how a key gets left down: the press arrived and the
+process that owed the release is gone. Whether it stays down is up to the HID
+backend — closing the socket makes kvmd clear its keyboard, which on OTG
+sends an all-up report, while CH9329 only discards what it had queued and
+lets the keys stand. `finish=True` puts press and release in one event and so
+depends on neither, and kvmd applies it to every key except the eight
+modifiers and
 `PrintScreen` — the full rule, and the kvmd version that reads it, are in
 [the HID guide](hid.md#finish-and-the-keys-it-does-not-release).
 
@@ -378,10 +382,12 @@ a press asking for the release is `0b11`.
 !!! warning "`finish` over the binary channel needs kvmd 4.33"
     An older kvmd reads that byte as a whole boolean, which accepts `0` and
     `1` and nothing else, so a frame carrying bit 1 fails validation and is
-    dropped entire — the key is never pressed, and no answer comes back to
-    say so. This is the one place where an older device does worse than
-    ignore the flag; over JSON, and over HTTP, the press still lands and the
-    key is simply left held.
+    dropped entire — no answer comes back to say so, and `state` is lost
+    along with the flag. A press thrown away that way types nothing; a
+    release thrown away that way leaves the key held for good, which is the
+    failure `finish` exists to prevent. This is the one place an older
+    device does worse than ignore the flag: over JSON, and over HTTP, it
+    ignores what it cannot name and still does what `state` asked.
 
 Everything else is unchanged: the same methods, the same arguments, and events
 still arrive as JSON — that direction has nothing else in it. Two details only
