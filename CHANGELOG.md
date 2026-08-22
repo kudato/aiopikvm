@@ -572,6 +572,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A socket under `auth="cookie"` now reads its session token when the
+  handshake goes out rather than when the socket was built. `ws()`,
+  `media_ws()` and `webrtc()` bound the token eagerly and raised
+  `ConfigurationError` on the spot when the jar was empty, while the password
+  beside it was already a callable read at the handshake — so a socket built
+  before the login that was about to happen could not be built at all, and one
+  built before kvmd replaced the session under it went on sending the token it
+  was born with. Both now work, and the refusal for a client that genuinely
+  has no session moved to the handshake, where the guides' `login()` has
+  already had its chance to run. Separately, asking for a socket on a
+  cookie-mode client that was never entered raised a bare `PiKVMError` saying
+  resources cannot be accessed, where the method documents
+  `ConfigurationError`; it now raises that, and says there is no cookie jar to
+  read. One consequence is deliberate: a cookie-mode socket built while a
+  session existed used to keep that token as a string and could still be
+  opened after the client was closed, and now refuses, because the jar it
+  reads is gone. Sockets under `headers` and `basic` still outlive their
+  client, carrying the credentials they were built with (#139).
 - Three latent defects in `WebRTCSession`, none of them reachable against
   PiKVM as it ships today. `video()` and `audio()` imported PyAV before
   checking there was a session, so on an install without the `webrtc` extra

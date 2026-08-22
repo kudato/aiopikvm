@@ -326,9 +326,36 @@ async def test_websocket_carries_the_same_credential() -> None:
 
 
 async def test_websocket_without_a_session_says_what_to_do() -> None:
+    """Building the socket is fine; it is the handshake that needs a token."""
     async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        ws = kvm.ws()
         with pytest.raises(ConfigurationError, match="no session token"):
-            kvm.ws()
+            ws._credential_headers()
+
+
+async def test_websocket_on_a_client_that_was_never_entered() -> None:
+    """There is no cookie jar to read at all, which the message says."""
+    ws = PiKVM(URL, user="admin", passwd="secret", auth="cookie").ws()
+    with pytest.raises(ConfigurationError, match="has not been entered"):
+        ws._credential_headers()
+
+
+@pytest.mark.parametrize("factory", ["ws", "media_ws", "webrtc"])
+async def test_every_socket_reads_the_token_at_the_handshake(
+    factory: str, mock_api: respx.MockRouter
+) -> None:
+    """Built before the login every guide does after it, and all three alike.
+
+    The three factories are three copies of the same forwarding block, and
+    they have drifted apart before, so each is asked the same question.
+    """
+    _login_route(mock_api)
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        socket = getattr(kvm, factory)()
+        with pytest.raises(ConfigurationError, match="no session token"):
+            socket._credential_headers()
+        await kvm.auth.login("admin", "secret")
+        assert socket._credential_headers() == {"Cookie": f"auth_token={TOKEN}"}
 
 
 async def test_websocket_uses_the_session_token(mock_api: respx.MockRouter) -> None:
