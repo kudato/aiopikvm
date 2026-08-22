@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- The seven vocabularies kvmd's API is typed with are exported from
+  `aiopikvm` itself: `KEY_NAMES`, `KeyboardOutput`, `MouseButton`,
+  `MouseOutput`, `RESET_TYPES`, `ResetType` and `InfoField`. `__all__` held
+  every response model and every exception and none of these, so a caller
+  writing a typed wrapper around a method the package does export — say
+  `PiKVMWebSocket.send_mouse_button()`, whose signature is spelled in
+  `MouseButton` — had to reach into `aiopikvm.resources.hid` for the name in
+  it. The definitions have not moved, so the deeper imports still work
+  (#152).
 - `PiKVM.webrtc()` and `WebRTCSession`, the third and lowest-latency of the
   device's video surfaces: the Janus gateway at `/janus/ws`, with ustreamer's
   own plugin inside it, which is the path kvmd's web UI takes by default.
