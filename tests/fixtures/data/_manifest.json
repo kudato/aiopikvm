@@ -1,7 +1,7 @@
 {
   "device": {
-    "kvmd": "4.186",
-    "streamer": "ustreamer 6.61",
+    "kvmd": "4.206",
+    "streamer": "ustreamer 6.62",
     "platform": {
       "base": "Raspberry Pi Compute Module 4 Rev 1.1",
       "board": "rpi4",
@@ -184,7 +184,7 @@
     },
     "hid_keys": {
       "file": "hid_keys.json",
-      "description": "Every key name kvmd accepts: the keys of its WEB_TO_EVDEV table, sorted. Read off the device rather than off the wire \u2014 no endpoint exposes the table \u2014 and kept verbatim, so re-running the command diffs clean: python3 -c 'import json; from kvmd.keyboard.mappings import WEB_TO_EVDEV; print(json.dumps({\"keys\": sorted(WEB_TO_EVDEV)}, indent=2))'"
+      "description": "Every key name kvmd accepts: the keys of its WEB_TO_EVDEV table, sorted. Read off the device rather than off the wire — no endpoint exposes the table — and kept verbatim, so re-running the command diffs clean: python3 -c 'import json; from kvmd.keyboard.mappings import WEB_TO_EVDEV; print(json.dumps({\"keys\": sorted(WEB_TO_EVDEV)}, indent=2))'"
     },
     "msd_downloading": {
       "file": "msd_downloading.json",

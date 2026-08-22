@@ -383,16 +383,8 @@ async with kvm.ws(binary=True) as ws:
 ```
 
 The second byte is a flag field: bit 0 is the state and bit 1 is `finish`, so
-a press asking for the release is `0b11`. A release never carries bit 1 —
-kvmd would not act on it, and on an older device it would cost the release
-itself:
-
-!!! warning "`finish` over the binary channel needs kvmd 4.33"
-    An older kvmd reads that byte as a whole boolean, which accepts `0` and
-    `1` and nothing else, so a frame carrying bit 1 fails validation and is
-    dropped entire, with no answer to say so. `state` is lost along with the
-    flag, so `finish=True` there types nothing at all — where over JSON, and
-    over HTTP, the same call presses the key and leaves it held.
+a press asking for the release is `0b11`. A release never carries bit 1, since
+kvmd acts on the flag only on a press.
 
 Everything else is unchanged: the same methods, the same arguments, and events
 still arrive as JSON — that direction has nothing else in it. Two details only
@@ -408,7 +400,7 @@ apply to the binary encoding:
 
 It is off by default because JSON is what this client has always sent, and it
 is the encoding a packet capture can be read in. The binary channel is verified
-against kvmd 4.186 — every frame in the `ws_binary` fixture was sent to that
+against kvmd 4.206 — every frame in the `ws_binary` fixture was sent to that
 device and accepted by it.
 
 Whichever encoding you use, kvmd drops what it cannot decode without telling

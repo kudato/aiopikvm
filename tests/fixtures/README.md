@@ -8,8 +8,8 @@ encoded a shape kvmd does not produce, and the tests passed anyway.
 | | |
 |---|---|
 | Device | PiKVM v3 (Raspberry Pi Compute Module 4) |
-| kvmd | 4.186 |
-| Streamer | ustreamer 6.61 |
+| kvmd | 4.206 |
+| Streamer | ustreamer 6.62 |
 
 Exact metadata lives in [`data/_manifest.json`](data/_manifest.json), which also
 records the request (method, path, query params) and the response status and

@@ -798,8 +798,7 @@ async def test_send_key_leaves_finish_out_of_a_release() -> None:
     """kvmd parses the flag on a release and acts on it only on a press (#74).
 
     The event that goes out is the one a client that never heard of the flag
-    would send, which is what the binary channel needs it to be: there the
-    same bit on a release is a frame kvmd 4.32 throws away whole.
+    would send.
     """
     ws, conn = connected()
     await ws.send_key("KeyA", state=False, finish=True)
@@ -1095,12 +1094,8 @@ async def test_binary_key_carries_finish_in_bit_1_of_a_press(
     """kvmd reads the state out of bit 0 and *finish* out of bit 1 (#74).
 
     Bit 1 rides a press and nothing else. kvmd reads it on a release too and
-    does nothing with it there, while kvmd 4.32 and older read the whole byte
-    as a boolean and drop any frame whose byte is neither 0 nor 1 — so a
-    release carrying the bit would be thrown away entire and the key would
-    stay down, which is the failure the flag exists to prevent. A release
-    that asks for *finish* is therefore the plain release frame, byte for
-    byte.
+    does nothing with it there, so a release that asks for *finish* is the
+    plain release frame, byte for byte.
 
     Bit 1 asks for a release rather than being one, and asking is all it is:
     ``ControlLeft`` is among the keys kvmd exempts, so the row that presses
@@ -1299,7 +1294,7 @@ async def test_version_comes_from_the_loop_event() -> None:
     ws._connection = iterating(json.dumps(recorded("loop")))
     async for _ in ws.events():
         break
-    assert ws.version == KvmdVersion(4, 186)
+    assert ws.version == KvmdVersion(4, 206)
     assert ws.version >= (4, 100), "a version is for comparing"
 
 
@@ -1308,7 +1303,7 @@ async def test_version_is_read_by_a_ping_too() -> None:
     async with serving(handler=answering) as (url, _):
         async with socket(url) as ws:
             await ws.ping()
-            assert ws.version == (4, 186)
+            assert ws.version == (4, 206)
 
 
 @pytest.mark.parametrize(

@@ -87,7 +87,7 @@ class KvmdVersion(NamedTuple):
 
     Attributes:
         major: Major version, ``4`` for the kvmd 4.x series.
-        minor: Minor version, e.g. ``186`` for kvmd 4.186.
+        minor: Minor version, e.g. ``206`` for kvmd 4.206.
     """
 
     major: int
@@ -270,7 +270,7 @@ class PiKVMWebSocket:
                 them for every keystroke and mouse move. Off by default,
                 since JSON is what this client has always sent and the
                 encoding a packet capture can be read in. The binary channel
-                was verified against kvmd 4.186.
+                was verified against kvmd 4.206.
             follow_redirects: Follow a redirected handshake instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default: the
                 upgrade carries the password in a header, and following the
@@ -778,11 +778,7 @@ class PiKVMWebSocket:
                 pressed it, so a socket that goes away mid-keystroke leaves
                 nothing held. It goes out only on a press, the only place
                 kvmd acts on it; ``HIDResource.send_key`` and the HID guide
-                have the keys it exempts. It needs kvmd 4.33, and over the
-                binary channel an older one does worse than ignore it: it
-                validates the whole flags byte as a boolean, so a frame
-                carrying bit 1 fails that check and is thrown away entire —
-                the press never happens, and nothing comes back to say so.
+                have the keys it exempts.
 
         Raises:
             ConfigurationError: The key name cannot go into a binary frame,
@@ -791,12 +787,9 @@ class PiKVMWebSocket:
             WebSocketError: The client is not connected, or the connection
                 broke before the frame could be sent.
         """
-        # kvmd acts on the flag only on a press. On a release it is dead
-        # weight in every version, and worse than that over the binary
-        # channel: kvmd 4.32 and older read the whole flags byte as a
-        # boolean and drop a frame whose byte is neither 0 nor 1, so the
-        # release would never arrive and the key would stay down — the very
-        # failure the flag is for.
+        # kvmd acts on the flag only on a press, so on a release it is dead
+        # weight. Dropping it here keeps the frame to the two values kvmd
+        # reads, rather than sending a bit it will ignore.
         finish = finish and state
         if self._binary:
             flags = (0b01 if state else 0) | (0b10 if finish else 0)

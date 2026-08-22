@@ -1,4 +1,7 @@
 [project]
+# Targets kvmd 4.206 or later — the version behind every capture in the test
+# suite. It cannot be a dependency: kvmd is the device's firmware, not a
+# Python package, so the floor is stated in the README and the docs instead.
 name = "aiopikvm"
 version = "0.2.1"
 description = "Async Python client for PiKVM API"

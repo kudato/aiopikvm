@@ -32,10 +32,14 @@ async def test_get_state(mock_api: respx.MockRouter, client: PiKVM) -> None:
 
 
 async def test_get_inactivity(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    # Read the expected value off the capture rather than pinning the
+    # seconds the device happened to be idle at, which every re-capture
+    # changes and no version of the client can influence.
+    body = load_json("hid_inactivity")
     mock_api.get("/api/hid/inactivity").mock(
-        return_value=httpx.Response(200, json=load_json("hid_inactivity"))
+        return_value=httpx.Response(200, json=body)
     )
-    assert await client.hid.get_inactivity() == 239
+    assert await client.hid.get_inactivity() == body["result"]["inactivity"]
 
 
 async def test_type_text(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -150,8 +154,7 @@ async def test_send_key_leaves_finish_out_where_kvmd_would_not_act_on_it(
     Without a state the other branch runs, which passes its own
     ``finish=True`` and never looks at the query; on a release the flag is
     parsed and dropped. Sending it either way would name something kvmd does
-    nothing with — and on the binary WebSocket channel the same bit on a
-    release is what kvmd 4.32 throws whole frames away for.
+    nothing with.
     """
     mock_api.post("/api/hid/events/send_key").mock(
         return_value=httpx.Response(200, json=OK)

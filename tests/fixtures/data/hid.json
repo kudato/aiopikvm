@@ -12,7 +12,7 @@
     "keyboard": {
       "leds": {
         "caps": false,
-        "num": false,
+        "num": true,
         "scroll": false
       },
       "online": true,

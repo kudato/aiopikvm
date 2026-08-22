@@ -2,6 +2,9 @@
 
 Async Python client for the [PiKVM](https://pikvm.org) API.
 
+Targets **kvmd 4.206** or later — see
+[PiKVM version](getting-started/installation.md#pikvm-version).
+
 ## Key features
 
 - **Full async/await API** built on [httpx](https://www.python-httpx.org/)

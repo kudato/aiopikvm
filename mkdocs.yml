@@ -4,6 +4,16 @@ site_description: Async Python client for PiKVM API
 repo_name: kudato/aiopikvm
 repo_url: https://github.com/kudato/aiopikvm
 
+# A link to a missing *file* is caught by default; a link to a missing
+# *anchor* inside a file that does exist is not, and reaches the published
+# page as a link that goes nowhere. Under `mkdocs build --strict` these
+# warnings are what fail the build.
+validation:
+  anchors: warn
+  links:
+    absolute_links: warn
+    unrecognized_links: warn
+
 theme:
   name: material
   palette:
