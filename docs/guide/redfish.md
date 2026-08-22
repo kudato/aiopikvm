@@ -184,11 +184,102 @@ under `Actions["#ComputerSystem.Reset"]["ResetType@Redfish.AllowableValues"]`.
     Every system document also advertises `#ComputerSystem.SetDefaultBootOrder`,
     which kvmd does not implement: POSTing to it answers a plain-text HTTP 404.
 
-## Not implemented here
+## Managers
 
-kvmd also serves `Managers`, `Managers/BMC` and the `VirtualMedia` collection.
-aiopikvm has no methods for them yet ([#58](https://github.com/kudato/aiopikvm/issues/58));
-until then reach them through [`PiKVM.request()`][aiopikvm.PiKVM.request].
+The other half of kvmd's Redfish tree is the BMC itself — PiKVM — and the
+virtual media it offers the host.
+
+```python
+managers = await kvm.redfish.get_managers()
+# {"Members": [{"@odata.id": "/redfish/v1/Managers/BMC"}], ...}
+
+manager = await kvm.redfish.get_manager()
+print(manager["Id"])  # "BMC"
+```
+
+There is exactly one, and kvmd writes its path into the route table as a
+literal rather than a parameter — which is why `get_manager()` takes no id,
+unlike `get_system()`. The collection exists for a client that walks the tree.
+
+## Virtual media
+
+`VirtualMedia/MSD` is the Redfish view of the mass storage drive, and a
+narrower one than [`msd.get_state()`][aiopikvm.resources.msd.MSDResource.get_state]:
+
+```python
+collection = await kvm.redfish.get_virtual_media_collection()
+# {"Members": [{"@odata.id": "/redfish/v1/Managers/BMC/VirtualMedia/MSD"}], ...}
+
+media = await kvm.redfish.get_virtual_media()
+print(media["ImageName"], media["Inserted"], media["WriteProtected"])
+print(media["Oem"]["PiKVM"])
+# {"MsdEnabled": true, "MsdOnline": false, "MsdBusy": false, "DriveOptical": null}
+```
+
+!!! warning
+    kvmd reads the drive fields only while the drive is **online**, so on an
+    offline MSD every one of them is `null` — `Inserted: null` means "not
+    known", not "no". `Oem.PiKVM.MsdOnline` is what tells the two apart, and
+    the only field worth branching on before the rest are read.
+
+### Insert and eject
+
+```python
+await kvm.redfish.insert_media("ubuntu.iso")
+await kvm.redfish.eject_media()
+```
+
+`insert_media()` ejects whatever is connected, selects the image and connects
+the drive again; `eject_media()` disconnects it and clears the selection. Both
+answer HTTP 204 with an empty body and return `None` — read the result back
+from `get_virtual_media()`.
+
+!!! danger
+    Despite the `Image@Redfish.AllowableValues: ["URI"]` in the document,
+    kvmd validates `Image` as the name of an **image already in MSD
+    storage** — the same name
+    [`msd.set_params()`][aiopikvm.resources.msd.MSDResource.set_params] takes.
+    A URL is refused with HTTP 400. Upload it first, or use
+    [`msd.upload_remote()`][aiopikvm.resources.msd.MSDResource.upload_remote].
+
+`inserted=False` selects the image and leaves the drive disconnected, and
+`write_protected` is Redfish's spelling of the inverse of kvmd's `rw`:
+
+```python
+await kvm.redfish.insert_media("win.img", inserted=False, write_protected=False)
+```
+
+### Two kvmd defects on this path
+
+Both were recorded from a device running kvmd 4.206, and both matter enough to
+route around rather than discover in production.
+
+**An inserted `.iso` is not a CD-ROM.** kvmd picks the drive type with
+`name.lower().startswith(".iso")` — `startswith`, not `endswith`. No ordinary
+filename begins with a file extension, so this branch always mounts a flash
+drive, whatever the image is called. Where the host needs an optical drive, go
+through the MSD API instead:
+
+```python
+await kvm.msd.set_params(image="ubuntu.iso", cdrom=True)
+await kvm.msd.set_connected(True)
+```
+
+**An offline MSD answers HTTP 500 with an empty error block.** kvmd reads
+`state.get("drive", {}).get("connected")` before it checks `online`, and an
+offline MSD reports `drive` as `null` — the key is present, so the default
+never applies and the attribute lookup raises. The failure carries no error
+name and no message, so nothing in it says which subsystem broke:
+
+```python
+media = await kvm.redfish.get_virtual_media()
+if not media["Oem"]["PiKVM"]["MsdOnline"]:
+    raise RuntimeError("MSD is not set up on this device")
+await kvm.redfish.insert_media("ubuntu.iso")
+```
+
+`eject_media()` is not affected — it reaches kvmd's own MSD plugin and comes
+back as a proper HTTP 400 `MsdOfflineError`.
 
 ## Full example
 

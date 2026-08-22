@@ -1,6 +1,6 @@
 {
-  "description": "What GET /api/redfish/v1/Systems/{sid} accepts and refuses on this device, and what the two actions answer, recorded by hand against kvmd 4.186 (see README). The capture tool only records GETs that succeed; these are the empty 204s and the refusals, which no capture had. kvmd also accepts every SwitchPort<N> a real switch exposes; this device has none, so no accepted port id is recorded here.",
-  "safety": "The device records with atx.type = disabled, whose plugin returns a hardcoded enabled=false and whose every action raises AtxDisabledError. kvmd dispatches a reset of Systems/0 only when the ATX is enabled, so the accepted reset below performed no power action; the target machine's video stayed online across it. Note that the enabled check guards the Systems/0 branch only — a SwitchPort<N> reset acts on the port whatever atx.type is set to.",
+  "description": "What GET /api/redfish/v1/Systems/{sid} accepts and refuses on this device, what the two ComputerSystem actions answer, and how the VirtualMedia actions behave, recorded by hand against kvmd 4.206 (see README). The capture tool only records GETs that succeed; these are the empty 204s and the refusals, which no capture had. kvmd also accepts every SwitchPort<N> a real switch exposes; this device has none, so no accepted port id is recorded here.",
+  "safety": "The device records with atx.type = disabled, whose plugin returns a hardcoded enabled=false and whose every action raises AtxDisabledError. kvmd dispatches a reset of Systems/0 only when the ATX is enabled, so the accepted reset below performed no power action; the target machine's video stayed online across it. Note that the enabled check guards the Systems/0 branch only — a SwitchPort<N> reset acts on the port whatever atx.type is set to. The VirtualMedia steps are refusals only: this device has its OTG mass_storage function switched off, so the MSD reports online=false and no image can be inserted. That is why insert_unknown_image and insert_a_url come back as HTTP 500 rather than a refusal — kvmd reads state['drive'] before it checks online, and an offline MSD reports it as null (redfish/msd.py:137). Nothing here writes to the storage.",
   "steps": [
     {
       "name": "system_zero",
@@ -155,6 +155,73 @@
       "status": 404,
       "content_type": "text/plain; charset=utf-8",
       "text": "404: Not Found"
+    },
+    {
+      "name": "insert_unknown_image",
+      "method": "POST",
+      "path": "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD/Actions/VirtualMedia.InsertMedia",
+      "request_body": {
+        "Image": "no-such-image.iso"
+      },
+      "note": "a name kvmd's validator accepts but no stored image matches",
+      "status": 500,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "",
+          "error_msg": ""
+        }
+      }
+    },
+    {
+      "name": "insert_a_url",
+      "method": "POST",
+      "path": "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD/Actions/VirtualMedia.InsertMedia",
+      "request_body": {
+        "Image": "https://example.org/ubuntu.iso"
+      },
+      "note": "the document advertises Image@Redfish.AllowableValues ['URI'], but the handler validates a stored image name",
+      "status": 500,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "",
+          "error_msg": ""
+        }
+      }
+    },
+    {
+      "name": "insert_missing_image",
+      "method": "POST",
+      "path": "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD/Actions/VirtualMedia.InsertMedia",
+      "request_body": {},
+      "note": "no Image at all",
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "ValidatorError",
+          "error_msg": "None argument is not a valid stripped string"
+        }
+      }
+    },
+    {
+      "name": "eject_empty_drive",
+      "method": "POST",
+      "path": "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD/Actions/VirtualMedia.EjectMedia",
+      "note": "ejecting an empty drive is not an error",
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "body": {
+        "ok": false,
+        "result": {
+          "error": "MsdOfflineError",
+          "error_msg": "MSD is not found"
+        }
+      }
     }
   ]
 }
