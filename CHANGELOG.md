@@ -572,6 +572,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Streaming calls under `auth="cookie"` now open a session like every other
+  call. `request()` logs in before sending and once more if the token is
+  refused; `stream()` did neither, and since cookie mode deliberately withholds
+  the `X-KVMD-*` headers, a stream made before anything else carried no
+  credential at all — `stream_log()`, `mjpeg()`, `msd.download()` and
+  `msd.upload_remote_progress()` each failed with `AuthError` on a client that
+  had simply not been used yet, and a token refused mid-life was never
+  refreshed. All four now run the same preamble, and a refusal reopens the
+  connection under a fresh session — nothing has been yielded at that point, so
+  the caller never sees the attempt that failed (#130).
 - `mjpeg()` reads a part's `Content-Length` without regard to case, as it
   already read every other part header. The two halves of the parser
   disagreed: `_meta_from_headers()` lowercased before matching, the frame
