@@ -344,9 +344,14 @@ class RedfishResource(BaseResource):
         unless *inserted* is false — connects the drive again.
 
         Despite the ``Image@Redfish.AllowableValues: ["URI"]`` the document
-        advertises, kvmd validates this as a **stored image name**, the same
-        one [`MSDResource.set_params()`][aiopikvm.resources.msd.MSDResource.set_params]
-        takes. A URL is refused with HTTP 400. Upload it first, or use
+        advertises, kvmd reads this as a **stored image name**, the same one
+        [`MSDResource.set_params()`][aiopikvm.resources.msd.MSDResource.set_params]
+        takes, and hands it straight to that call. A URL is not refused for
+        being one: kvmd's validator splits the argument on ``/`` and checks
+        each part as a filename, so a URL passes as a multi-part path. What
+        an online MSD then makes of it is not recorded — the device this was
+        captured from had its MSD offline, where a URL dies in the same bare
+        HTTP 500 as any other name (below). Upload the image first, or use
         [`MSDResource.upload_remote()`][aiopikvm.resources.msd.MSDResource.upload_remote]
         for a remote one.
 
@@ -405,11 +410,11 @@ class RedfishResource(BaseResource):
         Both halves, in that order — the same pair
         [`MSDResource.set_connected()`][aiopikvm.resources.msd.MSDResource.set_connected]
         and [`MSDResource.set_params()`][aiopikvm.resources.msd.MSDResource.set_params]
-        do. Ejecting a drive that has nothing in it is not an error; an
-        *offline* one is, and it is where this differs from
+        do. An *offline* drive is where this differs from
         [`insert_media()`][aiopikvm.resources.redfish.RedfishResource.insert_media]:
         the eject reaches kvmd's own MSD plugin and comes back as a proper
-        HTTP 400 ``MsdOfflineError`` rather than a bare 500.
+        HTTP 400 ``MsdOfflineError`` rather than a bare 500. What an online
+        drive with nothing in it answers is not recorded.
 
         Returns nothing: kvmd answers HTTP 204 with an empty body.
 

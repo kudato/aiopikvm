@@ -181,7 +181,7 @@
       "request_body": {
         "Image": "https://example.org/ubuntu.iso"
       },
-      "note": "the document advertises Image@Redfish.AllowableValues ['URI'], but the handler validates a stored image name",
+      "note": "the document advertises Image@Redfish.AllowableValues ['URI'], but the handler reads a stored image name; the validator splits on / and checks each part as a filename, so the URL passed it and died in the offline-MSD crash rather than being refused",
       "status": 500,
       "content_type": "application/json; charset=utf-8",
       "body": {
@@ -209,10 +209,10 @@
       }
     },
     {
-      "name": "eject_empty_drive",
+      "name": "eject_offline_drive",
       "method": "POST",
       "path": "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD/Actions/VirtualMedia.EjectMedia",
-      "note": "ejecting an empty drive is not an error",
+      "note": "the MSD is offline here, and unlike InsertMedia the eject reaches kvmd's MSD plugin and is refused properly; what an online drive with nothing in it answers is not recorded",
       "status": 400,
       "content_type": "application/json; charset=utf-8",
       "body": {

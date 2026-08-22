@@ -392,14 +392,22 @@ async def test_insert_media_on_an_offline_msd_is_a_bare_500(
     assert info.value.error_msg == ""
 
 
-async def test_insert_media_refuses_a_url_despite_the_advertised_values(
+async def test_insert_media_does_not_take_the_url_the_document_advertises(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    """The document says Image@Redfish.AllowableValues ['URI']; kvmd validates
-    a stored image name, so a URL never gets past it."""
+    """The document says Image@Redfish.AllowableValues ['URI']; kvmd reads a
+    stored image name.
+
+    This pins the recorded 500, not a refusal: the name validator splits on
+    `/` and checks each part as a filename, so the URL passed it and died in
+    the offline-MSD crash below, exactly as `no-such-image.iso` does. What an
+    online MSD answers a URL is not in the corpus.
+    """
     mock_api.post(INSERT_PATH).mock(return_value=replay("insert_a_url"))
-    with pytest.raises(APIError):
+    with pytest.raises(APIError) as info:
         await client.redfish.insert_media("https://example.org/ubuntu.iso")
+    assert info.value.status_code == 500
+    assert info.value.error == ""
 
 
 async def test_insert_media_without_an_image_is_a_validator_error(
@@ -416,7 +424,7 @@ async def test_insert_media_without_an_image_is_a_validator_error(
 async def test_eject_media_sends_no_body(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    mock_api.post(EJECT_PATH).mock(return_value=replay("eject_empty_drive"))
+    mock_api.post(EJECT_PATH).mock(return_value=replay("eject_offline_drive"))
     with pytest.raises(APIError):
         await client.redfish.eject_media()
     assert mock_api.calls[-1].request.content == b""
@@ -427,7 +435,7 @@ async def test_eject_media_on_an_offline_msd_says_which_subsystem(
 ) -> None:
     """Unlike InsertMedia, the eject reaches kvmd's MSD plugin and is refused
     properly rather than crashing the handler."""
-    mock_api.post(EJECT_PATH).mock(return_value=replay("eject_empty_drive"))
+    mock_api.post(EJECT_PATH).mock(return_value=replay("eject_offline_drive"))
     with pytest.raises(APIError) as info:
         await client.redfish.eject_media()
     assert info.value.status_code == 400
