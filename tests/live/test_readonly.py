@@ -408,3 +408,35 @@ async def test_websocket_rejects_an_unparsable_stream_flag(live: PiKVM) -> None:
     assert not isinstance(caught.value, AuthError)
     assert caught.value.status_code == 400
     assert caught.value.error == "ValidatorError"
+
+
+async def test_redfish_managers_link_to_the_bmc(live: PiKVM) -> None:
+    """The manager collection, the manager, and its virtual media link."""
+    managers = await live.redfish.get_managers()
+    assert managers["Members"] == [{"@odata.id": "/redfish/v1/Managers/BMC"}]
+    manager = await live.redfish.get_manager()
+    assert manager["Id"] == "BMC"
+    collection = await live.redfish.get_virtual_media_collection()
+    assert collection["Members"] == [
+        {"@odata.id": "/redfish/v1/Managers/BMC/VirtualMedia/MSD"}
+    ]
+
+
+async def test_redfish_virtual_media_agrees_with_the_msd_state(live: PiKVM) -> None:
+    """The Redfish view is the MSD state, spelled differently."""
+    media = await live.redfish.get_virtual_media()
+    state = await live.msd.get_state()
+    assert media["Oem"]["PiKVM"]["MsdEnabled"] is state.enabled
+    assert media["Oem"]["PiKVM"]["MsdOnline"] is state.online
+    if not state.online:
+        # kvmd reads the drive only while it is online, so these are null
+        # rather than false — "not known", not "no".
+        assert media["Inserted"] is None
+        assert media["Image"] is None
+
+
+async def test_redfish_insert_media_refuses_a_url(live: PiKVM) -> None:
+    """The document advertises ``Image@Redfish.AllowableValues: ["URI"]`` and
+    the handler validates a stored image name, so a URL never gets past it."""
+    with pytest.raises(APIError):
+        await live.redfish.insert_media("https://example.org/ubuntu.iso")

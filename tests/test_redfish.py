@@ -291,3 +291,144 @@ async def test_reset_api_error(mock_api: respx.MockRouter, client: PiKVM) -> Non
     )
     with pytest.raises(APIError):
         await client.redfish.reset()
+
+
+VM_PATH = "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD"
+INSERT_PATH = f"{VM_PATH}/Actions/VirtualMedia.InsertMedia"
+EJECT_PATH = f"{VM_PATH}/Actions/VirtualMedia.EjectMedia"
+
+
+async def test_get_managers(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/redfish/v1/Managers").mock(
+        return_value=httpx.Response(200, json=load_json("redfish_managers"))
+    )
+    managers = await client.redfish.get_managers()
+    assert managers["Members@odata.count"] == 1
+    assert managers["Members"] == [{"@odata.id": "/redfish/v1/Managers/BMC"}]
+
+
+async def test_get_manager(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/redfish/v1/Managers/BMC").mock(
+        return_value=httpx.Response(200, json=load_json("redfish_manager_bmc"))
+    )
+    manager = await client.redfish.get_manager()
+    assert manager["Id"] == "BMC"
+    assert manager["ManagerType"] == "BMC"
+    assert manager["VirtualMedia"]["@odata.id"] == (
+        "/redfish/v1/Managers/BMC/VirtualMedia"
+    )
+
+
+async def test_get_virtual_media_collection(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/redfish/v1/Managers/BMC/VirtualMedia").mock(
+        return_value=httpx.Response(200, json=load_json("redfish_vm"))
+    )
+    collection = await client.redfish.get_virtual_media_collection()
+    assert collection["Members"] == [
+        {"@odata.id": "/redfish/v1/Managers/BMC/VirtualMedia/MSD"}
+    ]
+
+
+async def test_get_virtual_media_offline_reports_null_not_false(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """kvmd reads the drive fields only while the MSD is online."""
+    mock_api.get(VM_PATH).mock(
+        return_value=httpx.Response(200, json=load_json("redfish_vm_msd"))
+    )
+    media = await client.redfish.get_virtual_media()
+    assert media["Id"] == "MSD"
+    assert media["Oem"]["PiKVM"]["MsdEnabled"] is True
+    assert media["Oem"]["PiKVM"]["MsdOnline"] is False
+    # Not False: "not known", because the drive was never read.
+    for field in ("Inserted", "WriteProtected", "Image", "ImageName", "ConnectedVia"):
+        assert media[field] is None
+
+
+async def test_insert_media_sends_the_redfish_spelling(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.post(INSERT_PATH).mock(return_value=replay("insert_unknown_image"))
+    with pytest.raises(APIError):
+        await client.redfish.insert_media("no-such-image.iso")
+    assert body_of(mock_api) == {
+        "Image": "no-such-image.iso",
+        "Inserted": True,
+        "WriteProtected": True,
+    }
+
+
+async def test_insert_media_passes_both_flags_through(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.post(INSERT_PATH).mock(return_value=replay("insert_unknown_image"))
+    with pytest.raises(APIError):
+        await client.redfish.insert_media(
+            "x.img", inserted=False, write_protected=False
+        )
+    assert body_of(mock_api) == {
+        "Image": "x.img",
+        "Inserted": False,
+        "WriteProtected": False,
+    }
+
+
+async def test_insert_media_on_an_offline_msd_is_a_bare_500(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """kvmd reads state['drive'] before it checks online (redfish/msd.py:137).
+
+    An offline MSD reports `drive` as null, so the attribute lookup raises and
+    the handler answers 500 with no error name and no message — nothing that
+    says which subsystem was at fault.
+    """
+    mock_api.post(INSERT_PATH).mock(return_value=replay("insert_unknown_image"))
+    with pytest.raises(APIError) as info:
+        await client.redfish.insert_media("no-such-image.iso")
+    assert info.value.status_code == 500
+    assert info.value.error == ""
+    assert info.value.error_msg == ""
+
+
+async def test_insert_media_refuses_a_url_despite_the_advertised_values(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """The document says Image@Redfish.AllowableValues ['URI']; kvmd validates
+    a stored image name, so a URL never gets past it."""
+    mock_api.post(INSERT_PATH).mock(return_value=replay("insert_a_url"))
+    with pytest.raises(APIError):
+        await client.redfish.insert_media("https://example.org/ubuntu.iso")
+
+
+async def test_insert_media_without_an_image_is_a_validator_error(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Validation runs before the state read, so this one is a clean 400."""
+    mock_api.post(INSERT_PATH).mock(return_value=replay("insert_missing_image"))
+    with pytest.raises(APIError) as info:
+        await client.redfish.insert_media("")
+    assert info.value.status_code == 400
+    assert info.value.error == "ValidatorError"
+
+
+async def test_eject_media_sends_no_body(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.post(EJECT_PATH).mock(return_value=replay("eject_empty_drive"))
+    with pytest.raises(APIError):
+        await client.redfish.eject_media()
+    assert mock_api.calls[-1].request.content == b""
+
+
+async def test_eject_media_on_an_offline_msd_says_which_subsystem(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Unlike InsertMedia, the eject reaches kvmd's MSD plugin and is refused
+    properly rather than crashing the handler."""
+    mock_api.post(EJECT_PATH).mock(return_value=replay("eject_empty_drive"))
+    with pytest.raises(APIError) as info:
+        await client.redfish.eject_media()
+    assert info.value.status_code == 400
+    assert info.value.error == "MsdOfflineError"

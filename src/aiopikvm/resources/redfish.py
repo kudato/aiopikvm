@@ -261,3 +261,166 @@ class RedfishResource(BaseResource):
             f"/api/redfish/v1/Systems/{system_id}/Actions/ComputerSystem.Reset",
             json={"ResetType": reset_type},
         )
+
+    async def get_managers(self) -> dict[str, Any]:
+        """Get the managers collection.
+
+        kvmd serves exactly one, ``BMC``, and its path is a literal in the
+        route table rather than a parameter — which is why
+        [`get_manager()`][aiopikvm.resources.redfish.RedfishResource.get_manager]
+        takes no id. The collection is here for a Redfish client that walks
+        the tree rather than guessing at paths.
+
+        Returns:
+            Manager collection document.
+
+        Raises:
+            ResponseError: If the body is not a JSON object.
+            PiKVMError: If PiKVM refuses the request or is unreachable.
+        """
+        return await self._get_document("/api/redfish/v1/Managers")
+
+    async def get_manager(self) -> dict[str, Any]:
+        """Get the BMC manager.
+
+        Returns:
+            Manager document. ``VirtualMedia`` links to the collection
+            [`get_virtual_media_collection()`][aiopikvm.resources.redfish.RedfishResource.get_virtual_media_collection]
+            reads.
+
+        Raises:
+            ResponseError: If the body is not a JSON object.
+            PiKVMError: If PiKVM refuses the request or is unreachable.
+        """
+        return await self._get_document("/api/redfish/v1/Managers/BMC")
+
+    async def get_virtual_media_collection(self) -> dict[str, Any]:
+        """Get the virtual media collection.
+
+        One member, ``MSD``, at a path kvmd hardcodes.
+
+        Returns:
+            Virtual media collection document.
+
+        Raises:
+            ResponseError: If the body is not a JSON object.
+            PiKVMError: If PiKVM refuses the request or is unreachable.
+        """
+        return await self._get_document("/api/redfish/v1/Managers/BMC/VirtualMedia")
+
+    async def get_virtual_media(self) -> dict[str, Any]:
+        """Get the mass storage drive as a Redfish virtual media device.
+
+        This is the Redfish view of
+        [`MSDResource.get_state()`][aiopikvm.resources.msd.MSDResource.get_state],
+        and a narrower one: ``Image`` and ``ImageName``, ``Inserted``,
+        ``WriteProtected``, and kvmd's own ``Oem.PiKVM`` block with
+        ``MsdEnabled``, ``MsdOnline``, ``MsdBusy`` and ``DriveOptical``.
+
+        Every drive field is ``null`` while the drive is offline — kvmd only
+        reads them when ``online`` is true — so ``Inserted: null`` means "not
+        known", not "no". ``Oem.PiKVM.MsdOnline`` is what tells the two apart.
+
+        Returns:
+            Virtual media document.
+
+        Raises:
+            ResponseError: If the body is not a JSON object.
+            PiKVMError: If PiKVM refuses the request or is unreachable.
+        """
+        return await self._get_document("/api/redfish/v1/Managers/BMC/VirtualMedia/MSD")
+
+    async def insert_media(
+        self,
+        image: str,
+        *,
+        inserted: bool = True,
+        write_protected: bool = True,
+    ) -> None:
+        """Put a stored image into the drive.
+
+        The Redfish spelling of selecting an image and connecting the drive.
+        kvmd ejects whatever is connected first, then selects *image* and —
+        unless *inserted* is false — connects the drive again.
+
+        Despite the ``Image@Redfish.AllowableValues: ["URI"]`` the document
+        advertises, kvmd validates this as a **stored image name**, the same
+        one [`MSDResource.set_params()`][aiopikvm.resources.msd.MSDResource.set_params]
+        takes. A URL is refused with HTTP 400. Upload it first, or use
+        [`MSDResource.upload_remote()`][aiopikvm.resources.msd.MSDResource.upload_remote]
+        for a remote one.
+
+        kvmd decides whether to present the drive as an optical one with
+        ``name.lower().startswith(".iso")`` — ``startswith``, not
+        ``endswith``. No ordinary name begins with a file extension, so this
+        path always mounts a flash drive, and ``ubuntu.iso`` inserted here is
+        **not** a CD-ROM. Use
+        [`MSDResource.set_params()`][aiopikvm.resources.msd.MSDResource.set_params]
+        with ``cdrom=True`` where that matters. Verified against kvmd 4.206.
+
+        On a device whose MSD is offline this answers **HTTP 500 with an
+        empty error block**, which is a defect rather than a refusal: kvmd
+        reads ``state.get("drive", {}).get("connected")`` before it checks
+        ``online``, and an offline MSD reports ``drive`` as ``null`` — the
+        key is there, so the default never applies and the attribute lookup
+        raises. Nothing says which subsystem failed, so check
+        ``Oem.PiKVM.MsdOnline`` from
+        [`get_virtual_media()`][aiopikvm.resources.redfish.RedfishResource.get_virtual_media]
+        first where the drive may not be set up. Recorded against kvmd 4.206.
+
+        Returns nothing: kvmd answers HTTP 204 with an empty body. Read the
+        result back from
+        [`get_virtual_media()`][aiopikvm.resources.redfish.RedfishResource.get_virtual_media].
+
+        Args:
+            image: Name of an image already in MSD storage.
+            inserted: Connect the drive to the host afterwards. ``False``
+                selects the image and leaves the drive disconnected.
+            write_protected: Present the drive read-only. This is Redfish's
+                spelling of the inverse of kvmd's ``rw``, and the default
+                matches kvmd's.
+
+        Raises:
+            APIError: HTTP 400 if the name is not one kvmd's validator
+                accepts, and HTTP 500 — carrying no error name or message —
+                if the MSD is offline, per the defect above.
+            BusyError: If the drive is busy with another operation
+                (HTTP 409).
+            PiKVMError: If PiKVM is unreachable.
+        """
+        await self._send_action(
+            "POST",
+            "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD"
+            "/Actions/VirtualMedia.InsertMedia",
+            json={
+                "Image": image,
+                "Inserted": inserted,
+                "WriteProtected": write_protected,
+            },
+        )
+
+    async def eject_media(self) -> None:
+        """Disconnect the drive and clear the selected image.
+
+        Both halves, in that order — the same pair
+        [`MSDResource.set_connected()`][aiopikvm.resources.msd.MSDResource.set_connected]
+        and [`MSDResource.set_params()`][aiopikvm.resources.msd.MSDResource.set_params]
+        do. Ejecting a drive that has nothing in it is not an error; an
+        *offline* one is, and it is where this differs from
+        [`insert_media()`][aiopikvm.resources.redfish.RedfishResource.insert_media]:
+        the eject reaches kvmd's own MSD plugin and comes back as a proper
+        HTTP 400 ``MsdOfflineError`` rather than a bare 500.
+
+        Returns nothing: kvmd answers HTTP 204 with an empty body.
+
+        Raises:
+            APIError: HTTP 400 ``MsdOfflineError`` if the MSD is not set up.
+            BusyError: If the drive is busy with another operation
+                (HTTP 409).
+            PiKVMError: If PiKVM is unreachable.
+        """
+        await self._send_action(
+            "POST",
+            "/api/redfish/v1/Managers/BMC/VirtualMedia/MSD"
+            "/Actions/VirtualMedia.EjectMedia",
+        )

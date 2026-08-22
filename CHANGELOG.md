@@ -8,6 +8,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- The rest of kvmd's Redfish tree on `RedfishResource`: `get_managers()`,
+  `get_manager()`, `get_virtual_media_collection()`, `get_virtual_media()`,
+  `insert_media()` and `eject_media()`. None of them takes an id — kvmd writes
+  `Managers/BMC` and `VirtualMedia/MSD` into its route table as literals, not
+  as parameters, unlike the systems branch. `get_virtual_media()` is the
+  Redfish view of the MSD state and a narrower one; every drive field in it is
+  `null` while the drive is offline, because kvmd reads them only when it is
+  online, so `Inserted: null` means "not known" and `Oem.PiKVM.MsdOnline` is
+  what tells that from "no" (#58).
+- Two kvmd 4.206 defects on the virtual media path, recorded from a device and
+  documented where they are met. `insert_media()` decides whether to present an
+  optical drive with `name.lower().startswith(".iso")` — `startswith`, not
+  `endswith` — so no ordinary filename ever takes that branch and an inserted
+  `.iso` is mounted as a flash drive; `msd.set_params(cdrom=True)` is the way
+  to a CD-ROM. And against an offline MSD it answers HTTP 500 with an empty
+  error block rather than a refusal: kvmd reads
+  `state.get("drive", {}).get("connected")` before it checks `online`, and an
+  offline MSD reports `drive` as `null`, so the default never applies and the
+  lookup raises. `eject_media()` is not affected — it reaches kvmd's own MSD
+  plugin and comes back as HTTP 400 `MsdOfflineError` (#58).
 - `binary` option on `PiKVM.ws()` and `PiKVMWebSocket`: HID input goes out as
   kvmd's binary operations (`1` key, `2` mouse button, `3` absolute move, `5`
   wheel) instead of JSON events. Both reach the same handlers and the same
