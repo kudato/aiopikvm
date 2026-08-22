@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- The seven vocabularies kvmd's API is typed with are exported from
+  `aiopikvm` itself: `KEY_NAMES`, `KeyboardOutput`, `MouseButton`,
+  `MouseOutput`, `RESET_TYPES`, `ResetType` and `InfoField`. `__all__` held
+  every response model and every exception and none of these, so a caller
+  writing a typed wrapper around a method the package does export — say
+  `PiKVMWebSocket.send_mouse_button()`, whose signature is spelled in
+  `MouseButton` — had to reach into `aiopikvm.resources.hid` for the name in
+  it. The definitions have not moved, so the deeper imports still work
+  (#152).
 - `PiKVM.webrtc()` and `WebRTCSession`, the third and lowest-latency of the
   device's video surfaces: the Janus gateway at `/janus/ws`, with ustreamer's
   own plugin inside it, which is the path kvmd's web UI takes by default.
@@ -315,6 +324,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- `insert_media()` no longer claims a URL is refused with HTTP 400, and
+  `eject_media()` no longer claims that ejecting an empty drive is not an
+  error. Neither had a capture behind it. kvmd's name validator splits the
+  argument on `/` and checks each part as a filename, so a URL passes it as a
+  multi-part path — the recorded answer to one is the same bare HTTP 500 an
+  offline MSD gives any name, not a refusal — and the only eject recorded is
+  the offline 400. Both now say what the corpus shows and where it stops; the
+  step that recorded the eject is named `eject_offline_drive`, which is what
+  it is (#146).
 - The event buffer no longer simply drops the oldest event when it is full.
   kvmd sends each subsystem in full once and then only what changed, so an
   event lost off the front left every later one of its kind unusable — and

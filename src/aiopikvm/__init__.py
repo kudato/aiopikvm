@@ -139,11 +139,21 @@ from aiopikvm.models.webrtc import (
     WebRTCPluginEvent,
     WebRTCResult,
 )
+from aiopikvm.resources.hid import (
+    KEY_NAMES,
+    KeyboardOutput,
+    MouseButton,
+    MouseOutput,
+)
+from aiopikvm.resources.redfish import RESET_TYPES, ResetType
+from aiopikvm.resources.system import InfoField
 
 __version__ = "0.2.1"
 
 __all__ = [
     "EDID",
+    "KEY_NAMES",
+    "RESET_TYPES",
     "TOTP",
     "APIError",
     "ATXActs",
@@ -181,6 +191,7 @@ __all__ = [
     "InfoCPU",
     "InfoExtra",
     "InfoFan",
+    "InfoField",
     "InfoHealth",
     "InfoKernel",
     "InfoKvmd",
@@ -196,6 +207,7 @@ __all__ = [
     "InfoThrottlingFlags",
     "InfoUptime",
     "InfoUptimeParts",
+    "KeyboardOutput",
     "KvmdVersion",
     "MJPEGFrame",
     "MSDDownload",
@@ -212,12 +224,15 @@ __all__ = [
     "MediaState",
     "MediaVideoFormats",
     "MediaWebSocket",
+    "MouseButton",
+    "MouseOutput",
     "OCRInfo",
     "OCRLangs",
     "PiKVM",
     "PiKVMError",
     "PiKVMWebSocket",
     "RedirectError",
+    "ResetType",
     "Resolution",
     "ResponseError",
     "SavedSnapshot",

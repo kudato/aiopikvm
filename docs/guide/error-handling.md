@@ -117,7 +117,7 @@ Each lives in the resource module whose parameter it belongs to, so a
 variable holding one can be annotated:
 
 ```python
-from aiopikvm.resources.hid import MouseButton
+from aiopikvm import MouseButton
 
 button: MouseButton = "left"
 await kvm.hid.send_mouse_button(button)
@@ -132,7 +132,7 @@ values are on the type:
 
 ```python
 from typing import cast, get_args
-from aiopikvm.resources.hid import MouseButton
+from aiopikvm import MouseButton
 
 if name not in get_args(MouseButton.__value__):
     raise ValueError(f"kvmd has no mouse button named {name!r}")
