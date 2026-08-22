@@ -88,8 +88,17 @@ class GPIOInput(_Base):
 class GPIOChannel(_Base):
     """GPIO output channel state.
 
-    ``busy`` is ``True`` while a switch or pulse is still running; kvmd
-    reports ``state`` as ``False`` for the duration.
+    ``busy`` is ``True`` while a switch or pulse is still running, and it is
+    the field to read first: kvmd does not touch the pin for a busy channel,
+    so ``state`` is ``False`` and ``online`` is ``True`` for the duration
+    whatever the hardware is doing. That covers a switch to the state the
+    channel already has, which still runs the action and still reads back as
+    off while it does.
+
+    [`GPIOResource.switch()`][aiopikvm.resources.gpio.GPIOResource.switch]
+    and [`pulse()`][aiopikvm.resources.gpio.GPIOResource.pulse] answer as
+    the action *starts* unless they are given ``wait=True``, so a read taken
+    straight after one of them lands inside that window by default.
     """
 
     online: bool

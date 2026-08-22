@@ -31,6 +31,28 @@ for i, port in enumerate(state.model.ports):
 
 Everything is empty on a PiKVM with no switch attached.
 
+!!! warning "With no unit attached, every port command succeeds and does nothing"
+    kvmd validates the shape of a port argument and then hands the command to
+    a chain that has nowhere to send it. `set_active()`, `set_active_prev()`,
+    `set_active_next()`, `set_beacon()`, `set_port_params()`, `reset()`,
+    `atx_power()` and `atx_click()` all answer HTTP 200 on a device with no
+    switch, and there is no way to tell that apart from a command that
+    landed. `model.units` is what says whether there is anything there:
+
+    ```python
+    state = await kvm.switch.get_state()
+    if not state.model.units:
+        raise RuntimeError("no switch is attached to this device")
+    await kvm.switch.set_active(1)
+    ```
+
+    Two parts of this API are not affected, because they are storage rather
+    than hardware: [EDID management](#edid-management) and
+    [indicator colours](#indicator-colours) work, and read back, on a device
+    with no switch. `set_port_params()` sits in between — it is stored and it
+    survives a restart, but port names are exposed only inside `model.ports`,
+    which is empty, so nothing reads it back until a unit is attached.
+
 ## Switch active port
 
 Ports are addressed by number, counting from `0` across the whole chain. On a

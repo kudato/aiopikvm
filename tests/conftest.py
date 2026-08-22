@@ -10,31 +10,49 @@ from tests.helpers import scrub_proxy_environment
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Register the opt-in flag for the live-device suite."""
+    """Register the opt-in flags for the live-device suite."""
     parser.addoption(
         "--live",
         action="store_true",
         default=False,
         help="also run tests/live against the device configured in PIKVM_URL",
     )
+    parser.addoption(
+        "--live-mutating",
+        action="store_true",
+        default=False,
+        help=(
+            "also run the live tests that change device state; needs --live "
+            "and PIKVM_MUTATING_OK set to the same URL as PIKVM_URL"
+        ),
+    )
 
 
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Skip everything marked ``live`` unless ``--live`` was given.
+    """Skip what the opt-in flags have not asked for.
 
-    The marker is what decides, not the path. ``item.keywords`` carries the
+    The markers are what decide, not the path. ``item.keywords`` carries the
     names of every parent node, and the directory is called ``live``, so
     testing against it would skip anything under `tests/live` whether it
     needs a device or not — `tests/live/test_isolation.py` needs none.
+
+    ``mutating`` is the second gate. Everything carrying it also carries
+    ``live``, so ``--live-mutating`` alone collects nothing: a run that
+    changes somebody's device has to say both.
     """
-    if config.getoption("--live"):
-        return
-    skip = pytest.mark.skip(reason="needs --live and a reachable PiKVM")
+    live = config.getoption("--live")
+    mutating = config.getoption("--live-mutating")
+    skip_live = pytest.mark.skip(reason="needs --live and a reachable PiKVM")
+    skip_mutating = pytest.mark.skip(
+        reason="changes device state; needs --live --live-mutating"
+    )
     for item in items:
-        if item.get_closest_marker("live") is not None:
-            item.add_marker(skip)
+        if not live and item.get_closest_marker("live") is not None:
+            item.add_marker(skip_live)
+        if not mutating and item.get_closest_marker("mutating") is not None:
+            item.add_marker(skip_mutating)
 
 
 @pytest.fixture(autouse=True)

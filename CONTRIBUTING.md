@@ -62,9 +62,37 @@ PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret uv run pytest --live tests/liv
 ```
 
 `tests/live` is skipped without `--live` and skipped again if the environment
-does not point at a device, so CI never touches hardware. Those tests are
-strictly read-only — the device under test is somebody's working KVM, where an
-ATX call power-cycles a real host. Keep it that way when adding to them.
+does not point at a device, so CI never touches hardware. `test_readonly.py`
+is strictly read-only — the device under test is somebody's working KVM, where
+an ATX call power-cycles a real host. Keep it that way when adding to it.
+
+### Running the tests that change something
+
+`tests/live/test_mutating.py` writes. It carries a second marker and needs a
+second flag, plus the device named again in the environment:
+
+```bash
+PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \
+PIKVM_MUTATING_OK=https://pikvm.local \
+  uv run pytest --live --live-mutating tests/live
+```
+
+`PIKVM_MUTATING_OK` has to equal `PIKVM_URL` character for character. A flag
+on its own is one shell-history recall away from power-cycling the wrong
+machine; a URL that has to be typed out again is not.
+
+Three groups reach past kvmd to the hardware or to other people's sessions,
+and each needs its own variable on top of that:
+
+| Variable | What it lets run |
+| --- | --- |
+| `PIKVM_MUTATING_MSD` | the mass storage lifecycle, which needs the OTG mass-storage function on — that attaches a USB drive to the attached host |
+| `PIKVM_MUTATING_GPIO` | moving an output off the state it was found in; on a stock v3 that is the USB breaker |
+| `PIKVM_MUTATING_LOGOUT` | kvmd's logout, which closes **every** session of the user, browser tabs included |
+
+Every test there restores what it changed, in a fixture teardown or a
+`finally`. Keep that property: assert on the state kvmd reports afterwards
+rather than on the status code, and leave the device where you found it.
 
 ## Making changes
 

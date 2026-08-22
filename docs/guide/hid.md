@@ -231,6 +231,23 @@ await kvm.hid.set_params(mouse_output="usb_rel")
 await kvm.hid.set_params(jiggler=True)
 ```
 
+!!! note "The jiggler has two flags and they mean different things"
+    `jiggler=True` writes `state.jiggler.active` — whether it is nudging the
+    pointer now. `state.jiggler.enabled` says the device was configured with
+    a jiggler at all, and nothing in the API moves it. Reading it back after
+    a write shows no change, which looks exactly like a write that was
+    ignored:
+
+    ```python
+    await kvm.hid.set_params(jiggler=True)
+    state = await kvm.hid.get_state()
+    print(state.jiggler.enabled)  # True — and it was True before
+    print(state.jiggler.active)   # True — this is the one that moved
+    ```
+
+    `interval` is the idle time in seconds before it starts, and is
+    read-only over the API too.
+
 The output names are typed as `KeyboardOutput` and `MouseOutput`
 ([the values](error-handling.md#values-the-type-checker-catches)), so a typo
 is a type error rather than an HTTP 400. That is kvmd's validator, though,
