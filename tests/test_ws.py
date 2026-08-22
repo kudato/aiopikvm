@@ -7,7 +7,8 @@ import ssl
 import struct
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,6 +18,7 @@ import websockets.http11
 from websockets.datastructures import Headers
 from websockets.uri import parse_uri
 
+import aiopikvm
 from aiopikvm import (
     APIError,
     ATXState,
@@ -38,8 +40,9 @@ from aiopikvm import (
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import _PENDING_LIMIT, _Connector, _merge
+from aiopikvm._ws import _PENDING_LIMIT, _Connector, _merge, _open
 from tests.fixtures import load_json, load_jsonl
+from tests.helpers import defaults
 
 
 def socket(url: str = "https://pikvm.local", **kwargs: Any) -> PiKVMWebSocket:
@@ -1616,3 +1619,52 @@ async def test_aexit_none_connection() -> None:
     assert ws._connection is None
     await ws.__aexit__(None, None, None)
     assert ws._connection is None
+
+
+def test_only_one_place_in_the_package_makes_a_handshake() -> None:
+    """The three sockets connect through the one helper (#136).
+
+    Each of them used to build the TLS context, call the connector and
+    translate the two failure classes itself — the same thirty lines, three
+    times — and the WebRTC copy had fallen two settings behind without
+    anything noticing. `_open()` is where that lives now, and a fourth socket
+    written against the connector directly would be the same drift starting
+    over.
+    """
+    package = Path(cast(str, aiopikvm.__file__)).parent
+    # The bare name catches an aliased import too, and the two `connect(`
+    # spellings catch a socket that skips the connector rather than reusing
+    # it. `class _Connector(websockets.asyncio.client.connect)` matches
+    # neither of those, so `_ws.py` is here for the calls it really makes.
+    needles = (
+        "_Connector",
+        "websockets.connect(",
+        "websockets.asyncio.client.connect(",
+    )
+    callers = sorted(
+        path.name
+        for path in package.rglob("*.py")
+        if any(needle in path.read_text() for needle in needles)
+    )
+    assert callers == ["_ws.py"]
+
+
+def test_the_helper_hands_the_connector_what_it_would_have_chosen() -> None:
+    """`_open()` sits between the sockets and the connector's own defaults.
+
+    `WebRTCSession` names neither `max_size` nor `max_queue`, so its
+    signalling socket takes whatever the layer below chooses. That used to be
+    the connector; it is `_open()` now, and the two have to keep saying the
+    same thing or the Janus socket starts closing on a message it used to
+    accept.
+    """
+    below = defaults(_Connector.__init__)
+    shared = {name: value for name, value in defaults(_open).items() if name in below}
+    assert shared == {name: below[name] for name in shared}
+    assert set(shared) == {
+        "max_size",
+        "max_queue",
+        "ping_interval",
+        "ping_timeout",
+        "subprotocols",
+    }

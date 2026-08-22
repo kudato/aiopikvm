@@ -14,7 +14,12 @@ import aiopikvm
 from aiopikvm import ConfigurationError, PiKVM, PiKVMError, RedirectError
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._client import _RESOURCE_NAMES
+from aiopikvm._constants import DEFAULT_VERIFY_SSL
+from aiopikvm._media_ws import MediaWebSocket
+from aiopikvm._webrtc import WebRTCSession
+from aiopikvm._ws import PiKVMWebSocket
 from tests.fixtures import load_json
+from tests.helpers import defaults
 
 OK = {"ok": True, "result": {}}
 
@@ -473,3 +478,60 @@ def test_no_streaming_call_is_missing_from_this_list() -> None:
         if "self._stream(" in path.read_text()
     )
     assert helpers == ["msd.py", "streamer.py", "system.py"]
+
+
+_SOCKETS: dict[str, type] = {
+    "ws": PiKVMWebSocket,
+    "media_ws": MediaWebSocket,
+    "webrtc": WebRTCSession,
+}
+"""Each socket factory on `PiKVM`, and the class it builds."""
+
+
+@pytest.mark.parametrize("socket", list(_SOCKETS))
+def test_a_socket_built_directly_trusts_what_the_client_trusts(socket: str) -> None:
+    """The three classes defaulted to verifying TLS and `PiKVM` did not (#136).
+
+    All three are exported and have reference pages of their own, so building
+    one directly is supported — and it then failed against a stock device's
+    self-signed certificate where `PiKVM(url)` succeeded, with nothing saying
+    the defaults differed.
+
+    Both sides are read here rather than compared to the constant, so the
+    same disagreement cannot come back from the other end: a client that
+    starts verifying while the sockets do not is the same bug with the
+    polarity reversed.
+    """
+    assert (
+        defaults(_SOCKETS[socket].__init__)["verify_ssl"]
+        is defaults(PiKVM.__init__)["verify_ssl"]
+        is DEFAULT_VERIFY_SSL
+    )
+
+
+@pytest.mark.parametrize("socket", list(_SOCKETS))
+def test_the_factories_agree_with_the_sockets_they_build(socket: str) -> None:
+    """A default spelled in two places is one that drifts (#136).
+
+    The factories restate the socket's own defaults in their signatures, and
+    several had been retyped as literals beside the named constants they came
+    from. Only the two timeouts are exempt: a factory says `None` there and
+    fills them from the client's own `timeout`, so its signature cannot
+    repeat the socket's number.
+
+    `None` is a real setting everywhere else — no keepalive, no size limit —
+    so it is compared rather than skipped. Skipping it would let a factory
+    default drift to `None` while the socket it builds goes on pinging,
+    which is the drift this test is named for.
+    """
+    on_socket = defaults(_SOCKETS[socket].__init__)
+    from_client = {"open_timeout", "close_timeout"}
+    assert from_client <= set(on_socket)
+    restated = {
+        name: value
+        for name, value in defaults(getattr(PiKVM, socket)).items()
+        if name in on_socket and name not in from_client
+    }
+    assert restated == {name: on_socket[name] for name in restated}
+    # And the comparison is not vacuous: these are the ones it covers.
+    assert restated

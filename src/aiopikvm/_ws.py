@@ -35,7 +35,7 @@ import websockets.http11
 from pydantic import BaseModel, ValidationError
 from websockets.typing import Subprotocol
 
-from aiopikvm._constants import AuthMode
+from aiopikvm._constants import DEFAULT_TIMEOUT, DEFAULT_VERIFY_SSL, AuthMode
 from aiopikvm._exceptions import (
     APIError,
     ConfigurationError,
@@ -264,6 +264,109 @@ class _Connector(websockets.asyncio.client.connect):
             return exc
 
 
+async def _open(
+    url: str,
+    *,
+    headers: dict[str, str],
+    verify_ssl: VerifyTypes,
+    cert: CertTypes | None,
+    proxy: str | None,
+    trust_env: bool,
+    follow_redirects: bool,
+    open_timeout: float,
+    close_timeout: float,
+    max_size: int | None = _WS_MAX_SIZE,
+    max_queue: int = _WS_MAX_QUEUE,
+    ping_interval: float | None = _WS_PING_INTERVAL,
+    ping_timeout: float | None = _WS_PING_TIMEOUT,
+    subprotocols: Sequence[Subprotocol] | None = None,
+    failure: str = "Failed to connect",
+) -> websockets.asyncio.client.ClientConnection:
+    """Make one handshake, and report a failed one the way this library does.
+
+    All three sockets in this package connect the same way and differ only in
+    what they do afterwards, so this is the one place that builds the TLS
+    context, decides the proxy and translates what *websockets* raises. A
+    socket added later inherits every one of those instead of restating them —
+    which is how the WebRTC signalling socket came to drop two of its own
+    settings on the floor.
+
+    Args:
+        url: ``ws://`` or ``wss://`` URL to connect to.
+        headers: Credential headers, already built for the caller's auth mode.
+        verify_ssl: What to trust; ignored for a ``ws://`` URL, which carries
+            no TLS to configure.
+        cert: Client certificate to present.
+        proxy: Proxy URL, or ``None`` to decide from *trust_env*.
+        trust_env: Whether a proxy may come from the environment.
+        follow_redirects: Follow a redirected upgrade instead of reporting it.
+        open_timeout: Seconds to wait for the handshake.
+        close_timeout: Seconds to wait for the closing handshake.
+        max_size: Largest message to accept, or ``None`` for no limit.
+        max_queue: How many messages to buffer before pausing the read.
+        ping_interval: Seconds between keepalive pings, ``None`` for none.
+        ping_timeout: Seconds to wait for a pong, ``None`` to wait forever.
+        subprotocols: Subprotocols to offer. Only Janus needs one.
+        failure: How a connection that could not be made is reported, with
+            the underlying failure appended. The signalling socket names the
+            gateway, since a WebRTC session has a second socket open beside
+            it and the two fail for different reasons.
+
+    Returns:
+        The open connection.
+
+    Raises:
+        ConfigurationError: The TLS settings cannot be turned into a context —
+            a CA bundle that is not there, a client certificate that will not
+            load, or a *cert* handed in beside a ready-made
+            [`ssl.SSLContext`][]. Nothing has been sent at that point.
+        AuthError: The credentials were refused during the upgrade — 401 when
+            none reached the server, 403 when the ones that did were rejected.
+        RedirectError: The upgrade was redirected and *follow_redirects* is
+            off. Following it would resend the password to the target.
+        APIError: The upgrade was rejected for another reason, such as a query
+            parameter the validators do not accept, or a proxy in front of the
+            server answering instead.
+        WebSocketError: The connection could not be established: DNS, TLS,
+            timeout, or a server that does not speak WebSocket.
+    """
+    # `ws://` carries no TLS, so there is nothing to configure there; anything
+    # the caller asked for would be silently unused.
+    ssl_context: ssl.SSLContext | None = None
+    if url.startswith("wss://"):
+        ssl_context = build_ssl_context(verify_ssl, cert)
+
+    try:
+        return await _Connector(
+            url,
+            additional_headers=headers,
+            ssl_context=ssl_context,
+            proxy=(proxy or (True if trust_env else None)),
+            open_timeout=open_timeout,
+            close_timeout=close_timeout,
+            follow_redirects=follow_redirects,
+            max_size=max_size,
+            max_queue=max_queue,
+            ping_interval=ping_interval,
+            ping_timeout=ping_timeout,
+            subprotocols=subprotocols,
+        )
+    except websockets.exceptions.InvalidStatus as exc:
+        # The upgrade never happened: the server answered the GET with an
+        # ordinary HTTP error, kvmd envelope and all. That holds for Janus
+        # too — kvmd's auth chain sits in front of it.
+        raise _handshake_error(exc.response) from exc
+    except (
+        OSError,
+        ValueError,
+        websockets.exceptions.WebSocketException,
+    ) as exc:
+        # ValueError covers the URIs websockets rejects itself, which a
+        # redirect can produce even though this one is built from a checked
+        # scheme.
+        raise WebSocketError(f"{failure}: {exc}") from exc
+
+
 class PiKVMWebSocket:
     """WebSocket client for PiKVM realtime events and HID input.
 
@@ -282,15 +385,15 @@ class PiKVMWebSocket:
         passwd: str | Callable[[], str],
         auth: AuthMode = "headers",
         token: str | Callable[[], str] = "",
-        verify_ssl: VerifyTypes = True,
+        verify_ssl: VerifyTypes = DEFAULT_VERIFY_SSL,
         cert: CertTypes | None = None,
         proxy: str | None = None,
         trust_env: bool = True,
         stream: bool = True,
         binary: bool = False,
         follow_redirects: bool = False,
-        open_timeout: float = 10.0,
-        close_timeout: float = 10.0,
+        open_timeout: float = DEFAULT_TIMEOUT,
+        close_timeout: float = DEFAULT_TIMEOUT,
         max_size: int | None = _WS_MAX_SIZE,
         max_queue: int = _WS_MAX_QUEUE,
         ping_interval: float | None = _WS_PING_INTERVAL,
@@ -314,7 +417,9 @@ class PiKVMWebSocket:
                 *passwd* takes one: a session opened or refreshed after
                 this object was built is the one that goes out.
             verify_ssl: What to trust; see
-                [`VerifyTypes`][aiopikvm.VerifyTypes].
+                [`VerifyTypes`][aiopikvm.VerifyTypes]. Off by default, the
+                same as [`PiKVM`][aiopikvm.PiKVM]: a stock device serves a
+                self-signed certificate.
             cert: Client certificate to present.
             proxy: Proxy URL to reach the device through. ``None``
                 leaves it to the environment, unless *trust_env* says
@@ -426,41 +531,21 @@ class PiKVMWebSocket:
             WebSocketError: The connection could not be established: DNS,
                 TLS, timeout, or a server that does not speak WebSocket.
         """
-        # `ws://` carries no TLS, so there is nothing to configure there;
-        # anything the caller asked for would be silently unused.
-        ssl_context: ssl.SSLContext | None = None
-        if self._url.startswith("wss://"):
-            ssl_context = build_ssl_context(self._verify_ssl, self._cert)
-
-        headers = self._credential_headers()
-
-        try:
-            self._connection = await _Connector(
-                self._url,
-                additional_headers=headers,
-                ssl_context=ssl_context,
-                proxy=(self._proxy or (True if self._trust_env else None)),
-                open_timeout=self._open_timeout,
-                close_timeout=self._close_timeout,
-                follow_redirects=self._follow_redirects,
-                max_size=self._max_size,
-                max_queue=self._max_queue,
-                ping_interval=self._ping_interval,
-                ping_timeout=self._ping_timeout,
-            )
-        except websockets.exceptions.InvalidStatus as exc:
-            # The upgrade never happened: kvmd answered the GET with an
-            # ordinary HTTP error, envelope and all.
-            raise _handshake_error(exc.response) from exc
-        except (
-            OSError,
-            ValueError,
-            websockets.exceptions.WebSocketException,
-        ) as exc:
-            # ValueError covers the URIs websockets rejects itself, which a
-            # redirect can produce even though this one is built from a
-            # checked scheme.
-            raise WebSocketError(f"Failed to connect: {exc}") from exc
+        self._connection = await _open(
+            self._url,
+            headers=self._credential_headers(),
+            verify_ssl=self._verify_ssl,
+            cert=self._cert,
+            proxy=self._proxy,
+            trust_env=self._trust_env,
+            follow_redirects=self._follow_redirects,
+            open_timeout=self._open_timeout,
+            close_timeout=self._close_timeout,
+            max_size=self._max_size,
+            max_queue=self._max_queue,
+            ping_interval=self._ping_interval,
+            ping_timeout=self._ping_timeout,
+        )
 
         self._version = None
         self._pending.clear()

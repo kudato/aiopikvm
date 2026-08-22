@@ -119,7 +119,7 @@ async def opened(*frames: str | bytes, **kwargs: Any) -> MediaWebSocket:
     """Open a media socket over a mock connection handing out *frames*."""
     ws = socket(**kwargs)
     conn = iterating(*frames)
-    with patch("aiopikvm._media_ws._Connector", AsyncMock(return_value=conn)):
+    with patch("aiopikvm._ws._Connector", AsyncMock(return_value=conn)):
         return await ws.__aenter__()
 
 
@@ -223,7 +223,7 @@ def test_unsupported_url_scheme() -> None:
 @pytest.mark.parametrize("name", ["media_ws_jpeg", "media_ws_unknown"])
 async def test_a_format_the_daemon_lacks_is_refused(name: str) -> None:
     ws = socket(video=step(name)["request"]["params"]["video"])
-    with patch("aiopikvm._media_ws._Connector", AsyncMock(side_effect=rejection(name))):
+    with patch("aiopikvm._ws._Connector", AsyncMock(side_effect=rejection(name))):
         with pytest.raises(APIError) as caught:
             await ws.__aenter__()
     assert caught.value.status_code == 400
@@ -233,9 +233,7 @@ async def test_a_format_the_daemon_lacks_is_refused(name: str) -> None:
 
 async def test_a_broken_connection_is_reported() -> None:
     ws = socket()
-    with patch(
-        "aiopikvm._media_ws._Connector", AsyncMock(side_effect=OSError("no route"))
-    ):
+    with patch("aiopikvm._ws._Connector", AsyncMock(side_effect=OSError("no route"))):
         with pytest.raises(WebSocketError, match="Failed to connect"):
             await ws.__aenter__()
 
@@ -265,7 +263,7 @@ async def test_a_regular_socket_reads_its_announcement_on_open() -> None:
 async def test_an_announcement_that_is_not_one_fails_the_open() -> None:
     ws = socket(video=None)
     conn = iterating(json.dumps({"event_type": "pong", "event": {}}))
-    with patch("aiopikvm._media_ws._Connector", AsyncMock(return_value=conn)):
+    with patch("aiopikvm._ws._Connector", AsyncMock(return_value=conn)):
         with pytest.raises(ResponseError, match="other than the daemon's"):
             await ws.__aenter__()
     # __aexit__ never runs for a failed __aenter__, so the open socket has to
@@ -277,7 +275,7 @@ async def test_an_announcement_that_is_not_one_fails_the_open() -> None:
 async def test_an_unreadable_announcement_fails_the_open() -> None:
     ws = socket(video=None)
     conn = iterating(json.dumps({"event_type": "media", "event": {"video": 1}}))
-    with patch("aiopikvm._media_ws._Connector", AsyncMock(return_value=conn)):
+    with patch("aiopikvm._ws._Connector", AsyncMock(return_value=conn)):
         with pytest.raises(ResponseError, match="MediaState cannot"):
             await ws.__aenter__()
     conn.close.assert_awaited_once()
@@ -286,7 +284,7 @@ async def test_an_unreadable_announcement_fails_the_open() -> None:
 async def test_a_socket_that_closes_before_announcing_fails_the_open() -> None:
     ws = socket(video=None)
     conn = iterating()
-    with patch("aiopikvm._media_ws._Connector", AsyncMock(return_value=conn)):
+    with patch("aiopikvm._ws._Connector", AsyncMock(return_value=conn)):
         with pytest.raises(WebSocketError, match="closed before the daemon"):
             await ws.__aenter__()
 
@@ -299,7 +297,7 @@ async def test_a_silent_socket_fails_the_open() -> None:
     ws = socket(video=None, open_timeout=0.01)
     conn = AsyncMock()
     conn.recv = never
-    with patch("aiopikvm._media_ws._Connector", AsyncMock(return_value=conn)):
+    with patch("aiopikvm._ws._Connector", AsyncMock(return_value=conn)):
         with pytest.raises(WebSocketError, match="did not say what it can send"):
             await ws.__aenter__()
 
