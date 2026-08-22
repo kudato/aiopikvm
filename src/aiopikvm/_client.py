@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from collections.abc import AsyncIterator, Callable, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Self
 
@@ -603,6 +603,11 @@ class PiKVM:
             headers: Extra HTTP headers.
             timeout: Override request timeout.
 
+        Under ``auth="cookie"`` this opens a session first, and reopens one
+        if the token is refused — the same preamble
+        [`request()`][aiopikvm.PiKVM.request] runs. Nothing has been yielded
+        when the refusal arrives, so the connection is simply made again.
+
         Yields:
             The *httpx.Response* with an unconsumed body.
 
@@ -618,21 +623,29 @@ class PiKVM:
                 was, and the redirects formed a loop.
             APIError: Server returned any other error status (>= 400).
         """
-        client = self._ensure_client()
         try:
-            async with client.stream(
-                method,
-                path,
-                params=params,
-                headers=self._outgoing_headers(headers),
-                timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
-            ) as response:
-                if response.status_code >= 400:
-                    # The body is still unread here, and kvmd's error block is
-                    # what makes the failure readable; reading it also keeps
-                    # response.text from raising httpx.ResponseNotRead.
-                    await response.aread()
-                self._raise_for_status(response)
+            if self._needs_session(path):
+                await self._ensure_session()
+                carried = self._session_token()
+                try:
+                    stack, response = await self._open_stream(
+                        method, path, params, headers, timeout
+                    )
+                except AuthError:
+                    # The token was refused: expired, or logged out from
+                    # somewhere else. Nothing has reached the caller yet, so
+                    # open a session and connect once more. Anything wrong
+                    # with the password itself fails again, this time for
+                    # good.
+                    await self._ensure_session(refused=carried)
+                    stack, response = await self._open_stream(
+                        method, path, params, headers, timeout
+                    )
+            else:
+                stack, response = await self._open_stream(
+                    method, path, params, headers, timeout
+                )
+            async with stack:
                 yield response
         except httpx.TimeoutException as exc:
             raise ConnectionTimeoutError(str(exc)) from exc
@@ -649,6 +662,65 @@ class PiKVM:
             ) from exc
         except httpx.TransportError as exc:
             raise ConnectError(str(exc)) from exc
+
+    async def _open_stream(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None,
+        headers: dict[str, str] | None,
+        timeout: float | httpx.Timeout | None,
+    ) -> tuple[AsyncExitStack, httpx.Response]:
+        """Connect once, and hand the open connection to its caller.
+
+        The response comes back with its body unread and its connection
+        live, so whoever asked for it decides when it ends: closing the
+        returned stack closes the response. A connection that fails the
+        status check is closed here instead — there is nothing left to read
+        from it, and an attempt that is about to be made again must not hold
+        a socket open meanwhile.
+
+        Args:
+            method: HTTP method.
+            path: URL path relative to the PiKVM base URL.
+            params: Query parameters.
+            headers: Extra HTTP headers.
+            timeout: Override the client-level timeout for this request.
+
+        Returns:
+            The stack that owns the open connection, and the response.
+
+        Raises:
+            AuthError: Authentication failed (401/403).
+            BusyError: PiKVM is busy with another operation (409).
+            UnavailableError: The subsystem is disabled or offline (503).
+            RedirectError: PiKVM answered with a redirect (3xx) and the
+                client was not created with ``follow_redirects=True``.
+            APIError: Server returned any other error status (>= 400).
+        """
+        stack = AsyncExitStack()
+        try:
+            response = await stack.enter_async_context(
+                self._ensure_client().stream(
+                    method,
+                    path,
+                    params=params,
+                    headers=self._outgoing_headers(headers),
+                    timeout=(
+                        timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT
+                    ),
+                )
+            )
+            if response.status_code >= 400:
+                # The body is still unread here, and kvmd's error block is
+                # what makes the failure readable; reading it also keeps
+                # response.text from raising httpx.ResponseNotRead.
+                await response.aread()
+            self._raise_for_status(response)
+        except BaseException:
+            await stack.aclose()
+            raise
+        return stack, response
 
     # --- Resources (lazy) ----------------------------------------------
 

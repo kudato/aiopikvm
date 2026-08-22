@@ -243,6 +243,53 @@ async def test_cookie_mode_does_not_replay_a_streamed_body(
     assert login.call_count == 2
 
 
+async def test_cookie_mode_logs_in_for_a_stream(mock_api: respx.MockRouter) -> None:
+    # A stream is the first thing a client does often enough — tailing the
+    # log, watching MJPEG — and in cookie mode the X-KVMD-* headers are
+    # deliberately absent, so without a session of its own it carries no
+    # credential at all.
+    login = _login_route(mock_api)
+    log = mock_api.get("/api/log").mock(return_value=httpx.Response(200, text="line"))
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        assert [line async for line in kvm.system.stream_log()] == ["line"]
+    assert login.call_count == 1
+    assert f"auth_token={TOKEN}" in log.calls[0].request.headers["Cookie"]
+
+
+async def test_cookie_mode_opens_a_new_session_when_a_stream_is_refused(
+    mock_api: respx.MockRouter,
+) -> None:
+    # Nothing has been yielded when the refusal arrives, so the connection is
+    # simply made again — the caller never sees the first attempt.
+    tokens = iter([TOKEN, OTHER_TOKEN])
+    login = mock_api.post("/api/auth/login").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=OK,
+            headers={"Set-Cookie": f"auth_token={next(tokens)}; Path=/"},
+        )
+    )
+    answers = iter([httpx.Response(403, json=OK), httpx.Response(200, text="line")])
+    log = mock_api.get("/api/log").mock(side_effect=lambda request: next(answers))
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        assert [line async for line in kvm.system.stream_log()] == ["line"]
+    assert login.call_count == 2
+    assert log.call_count == 2
+    assert f"auth_token={OTHER_TOKEN}" in log.calls[-1].request.headers["Cookie"]
+
+
+async def test_cookie_mode_gives_up_on_a_stream_after_one_retry(
+    mock_api: respx.MockRouter,
+) -> None:
+    login = _login_route(mock_api)
+    log = mock_api.get("/api/log").mock(return_value=httpx.Response(403, json=OK))
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        with pytest.raises(AuthError):
+            [line async for line in kvm.system.stream_log()]
+    assert login.call_count == 2
+    assert log.call_count == 2
+
+
 async def test_cookie_mode_reuses_a_token_put_there_by_hand(
     mock_api: respx.MockRouter,
 ) -> None:
