@@ -164,6 +164,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   calls it, and without `remove_incomplete` a failed download leaves an
   incomplete image occupying the name, which is then refused on the retry
   (#40).
+- `legacy` on `SystemResource.get_info()`, and `InfoField` for the categories
+  it takes. kvmd assembles `/api/info` from eight submanagers and, unless
+  `legacy=0` is asked for, rearranges them into the shape its older API had:
+  a synthetic `hw` holding `health` and the `platform` block lifted out of
+  `system`, `health` removed from the default set, and `system` dropped
+  altogether unless it was named as well — even though `hw` is built out of
+  it. That rearrangement was unreachable and undocumented; `legacy=False`
+  now asks for the per-submanager shape the WebSocket `info` events carry.
+  `legacy=True` matches kvmd's own default, so a plain call sends no `legacy`
+  param and the request is unchanged (#46).
 
 ### Changed
 
@@ -186,7 +196,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   corpus that no longer proved what they read (#114).
 - **Breaking:** the parameters those literal types cover are no longer `str`:
   `hid.set_params()`, `hid.send_mouse_button()`, `ws.send_mouse_button()`,
-  `switch.atx_power()`, `switch.atx_click()` and `redfish.reset()`.
+  `switch.atx_power()`, `switch.atx_click()`, `redfish.reset()` and
+  `system.get_info()`.
   (`msd.download(compress=…)` is typed the same way but has never shipped, so
   nothing breaks there.) Nothing changes on the wire — the client still sends
   whatever it is handed — but a caller passing a variable inferred as `str`
@@ -382,6 +393,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `SystemResource.get_info()` documented a field list that was wrong in both
+  directions and a default that never existed. It named `hw` as a category
+  like any other and left out `health`, `node` and `uptime` entirely, and it
+  claimed a bare call "returns all categories" — kvmd removes `health` from
+  the default set under the legacy shape, so the one category a health check
+  wants is the one a bare call does not get. The guide said the same. Its
+  tests could not have caught it: every `/api/info` payload there was
+  hand-written, so they asserted the shape the author believed in. They read
+  four real captures now, one per shape kvmd can answer with (#46).
 - A link to an anchor that does not exist now fails the docs build. mkdocs
   checks the file half of a Markdown link by default and says nothing about
   the fragment, so a link into a heading that had been renamed reached the

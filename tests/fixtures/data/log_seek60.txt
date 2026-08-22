@@ -1,33 +1,37 @@
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.server             INFO --- Registered new client session: WsSession(id=281473488334800, {'stream': True}); clients now: 1
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- Starting streamer ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- PRE-START-CMD: /bin/true pre-start
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- Started streamer pid=2717: /usr/bin/ustreamer --device=/dev/kvmd-video --persistent --dv-timings --format=uyvy --buffers=6 --encoder=m2m-image --workers=3 --quality=80 --desired-fps=20 --drop-same-frames=30 --unix=/run/kvmd/ustreamer.sock --unix-rm --unix-mode=0660 --exit-on-parent-death --process-name-prefix=kvmd/streamer --notify-parent --no-log-colors --jpeg-sink=kvmd::ustreamer::jpeg --jpeg-sink-mode=0660 --h264-sink=kvmd::ustreamer::h264 --h264-sink-mode=0660 --h264-bitrate=15000 --h264-gop=0
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.740      main] -- Starting PiKVM uStreamer 6.62 ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.740      main] -- Using JPEG-sink: kvmd::ustreamer::jpeg
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.740      main] -- Using H264-sink: kvmd::ustreamer::h264
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.743      main] -- HTTP: Listening HTTP on UNIX socket '/run/kvmd/ustreamer.sock'
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.744    stream] -- H264: Initializing encoder ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.744      http] -- HTTP: Starting eventloop ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.750    stream] -- Using V4L2 device: /dev/kvmd-video
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.750    stream] -- CAP: Using capture type: single-planar
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.750    stream] -- CAP: Using input channel: 0
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.757    stream] -- CAP: Detected DV-timings: 1920x1080p60.00, pixclk=148500000, vsync=45, hsync=280
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.776    stream] -- CAP: Using resolution: 1920x1080
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.776    stream] -- CAP: Using format: UYVY
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.776    stream] -- CAP: Querying HW FPS changing is not supported
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.776    stream] -- CAP: Using IO method: MMAP
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.785    stream] -- CAP: Requested 6 device buffers, got 6
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.790    stream] -- CAP: Capturing started
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.791    stream] -- JPEG-0: Initializing encoder ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.791    stream] -- JPEG-1: Initializing encoder ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.791    stream] -- JPEG-2: Initializing encoder ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.791    stream] -- Using JPEG quality: 80%
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.791    stream] -- Creating pool JPEG with 3 workers ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer           INFO --- Got SIGUSR2, checking the stream state ...
-[2026-08-22 06:54:01 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [1645.791    stream] -- Capturing ...
-[2026-08-22 06:54:04 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
-[2026-08-22 06:54:04 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /info HTTP/1.1' => 200; size=4025 --- referer='-'; user_agent='python-httpx/0.28.1'
-[2026-08-22 06:54:04 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
-[2026-08-22 06:54:04 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /info?fields=hw%2Csystem HTTP/1.1' => 200; size=2337 --- referer='-'; user_agent='python-httpx/0.28.1'
-[2026-08-22 06:54:04 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-22 07:04:05 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-22 07:04:05 kvmd.service] --- kvmd.apps.kvmd.server             INFO --- Registered new client session: WsSession(id=281473488335408, {'stream': True}); clients now: 1
+[2026-08-22 07:04:05 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- Starting streamer ...
+[2026-08-22 07:04:05 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- PRE-START-CMD: /bin/true pre-start
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- Started streamer pid=3485: /usr/bin/ustreamer --device=/dev/kvmd-video --persistent --dv-timings --format=uyvy --buffers=6 --encoder=m2m-image --workers=3 --quality=80 --desired-fps=20 --drop-same-frames=30 --unix=/run/kvmd/ustreamer.sock --unix-rm --unix-mode=0660 --exit-on-parent-death --process-name-prefix=kvmd/streamer --notify-parent --no-log-colors --jpeg-sink=kvmd::ustreamer::jpeg --jpeg-sink-mode=0660 --h264-sink=kvmd::ustreamer::h264 --h264-sink-mode=0660 --h264-bitrate=15000 --h264-gop=0
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.216      main] -- Starting PiKVM uStreamer 6.62 ...
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.216      main] -- Using JPEG-sink: kvmd::ustreamer::jpeg
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.216      main] -- Using H264-sink: kvmd::ustreamer::h264
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.220      main] -- HTTP: Listening HTTP on UNIX socket '/run/kvmd/ustreamer.sock'
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.220      http] -- HTTP: Starting eventloop ...
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.220    stream] -- H264: Initializing encoder ...
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.230    stream] -- Using V4L2 device: /dev/kvmd-video
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.230    stream] -- CAP: Using capture type: single-planar
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.230    stream] -- CAP: Using input channel: 0
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.236    stream] -- CAP: Detected DV-timings: 1920x1080p60.00, pixclk=148500000, vsync=45, hsync=280
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.256    stream] -- CAP: Using resolution: 1920x1080
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.256    stream] -- CAP: Using format: UYVY
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.256    stream] -- CAP: Querying HW FPS changing is not supported
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.256    stream] -- CAP: Using IO method: MMAP
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.265    stream] -- CAP: Requested 6 device buffers, got 6
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.270    stream] -- CAP: Capturing started
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.270    stream] -- JPEG-0: Initializing encoder ...
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.270    stream] -- JPEG-1: Initializing encoder ...
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.270    stream] -- JPEG-2: Initializing encoder ...
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.270    stream] -- Using JPEG quality: 80%
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.270    stream] -- Creating pool JPEG with 3 workers ...
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer.runner    INFO --- => -- INFO  [2250.271    stream] -- Capturing ...
+[2026-08-22 07:04:06 kvmd.service] --- kvmd.apps.kvmd.streamer           INFO --- Got SIGUSR2, checking the stream state ...
+[2026-08-22 07:04:08 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-22 07:04:09 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /info HTTP/1.1' => 200; size=4026 --- referer='-'; user_agent='python-httpx/0.28.1'
+[2026-08-22 07:04:09 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-22 07:04:09 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /info?fields=hw%2Csystem HTTP/1.1' => 200; size=2336 --- referer='-'; user_agent='python-httpx/0.28.1'
+[2026-08-22 07:04:09 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-22 07:04:09 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /info?fields=hw HTTP/1.1' => 200; size=1510 --- referer='-'; user_agent='python-httpx/0.28.1'
+[2026-08-22 07:04:09 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'
+[2026-08-22 07:04:09 kvmd.service] --- aiohttp.access                    INFO --- [admin (xhdr) / 192.0.2.10] 'GET /info?legacy=0 HTTP/1.1' => 200; size=3877 --- referer='-'; user_agent='python-httpx/0.28.1'
+[2026-08-22 07:04:09 kvmd.service] --- kvmd.apps.kvmd.auth               INFO --- Authorized user 'admin' via auth service 'htpasswd'

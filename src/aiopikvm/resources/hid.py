@@ -67,7 +67,7 @@ client enforces the set, and a name outside it is sent as given.
 
 This is a runtime set rather than a type, unlike the smaller vocabularies
 below. A key name is usually computed — read out of a browser event, a
-config file, a table of shortcuts — and a static list of 115 members would
+config file, a table of shortcuts — and a static list of 126 members would
 be in the way far more often than it caught a typo.
 """
 

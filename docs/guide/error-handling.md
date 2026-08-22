@@ -156,7 +156,7 @@ lowercased before matching, so a device would also take `"USB"` or
 `"Left"` — only the canonical spelling is typed.
 
 Key names are the one vocabulary left as plain `str`, and they are
-case-sensitive like `ResetType`. There are 115 of them, and a key is
+case-sensitive like `ResetType`. There are 126 of them, and a key is
 usually computed rather than written out, so they are a runtime set
 instead: see [`KEY_NAMES`](hid.md#key-names).
 

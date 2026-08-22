@@ -30,6 +30,26 @@
       "content_type": "application/json; charset=utf-8",
       "file": "info_hw_system.json"
     },
+    "info_hw": {
+      "method": "GET",
+      "path": "/api/info",
+      "params": {
+        "fields": "hw"
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "info_hw.json"
+    },
+    "info_legacy0": {
+      "method": "GET",
+      "path": "/api/info",
+      "params": {
+        "legacy": 0
+      },
+      "status": 200,
+      "content_type": "application/json; charset=utf-8",
+      "file": "info_legacy0.json"
+    },
     "log_seek60": {
       "method": "GET",
       "path": "/api/log",

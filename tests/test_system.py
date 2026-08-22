@@ -1,31 +1,17 @@
-"""SystemResource tests."""
+"""SystemResource tests.
+
+The four `/api/info` payloads are real captures, one per shape kvmd can
+answer with. They are what makes the legacy rearrangement visible: it is
+not something the client does, and a hand-written payload would have shown
+whatever the author believed it to be.
+"""
 
 import httpx
 import pytest
 import respx
 
 from aiopikvm import AuthError, PiKVM
-
-INFO_RESPONSE = {
-    "ok": True,
-    "result": {
-        "hw": {
-            "health": {"cpu": {"percent": 5}},
-            "platform": {"base": "Raspberry Pi 4", "type": "rpi"},
-        },
-        "system": {"kvmd": {"version": "3.100"}},
-    },
-}
-
-INFO_HW_ONLY = {
-    "ok": True,
-    "result": {
-        "hw": {
-            "health": {"cpu": {"percent": 5}},
-            "platform": {"base": "Raspberry Pi 4", "type": "rpi"},
-        },
-    },
-}
+from tests.fixtures import load_json
 
 LOG_TEXT = (
     "[2025-06-10 22:38:07 kvmd.service] --- kvmd.apps.kvmd INFO --- Started\n"
@@ -34,36 +20,75 @@ LOG_TEXT = (
 
 
 async def test_get_info(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    mock_api.get("/api/info").mock(return_value=httpx.Response(200, json=INFO_RESPONSE))
+    mock_api.get("/api/info").mock(
+        return_value=httpx.Response(200, json=load_json("info"))
+    )
     result = await client.system.get_info()
     request = mock_api.calls[-1].request
-    # No fields given — the param must be omitted so the server returns
-    # all categories.
+    # kvmd's own default is the legacy shape, so a plain call sends nothing.
     assert "fields" not in request.url.params
+    assert "legacy" not in request.url.params
     assert "hw" in result
     assert "system" in result
     assert result["hw"]["platform"]["type"] == "rpi"
 
 
-async def test_get_info_with_fields(mock_api: respx.MockRouter, client: PiKVM) -> None:
-    mock_api.get("/api/info").mock(return_value=httpx.Response(200, json=INFO_HW_ONLY))
-    result = await client.system.get_info("hw")
-    request = mock_api.calls[-1].request
-    assert request.url.params.get_list("fields") == ["hw"]
-    assert "hw" in result
-
-
-async def test_get_info_multiple_fields(
+async def test_get_info_legacy_drops_health_from_the_default_set(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    mock_api.get("/api/info").mock(return_value=httpx.Response(200, json=INFO_RESPONSE))
+    # kvmd builds the default set from its submanagers and then removes
+    # `health` from it, so "no fields" is not "every category".
+    mock_api.get("/api/info").mock(
+        return_value=httpx.Response(200, json=load_json("info"))
+    )
+    result = await client.system.get_info()
+    assert "health" not in result
+    # It moved: the legacy shape carries it inside `hw`.
+    assert "health" in result["hw"]
+
+
+async def test_get_info_legacy_takes_platform_out_of_system(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/api/info").mock(
+        return_value=httpx.Response(200, json=load_json("info_hw_system"))
+    )
     result = await client.system.get_info("hw", "system")
     request = mock_api.calls[-1].request
     # kvmd reads `fields` as a single comma-separated value; repeated
     # params (fields=a&fields=b) would drop all fields except the first.
     assert request.url.params.get_list("fields") == ["hw,system"]
-    assert "hw" in result
-    assert "system" in result
+    assert "platform" in result["hw"]
+    assert "platform" not in result["system"]
+
+
+async def test_get_info_hw_alone_drops_system_entirely(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # `hw` is assembled out of `health` and `system`, both of which kvmd
+    # fetches to build it — and then discards `system` unasked.
+    mock_api.get("/api/info").mock(
+        return_value=httpx.Response(200, json=load_json("info_hw"))
+    )
+    result = await client.system.get_info("hw")
+    request = mock_api.calls[-1].request
+    assert request.url.params.get_list("fields") == ["hw"]
+    assert sorted(result) == ["hw"]
+    assert sorted(result["hw"]) == ["health", "platform"]
+
+
+async def test_get_info_modern_shape(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/info").mock(
+        return_value=httpx.Response(200, json=load_json("info_legacy0"))
+    )
+    result = await client.system.get_info(legacy=False)
+    request = mock_api.calls[-1].request
+    assert request.url.params.get_list("legacy") == ["0"]
+    assert "fields" not in request.url.params
+    # Every submanager, none of the rearrangement.
+    assert "hw" not in result
+    assert "health" in result
+    assert "platform" in result["system"]
 
 
 async def test_get_log(mock_api: respx.MockRouter, client: PiKVM) -> None:

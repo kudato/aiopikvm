@@ -42,45 +42,35 @@
       "monitored": false,
       "state": null
     },
-    "hw": {
-      "health": {
-        "cpu": {
-          "percent": 1
-        },
-        "mem": {
-          "available": 3410841600,
-          "percent": 10.0,
-          "total": 3788144640
-        },
-        "temp": {
-          "cpu": 34.563
-        },
-        "throttling": {
-          "ignore_past": false,
-          "parsed_flags": {
-            "freq_capped": {
-              "now": false,
-              "past": false
-            },
-            "throttled": {
-              "now": false,
-              "past": false
-            },
-            "undervoltage": {
-              "now": false,
-              "past": false
-            }
-          },
-          "raw_flags": 0
-        }
+    "health": {
+      "cpu": {
+        "percent": 30
       },
-      "platform": {
-        "base": "Raspberry Pi Compute Module 4 Rev 1.1",
-        "board": "rpi4",
-        "model": "v3",
-        "serial": "0000000000000000",
-        "type": "rpi",
-        "video": "hdmi"
+      "mem": {
+        "available": 3410698240,
+        "percent": 10.0,
+        "total": 3788144640
+      },
+      "temp": {
+        "cpu": 33.589
+      },
+      "throttling": {
+        "ignore_past": false,
+        "parsed_flags": {
+          "freq_capped": {
+            "now": false,
+            "past": false
+          },
+          "throttled": {
+            "now": false,
+            "past": false
+          },
+          "undervoltage": {
+            "now": false,
+            "past": false
+          }
+        },
+        "raw_flags": 0
       }
     },
     "meta": {
@@ -100,6 +90,14 @@
       },
       "kvmd": {
         "version": "4.206"
+      },
+      "platform": {
+        "base": "Raspberry Pi Compute Module 4 Rev 1.1",
+        "board": "rpi4",
+        "model": "v3",
+        "serial": "0000000000000000",
+        "type": "rpi",
+        "video": "hdmi"
       },
       "streamer": {
         "app": "ustreamer",
