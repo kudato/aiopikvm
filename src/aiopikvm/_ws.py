@@ -853,7 +853,14 @@ class PiKVMWebSocket:
                 self._state = dataclasses.replace(
                     self._state, updated=event_type, clients=count
                 )
-            elif event_type in _STATE_MODELS:
+            elif event_type in _STATE_MODELS and hasattr(self._state, event_type):
+                # The `hasattr` is for a table entry with no field to land in:
+                # `replace()` would raise a bare `TypeError` at the caller,
+                # outside the hierarchy this package promises. A contract test
+                # keeps the two lists together, so the guard is for the build
+                # that shipped without it — skipped like any other event this
+                # release cannot place (#143).
+                #
                 # Merged as the event came off the buffer, so this is that
                 # subsystem's whole state and not only what just changed.
                 self._state = dataclasses.replace(

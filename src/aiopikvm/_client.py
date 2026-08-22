@@ -1292,8 +1292,9 @@ _RESOURCE_NAMES = tuple(
 
 Read off the class rather than listed beside it. `aclose()` clears each of
 these out of the instance `__dict__`, so a name missing from the list is a
-resource that stays cached on a closed client, holding a reference to an HTTP
-client that is gone — and a list nothing derives is one a new resource is
+resource that outlives the close: the getter is what raises `PiKVMError` on a
+client that is gone, and one already in `__dict__` is handed back without it
+ever running again — and a list nothing derives is one a new resource is
 added without (#143).
 
 Every `cached_property` on this class is a resource today, and the tests hold

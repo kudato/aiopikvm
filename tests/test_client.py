@@ -40,6 +40,14 @@ async def test_context_manager(mock_api: respx.MockRouter) -> None:
     # `aclose()`.
     assert built
     assert all(isinstance(resource, BaseResource) for resource in built.values())
+    # And each one comes from the module of the same name. Both this test and
+    # the directory one below compare names to names, so a getter copied from
+    # the one above it and left returning the wrong class — the mistake #143
+    # was filed over — passed each of them.
+    assert all(
+        type(resource).__module__ == f"aiopikvm.resources.{name}"
+        for (name, resource) in built.items()
+    )
 
 
 def test_every_resource_module_is_reachable_from_the_client() -> None:

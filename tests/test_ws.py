@@ -40,7 +40,7 @@ from aiopikvm import (
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import _PENDING_LIMIT, _Connector, _merge, _open
+from aiopikvm._ws import _PENDING_LIMIT, _STATE_MODELS, _Connector, _merge, _open
 from tests.fixtures import load_json, load_jsonl
 from tests.helpers import defaults
 
@@ -789,6 +789,26 @@ async def test_states_ignore_an_event_type_they_do_not_know() -> None:
     ws = socket()
     ws._connection = iterating(
         json.dumps({"event_type": "quantum", "event": {"spin": "up"}}),
+        json.dumps(recorded("atx")),
+    )
+    assert [state.updated async for state in ws.states()] == ["atx"]
+
+
+async def test_states_ignore_a_table_entry_with_no_field_to_land_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A table that outgrew the dataclass must not break the loop (#143).
+
+    `dataclasses.replace()` answers a keyword the dataclass does not have
+    with a bare `TypeError`, which is not a `PiKVMError`, on a socket that is
+    otherwise healthy. A contract test keeps the two lists together, so this
+    is about the build that shipped without it: the event is skipped like any
+    other this release cannot place.
+    """
+    monkeypatch.setitem(_STATE_MODELS, "quantum", _STATE_MODELS["atx"])
+    ws = socket()
+    ws._connection = iterating(
+        json.dumps({**recorded("atx"), "event_type": "quantum"}),
         json.dumps(recorded("atx")),
     )
     assert [state.updated async for state in ws.states()] == ["atx"]
