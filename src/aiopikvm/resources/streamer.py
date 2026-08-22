@@ -490,6 +490,22 @@ def _part_headers(block: bytes) -> dict[str, str]:
     return headers
 
 
+def _header(headers: Mapping[str, str], name: str) -> str | None:
+    """Read one header without regard to the case it arrived in.
+
+    Args:
+        headers: The headers to search, keyed as they came off the wire.
+        name: The header to find, in lower case.
+
+    Returns:
+        Its value, or ``None`` when nothing matches.
+    """
+    for key, value in headers.items():
+        if key.lower() == name:
+            return value
+    return None
+
+
 class _MultipartReader:
     """Cut ustreamer's ``multipart/x-mixed-replace`` body into frames.
 
@@ -558,7 +574,11 @@ class _MultipartReader:
         if head_end < 0:
             return None
         headers = _part_headers(self._buf[len(self._marker) : head_end])
-        raw_length = headers.get("Content-Length")
+        # Matched without regard to case, as _meta_from_headers matches the
+        # rest of them. The keys keep the case they arrived in — MJPEGFrame
+        # hands them to the caller as received — so the lookup lowercases
+        # instead.
+        raw_length = _header(headers, "content-length")
         if raw_length is None:
             raise ResponseError(
                 "A frame of the MJPEG stream arrived with no Content-Length, "
