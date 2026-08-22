@@ -572,6 +572,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Three failures no longer reach a caller from outside the `PiKVMError`
+  hierarchy. A body that does not survive its `Content-Encoding` raises
+  `ResponseError` instead of `httpx.DecodingError`: it is the one
+  `httpx.RequestError` subclass the translation missed, and since kvmd's nginx
+  gzips text responses, a lossy link reaches it through `/api/log` or any JSON
+  envelope. A proxy URL httpx cannot read raises `ConfigurationError` instead
+  of a bare `ValueError` — `trust_env` is on by default, so a malformed
+  `HTTPS_PROXY` in the environment failed the opening of a client the program
+  had built correctly. And a TOTP code that is not ASCII raises
+  `ConfigurationError` too: `__aenter__` checks the user name and password, but
+  a callable produces a new code per request, so under `auth="headers"` an
+  unusable one surfaced as a bare `UnicodeEncodeError` and under `auth="basic"`
+  did not surface at all — the credential went out UTF-8 encoded, for kvmd to
+  read as something else. The two verbatim copies of the httpx translation,
+  whose comments had already drifted apart, are now one helper (#133).
 - Streaming calls under `auth="cookie"` now open a session like every other
   call. `request()` logs in before sending and once more if the token is
   refused; `stream()` did neither, and since cookie mode deliberately withholds

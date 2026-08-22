@@ -214,8 +214,32 @@ async def test_aclose_without_entering(mock_api: respx.MockRouter) -> None:
 
 async def test_invalid_url_is_a_configuration_error() -> None:
     """httpx's own InvalidURL would land outside the hierarchy."""
-    with pytest.raises(ConfigurationError, match="Invalid PiKVM URL"):
+    with pytest.raises(ConfigurationError, match="Cannot build an HTTP client"):
         async with PiKVM("http://[::1"):
+            pass  # pragma: no cover - __aenter__ raises
+
+
+async def test_invalid_proxy_url_is_a_configuration_error() -> None:
+    """httpx raises a plain ValueError for one, which is not an InvalidURL."""
+    with pytest.raises(ConfigurationError, match="Cannot build an HTTP client"):
+        async with PiKVM("https://pikvm.local", proxy="nonsense://proxy"):
+            pass  # pragma: no cover - __aenter__ raises
+
+
+async def test_invalid_proxy_in_the_environment_is_a_configuration_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The program passed nothing wrong; trust_env is on by default.
+
+    The suite-wide `no_machine_proxy` fixture leaves ``no_proxy=*`` behind,
+    and httpx reads that star as a blanket bypass and never looks at
+    ``HTTPS_PROXY`` at all. This test is about the machine that *does* have a
+    proxy configured, so it puts one back.
+    """
+    monkeypatch.delenv("no_proxy", raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "nonsense://proxy")
+    with pytest.raises(ConfigurationError, match="Cannot build an HTTP client"):
+        async with PiKVM("https://pikvm.local"):
             pass  # pragma: no cover - __aenter__ raises
 
 

@@ -1,6 +1,7 @@
 """Error handling tests — transport failures, error statuses, bad payloads."""
 
 import re
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
@@ -9,6 +10,7 @@ import respx
 from aiopikvm import (
     APIError,
     AuthError,
+    AuthMode,
     BusyError,
     ConfigurationError,
     ConnectError,
@@ -34,6 +36,24 @@ ATX_OK = {
 def _kvmd_error(error: str, error_msg: str) -> dict[str, object]:
     """Build the error envelope kvmd returns for a failed request."""
     return {"ok": False, "result": {"error": error, "error_msg": error_msg}}
+
+
+def _corrupt_gzip() -> httpx.Response:
+    """Build a response whose body does not survive its `Content-Encoding`.
+
+    The bytes go in as an async iterator rather than as ``content=b"..."``:
+    httpx decodes a whole body inside `httpx.Response.__init__`, so a plain
+    one would fail while the test was still writing the mock rather than
+    where the client reads it.
+
+    Returns:
+        A 200 announcing gzip and carrying something else.
+    """
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"not gzip at all"
+
+    return httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=body())
 
 
 async def test_connect_error(mock_api: respx.MockRouter, client: PiKVM) -> None:
@@ -144,6 +164,34 @@ async def test_read_error(mock_api: respx.MockRouter, client: PiKVM) -> None:
         await client.atx.get_state()
 
 
+async def test_decoding_error_stays_in_the_hierarchy(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """httpx derives DecodingError from RequestError, not TransportError.
+
+    kvmd's nginx gzips text responses, so a body that does not survive its
+    ``Content-Encoding`` is reachable over a lossy link. The bytes arrived —
+    calling that a connection failure would point at the wrong thing.
+    """
+    mock_api.get("/api/atx").mock(return_value=_corrupt_gzip())
+    with pytest.raises(ResponseError, match="Content-Encoding"):
+        await client.atx.get_state()
+
+
+async def test_decoding_error_while_streaming(mock_api: respx.MockRouter) -> None:
+    """The same gap on the streaming path, where the body is read by the caller.
+
+    `stream()` is suspended at its ``yield`` while the caller iterates, and a
+    failure there is thrown back into it — so the one translation block covers
+    both halves.
+    """
+    mock_api.get("/api/log").mock(return_value=_corrupt_gzip())
+    async with PiKVM("https://pikvm.local") as kvm:
+        with pytest.raises(ResponseError, match="Content-Encoding"):
+            async for _ in kvm.system.stream_log():
+                pass  # pragma: no cover - the first read fails
+
+
 async def test_url_without_scheme() -> None:
     async with PiKVM("pikvm.local", user="admin", passwd="admin") as kvm:
         with pytest.raises(ConfigurationError, match=re.escape("https://pikvm.local")):
@@ -154,6 +202,30 @@ async def test_non_ascii_credentials() -> None:
     with pytest.raises(ConfigurationError, match="ASCII"):
         async with PiKVM("https://pikvm.local", user="admin", passwd="паролü"):
             pass  # pragma: no cover - __aenter__ raises
+
+
+@pytest.mark.parametrize("auth", ["headers", "basic"])
+async def test_non_ascii_totp_code(mock_api: respx.MockRouter, auth: AuthMode) -> None:
+    """The one credential component `__aenter__` cannot check for itself.
+
+    A callable produces a new code per request, so an unusable one only shows
+    up where the headers are built. ``"headers"`` used to raise a bare
+    `UnicodeEncodeError` there; ``"basic"`` did not raise at all, and sent the
+    credential UTF-8 encoded for kvmd to read as something else.
+
+    No route is registered: the point is that nothing is sent, and an
+    unmatched request would fail the test by itself.
+    """
+    async with PiKVM(
+        "https://pikvm.local",
+        user="admin",
+        passwd="secret",
+        totp=lambda: "код",
+        auth=auth,
+    ) as kvm:
+        with pytest.raises(ConfigurationError, match="ASCII"):
+            await kvm.atx.get_state()
+    assert not mock_api.calls
 
 
 async def test_busy_error(mock_api: respx.MockRouter, client: PiKVM) -> None:

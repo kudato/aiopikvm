@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import AsyncIterator, Callable, Sequence
-from contextlib import AsyncExitStack, asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Self
 
@@ -25,6 +25,7 @@ from aiopikvm._exceptions import (
     ConnectionTimeoutError,
     PiKVMError,
     RedirectError,
+    ResponseError,
     _error_fields,
     _status_error,
 )
@@ -56,6 +57,57 @@ if TYPE_CHECKING:
 
 _COOKIE = "auth_token"
 """Name of the cookie kvmd stores its session token in."""
+
+
+@contextmanager
+def _httpx_errors_translated() -> Iterator[None]:
+    """Report httpx's failures as this library's own.
+
+    Both halves of the client send through httpx and have the same set of
+    failures to rename, so the mapping lives here rather than in two copies
+    that drift.
+
+    Yields:
+        Nothing. The block runs, and whatever httpx raises out of it comes
+        back as a [`PiKVMError`][aiopikvm.PiKVMError].
+
+    Raises:
+        ConnectionTimeoutError: The request timed out.
+        RedirectError: The redirects formed a loop, which only happens with
+            ``follow_redirects=True``.
+        ResponseError: The body did not survive its ``Content-Encoding``.
+        ConfigurationError: The URL has no usable scheme.
+        ConnectError: Anything else that went wrong on the wire.
+    """
+    try:
+        yield
+    except httpx.TimeoutException as exc:
+        raise ConnectionTimeoutError(str(exc)) from exc
+    except httpx.TooManyRedirects as exc:
+        # httpx derives this from RequestError rather than TransportError, so
+        # the last clause does not cover it and it would escape PiKVMError.
+        raise RedirectError(
+            f"{exc} Point the client at the URL the redirects lead to."
+        ) from exc
+    except httpx.DecodingError as exc:
+        # The same again — and reporting it as a connection failure would
+        # point at the wrong thing. The bytes arrived; they did not
+        # decompress. kvmd's nginx gzips text, so a lossy link makes this
+        # reachable on /api/log and on any JSON envelope.
+        raise ResponseError(
+            f"{exc} The response arrived but did not survive its "
+            "Content-Encoding, so there is nothing in it to read."
+        ) from exc
+    except httpx.UnsupportedProtocol as exc:
+        raise ConfigurationError(
+            f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
+        ) from exc
+    except httpx.TransportError as exc:
+        # Covers ConnectError, ReadError/WriteError and the
+        # RemoteProtocolError kvmd raises at every restart, which drops
+        # in-flight connections after a one-second shutdown timeout.
+        raise ConnectError(str(exc)) from exc
+
 
 _RESOURCE_NAMES = (
     "auth",
@@ -208,13 +260,29 @@ class PiKVM:
         Returns:
             The headers to send on this request. Empty for ``"cookie"``,
             which carries its credential in the jar instead.
+
+        Raises:
+            ConfigurationError: The credential is not ASCII, which is all an
+                HTTP header can carry. The user name and password are checked
+                when the client opens; the TOTP code cannot be, because a
+                callable produces a new one per request — so this is where a
+                non-ASCII code is caught. ``"basic"`` refuses it here too,
+                rather than encoding it as UTF-8 and sending a credential
+                kvmd reads as something else.
         """
+        if self._auth == "cookie":
+            return {}
+        password = self._password
+        try:
+            raw = f"{self._user}:{password}".encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ConfigurationError(
+                "PiKVM credentials travel in HTTP headers and must be ASCII, "
+                f"and the TOTP code makes this one something else: {exc}"
+            ) from exc
         if self._auth == "headers":
-            return {"X-KVMD-User": self._user, "X-KVMD-Passwd": self._password}
-        if self._auth == "basic":
-            raw = f"{self._user}:{self._password}".encode()
-            return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
-        return {}
+            return {"X-KVMD-User": self._user, "X-KVMD-Passwd": password}
+        return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
 
     def _outgoing_headers(self, headers: dict[str, str] | None) -> dict[str, str]:
         """Merge the credential headers into a call's own.
@@ -238,12 +306,7 @@ class PiKVM:
         """
         if self._external_client:
             return dict(headers or {})
-        try:
-            merged = self._credential_headers()
-        except UnicodeEncodeError as exc:  # pragma: no cover - defensive
-            raise ConfigurationError(
-                f"PiKVM credentials travel in HTTP headers and must be ASCII: {exc}"
-            ) from exc
+        merged = self._credential_headers()
         merged.update(headers or {})
         return merged
 
@@ -357,7 +420,9 @@ class PiKVM:
             The *httpx.Response* object.
 
         Raises:
-            ConfigurationError: The base URL has no usable scheme.
+            ConfigurationError: The base URL has no usable scheme, or the
+                credential is not ASCII — which for a TOTP code produced by a
+                callable is only known here.
             ConnectError: Connection to PiKVM failed or broke mid-request.
             ConnectionTimeoutError: Request timed out.
             AuthError: Authentication failed (401/403).
@@ -366,6 +431,7 @@ class PiKVM:
             RedirectError: PiKVM answered with a redirect (3xx) and the
                 client was not created with ``follow_redirects=True`` — or it
                 was, and the redirects formed a loop.
+            ResponseError: The body did not survive its ``Content-Encoding``.
             APIError: Server returned any other error status (>= 400).
         """
         if self._needs_session(path):
@@ -488,14 +554,16 @@ class PiKVM:
             The response, once its status has been checked.
 
         Raises:
-            ConfigurationError: The base URL has no usable scheme.
+            ConfigurationError: The base URL has no usable scheme, or the
+                credential is not ASCII.
             ConnectError: The connection failed or broke mid-request.
             ConnectionTimeoutError: The request timed out.
             RedirectError: kvmd answered with a redirect, or they looped.
+            ResponseError: The body did not survive its ``Content-Encoding``.
             APIError: Any other error status, and its subclasses.
         """
         client = self._ensure_client()
-        try:
+        with _httpx_errors_translated():
             response = await client.request(
                 method,
                 path,
@@ -506,24 +574,6 @@ class PiKVM:
                 headers=self._outgoing_headers(headers),
                 timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
             )
-        except httpx.TimeoutException as exc:
-            raise ConnectionTimeoutError(str(exc)) from exc
-        except httpx.TooManyRedirects as exc:
-            # Only reachable with follow_redirects=True. httpx derives it
-            # from RequestError rather than TransportError, so the clause
-            # below does not cover it and it would escape PiKVMError.
-            raise RedirectError(
-                f"{exc} Point the client at the URL the redirects lead to."
-            ) from exc
-        except httpx.UnsupportedProtocol as exc:
-            raise ConfigurationError(
-                f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
-            ) from exc
-        except httpx.TransportError as exc:
-            # Covers ConnectError, ReadError/WriteError and the
-            # RemoteProtocolError kvmd raises at every restart, which drops
-            # in-flight connections after a one-second shutdown timeout.
-            raise ConnectError(str(exc)) from exc
 
         self._raise_for_status(response)
         return response
@@ -612,7 +662,8 @@ class PiKVM:
             The *httpx.Response* with an unconsumed body.
 
         Raises:
-            ConfigurationError: The base URL has no usable scheme.
+            ConfigurationError: The base URL has no usable scheme, or the
+                credential is not ASCII.
             ConnectError: Connection to PiKVM failed or broke mid-request.
             ConnectionTimeoutError: Request timed out.
             AuthError: Authentication failed (401/403).
@@ -621,9 +672,12 @@ class PiKVM:
             RedirectError: PiKVM answered with a redirect (3xx) and the
                 client was not created with ``follow_redirects=True`` — or it
                 was, and the redirects formed a loop.
+            ResponseError: The body did not survive its ``Content-Encoding``.
+                This one can arrive while the caller is reading: the
+                translation covers the whole block, including the ``yield``.
             APIError: Server returned any other error status (>= 400).
         """
-        try:
+        with _httpx_errors_translated():
             if self._needs_session(path):
                 await self._ensure_session()
                 carried = self._session_token()
@@ -647,21 +701,6 @@ class PiKVM:
                 )
             async with stack:
                 yield response
-        except httpx.TimeoutException as exc:
-            raise ConnectionTimeoutError(str(exc)) from exc
-        except httpx.TooManyRedirects as exc:
-            # Only reachable with follow_redirects=True. httpx derives it
-            # from RequestError rather than TransportError, so the clause
-            # below does not cover it and it would escape PiKVMError.
-            raise RedirectError(
-                f"{exc} Point the client at the URL the redirects lead to."
-            ) from exc
-        except httpx.UnsupportedProtocol as exc:
-            raise ConfigurationError(
-                f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
-            ) from exc
-        except httpx.TransportError as exc:
-            raise ConnectError(str(exc)) from exc
 
     async def _open_stream(
         self,
@@ -857,9 +896,16 @@ class PiKVM:
                     timeout=self._timeout,
                     follow_redirects=self._follow_redirects,
                 )
-            except httpx.InvalidURL as exc:
+            except (httpx.InvalidURL, ValueError) as exc:
+                # httpx.InvalidURL is not a ValueError, and a proxy URL it
+                # cannot read is a plain one. With trust_env left on, that
+                # proxy comes from HTTPS_PROXY — so a malformed value in the
+                # environment fails the open of a client the program built
+                # correctly, and it has to say so as a PiKVMError.
                 raise ConfigurationError(
-                    f"Invalid PiKVM URL {self._url!r}: {exc}"
+                    f"Cannot build an HTTP client for {self._url!r}: {exc}. "
+                    "The proxy URL counts too, including one read from the "
+                    "environment; pass trust_env=False to ignore those."
                 ) from exc
         self._entered = True
         return self

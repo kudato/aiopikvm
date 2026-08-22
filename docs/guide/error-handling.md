@@ -30,8 +30,8 @@ All exceptions inherit from `PiKVMError`, so you can catch all aiopikvm errors w
 | `BusyError` | PiKVM is busy with another operation (HTTP 409); the same call usually succeeds once it finishes |
 | `UnavailableError` | The subsystem is disabled in the kvmd config or offline (HTTP 503) |
 | `RedirectError` | PiKVM answered with a redirect (3xx) and the client was not created with `follow_redirects=True` — or it was, and the redirects formed a loop, the one case where `status_code` is `0` |
-| `ResponseError` | The response was not the documented JSON envelope, or did not match the model for that endpoint |
-| `ConfigurationError` | The client cannot use what it was given, and nothing was sent: an unusable URL or credentials, a call with no parameters at all, or a value kvmd's own encoding would silently mangle — a shortcut key holding a comma or whitespace, a key name that will not fit a binary WebSocket frame |
+| `ResponseError` | The response was not the documented JSON envelope, did not match the model for that endpoint, or did not survive its `Content-Encoding` |
+| `ConfigurationError` | The client cannot use what it was given, and nothing was sent: an unusable URL, proxy or credentials — including a TOTP code that is not ASCII, which is only known once the code has been produced — a call with no parameters at all, or a value kvmd's own encoding would silently mangle: a shortcut key holding a comma or whitespace, a key name that will not fit a binary WebSocket frame |
 | `ConnectError` | Failed to connect to PiKVM, or the connection broke mid-request |
 | `ConnectionTimeoutError` | Request timed out |
 | `WebSocketError` | The WebSocket could not be opened, or it broke instead of closing cleanly. A handshake kvmd itself refuses raises `AuthError`/`APIError` instead |
