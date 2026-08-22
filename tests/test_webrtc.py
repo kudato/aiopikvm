@@ -39,6 +39,7 @@ from aiopikvm import (
     WebSocketError,
 )
 from aiopikvm._webrtc import _PLUGIN, _SUBPROTOCOL, _peer_connection
+from aiopikvm._ws import _WS_PING_INTERVAL, _WS_PING_TIMEOUT
 from tests.fixtures import load_json
 from tests.helpers import undeclared_fields
 
@@ -265,6 +266,24 @@ def test_the_client_hands_its_own_settings_over() -> None:
     assert rtc._frame_buffer == 64
     assert rtc._open_timeout == 7.0
     assert rtc._close_timeout == 7.0
+    assert rtc._ping_interval == _WS_PING_INTERVAL
+    assert rtc._ping_timeout == _WS_PING_TIMEOUT
+
+
+@pytest.mark.parametrize("setting", ["ping_interval", "ping_timeout"])
+async def test_the_keepalive_settings_reach_the_handshake(setting: str) -> None:
+    """The signalling socket was keeping them to itself (#136).
+
+    Both were stored on the session and neither was passed to the connector,
+    so `PiKVM.webrtc(ping_interval=None)` — documented as "``None`` to send
+    none" — went on sending them at the *websockets* default. Storing them is
+    what the test above checks, and storing them is all the old code did; the
+    connection is the only place the difference shows.
+    """
+    async with gateway() as (url, _, _):
+        async with session(url, **{setting: None}) as rtc:
+            assert rtc._connection is not None
+            assert getattr(rtc._connection, setting) is None
 
 
 async def test_the_missing_extra_is_reported_before_anything_is_dialled() -> None:

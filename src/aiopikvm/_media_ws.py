@@ -20,7 +20,6 @@ daemon's own metadata rather than a second REST call for it.
 import asyncio
 import json
 import logging
-import ssl
 from collections.abc import AsyncIterator, Callable
 from types import TracebackType
 from typing import Any, Self
@@ -30,14 +29,20 @@ import websockets
 import websockets.asyncio.client
 from pydantic import ValidationError
 
-from aiopikvm._constants import AuthMode
+from aiopikvm._constants import DEFAULT_TIMEOUT, DEFAULT_VERIFY_SSL, AuthMode
 from aiopikvm._exceptions import (
     ConfigurationError,
     ResponseError,
     WebSocketError,
 )
-from aiopikvm._tls import CertTypes, VerifyTypes, build_ssl_context
-from aiopikvm._ws import _Connector, _credential_headers, _handshake_error, _ws_url
+from aiopikvm._tls import CertTypes, VerifyTypes
+from aiopikvm._ws import (
+    _WS_PING_INTERVAL,
+    _WS_PING_TIMEOUT,
+    _credential_headers,
+    _open,
+    _ws_url,
+)
 from aiopikvm.models.media import MediaFrame, MediaState
 
 logger = logging.getLogger(__name__)
@@ -93,18 +98,18 @@ class MediaWebSocket:
         passwd: str | Callable[[], str],
         auth: AuthMode = "headers",
         token: str | Callable[[], str] = "",
-        verify_ssl: VerifyTypes = True,
+        verify_ssl: VerifyTypes = DEFAULT_VERIFY_SSL,
         cert: CertTypes | None = None,
         proxy: str | None = None,
         trust_env: bool = True,
         video: str | None = "h264",
         follow_redirects: bool = False,
-        open_timeout: float = 10.0,
-        close_timeout: float = 10.0,
+        open_timeout: float = DEFAULT_TIMEOUT,
+        close_timeout: float = DEFAULT_TIMEOUT,
         max_size: int | None = None,
         max_queue: int | None = None,
-        ping_interval: float | None = 20.0,
-        ping_timeout: float | None = 20.0,
+        ping_interval: float | None = _WS_PING_INTERVAL,
+        ping_timeout: float | None = _WS_PING_TIMEOUT,
     ) -> None:
         """Prepare a connection.
 
@@ -121,7 +126,9 @@ class MediaWebSocket:
                 *passwd* takes one: a session opened or refreshed after
                 this object was built is the one that goes out.
             verify_ssl: What to trust; see
-                [`VerifyTypes`][aiopikvm.VerifyTypes].
+                [`VerifyTypes`][aiopikvm.VerifyTypes]. Off by default, the
+                same as [`PiKVM`][aiopikvm.PiKVM]: a stock device serves a
+                self-signed certificate.
             cert: Client certificate to present.
             proxy: Proxy URL to reach the device through. ``None`` leaves it
                 to the environment, unless *trust_env* says otherwise.
@@ -233,37 +240,21 @@ class MediaWebSocket:
             WebSocketError: The connection could not be established: DNS, TLS,
                 timeout, or a server that does not speak WebSocket.
         """
-        # `ws://` carries no TLS, so there is nothing to configure there.
-        ssl_context: ssl.SSLContext | None = None
-        if self._url.startswith("wss://"):
-            ssl_context = build_ssl_context(self._verify_ssl, self._cert)
-
-        headers = self._credential_headers()
-
-        try:
-            self._connection = await _Connector(
-                self._url,
-                additional_headers=headers,
-                ssl_context=ssl_context,
-                proxy=(self._proxy or (True if self._trust_env else None)),
-                open_timeout=self._open_timeout,
-                close_timeout=self._close_timeout,
-                follow_redirects=self._follow_redirects,
-                max_size=self._max_size,
-                max_queue=self._max_queue,
-                ping_interval=self._ping_interval,
-                ping_timeout=self._ping_timeout,
-            )
-        except websockets.exceptions.InvalidStatus as exc:
-            # The upgrade never happened: the daemon answered the GET with an
-            # ordinary HTTP error, kvmd envelope and all.
-            raise _handshake_error(exc.response) from exc
-        except (
-            OSError,
-            ValueError,
-            websockets.exceptions.WebSocketException,
-        ) as exc:
-            raise WebSocketError(f"Failed to connect: {exc}") from exc
+        self._connection = await _open(
+            self._url,
+            headers=self._credential_headers(),
+            verify_ssl=self._verify_ssl,
+            cert=self._cert,
+            proxy=self._proxy,
+            trust_env=self._trust_env,
+            follow_redirects=self._follow_redirects,
+            open_timeout=self._open_timeout,
+            close_timeout=self._close_timeout,
+            max_size=self._max_size,
+            max_queue=self._max_queue,
+            ping_interval=self._ping_interval,
+            ping_timeout=self._ping_timeout,
+        )
 
         self._media = None
         if not self.pure:

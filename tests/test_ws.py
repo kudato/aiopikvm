@@ -7,7 +7,8 @@ import ssl
 import struct
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,6 +18,7 @@ import websockets.http11
 from websockets.datastructures import Headers
 from websockets.uri import parse_uri
 
+import aiopikvm
 from aiopikvm import (
     APIError,
     ATXState,
@@ -1616,3 +1618,20 @@ async def test_aexit_none_connection() -> None:
     assert ws._connection is None
     await ws.__aexit__(None, None, None)
     assert ws._connection is None
+
+
+def test_only_one_place_in_the_package_makes_a_handshake() -> None:
+    """The three sockets connect through the one helper (#136).
+
+    Each of them used to build the TLS context, call the connector and
+    translate the two failure classes itself — the same thirty lines, three
+    times — and the WebRTC copy had fallen two settings behind without
+    anything noticing. `_open()` is where that lives now, and a fourth socket
+    written against the connector directly would be the same drift starting
+    over.
+    """
+    package = Path(cast(str, aiopikvm.__file__)).parent
+    callers = sorted(
+        path.name for path in package.glob("*.py") if "_Connector(" in path.read_text()
+    )
+    assert callers == ["_ws.py"]

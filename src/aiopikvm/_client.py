@@ -31,7 +31,12 @@ from aiopikvm._exceptions import (
 )
 from aiopikvm._media_ws import MediaWebSocket
 from aiopikvm._tls import CertTypes, VerifyTypes, build_ssl_context
-from aiopikvm._webrtc import WebRTCSession
+from aiopikvm._webrtc import (
+    _FRAME_BUFFER,
+    _KEEPALIVE_INTERVAL,
+    _NEGOTIATE_TIMEOUT,
+    WebRTCSession,
+)
 from aiopikvm._ws import (
     _WS_MAX_QUEUE,
     _WS_MAX_SIZE,
@@ -1059,8 +1064,8 @@ class PiKVM:
         video: str | None = "h264",
         max_size: int | None = None,
         max_queue: int | None = None,
-        ping_interval: float | None = 20.0,
-        ping_timeout: float | None = 20.0,
+        ping_interval: float | None = _WS_PING_INTERVAL,
+        ping_timeout: float | None = _WS_PING_TIMEOUT,
         open_timeout: float | None = None,
         close_timeout: float | None = None,
     ) -> MediaWebSocket:
@@ -1145,13 +1150,13 @@ class PiKVM:
         audio: bool = False,
         orientation: int = 0,
         ice_servers: Sequence[str] | None = None,
-        frame_buffer: int = 8,
-        keepalive_interval: float = 25.0,
+        frame_buffer: int = _FRAME_BUFFER,
+        keepalive_interval: float = _KEEPALIVE_INTERVAL,
         open_timeout: float | None = None,
         close_timeout: float | None = None,
-        negotiate_timeout: float = 30.0,
-        ping_interval: float | None = 20.0,
-        ping_timeout: float | None = 20.0,
+        negotiate_timeout: float = _NEGOTIATE_TIMEOUT,
+        ping_interval: float | None = _WS_PING_INTERVAL,
+        ping_timeout: float | None = _WS_PING_TIMEOUT,
     ) -> WebRTCSession:
         """Open a WebRTC session against the device's Janus gateway.
 

@@ -1,5 +1,6 @@
 """PiKVM client lifecycle tests."""
 
+import inspect
 import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -14,6 +15,10 @@ import aiopikvm
 from aiopikvm import ConfigurationError, PiKVM, PiKVMError, RedirectError
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._client import _RESOURCE_NAMES
+from aiopikvm._constants import DEFAULT_VERIFY_SSL
+from aiopikvm._media_ws import MediaWebSocket
+from aiopikvm._webrtc import WebRTCSession
+from aiopikvm._ws import PiKVMWebSocket
 from tests.fixtures import load_json
 
 OK = {"ok": True, "result": {}}
@@ -473,3 +478,60 @@ def test_no_streaming_call_is_missing_from_this_list() -> None:
         if "self._stream(" in path.read_text()
     )
     assert helpers == ["msd.py", "streamer.py", "system.py"]
+
+
+_SOCKETS: dict[str, type] = {
+    "ws": PiKVMWebSocket,
+    "media_ws": MediaWebSocket,
+    "webrtc": WebRTCSession,
+}
+"""Each socket factory on `PiKVM`, and the class it builds."""
+
+
+def _defaults(func: Any) -> dict[str, Any]:
+    """Return the default of every parameter that has one.
+
+    Args:
+        func: The callable to read.
+
+    Returns:
+        Parameter name to default value, skipping the ones with no default.
+    """
+    return {
+        name: parameter.default
+        for name, parameter in inspect.signature(func).parameters.items()
+        if parameter.default is not inspect.Parameter.empty
+    }
+
+
+@pytest.mark.parametrize("socket", list(_SOCKETS))
+def test_a_socket_built_directly_trusts_what_the_client_trusts(socket: str) -> None:
+    """The three classes defaulted to verifying TLS and `PiKVM` did not (#136).
+
+    All three are exported and have reference pages of their own, so building
+    one directly is supported — and it then failed against a stock device's
+    self-signed certificate where `PiKVM(url)` succeeded, with nothing saying
+    the defaults differed.
+    """
+    assert _defaults(_SOCKETS[socket].__init__)["verify_ssl"] is DEFAULT_VERIFY_SSL
+
+
+@pytest.mark.parametrize("socket", list(_SOCKETS))
+def test_the_factories_agree_with_the_sockets_they_build(socket: str) -> None:
+    """A default spelled in two places is one that drifts (#136).
+
+    The factories restate the socket's own defaults in their signatures.
+    Where a factory says `None` it means "take this client's value" and the
+    socket's own default differs on purpose; everywhere else the two have to
+    say the same thing, and several had been retyped as literals beside the
+    named constants they came from.
+    """
+    on_socket = _defaults(_SOCKETS[socket].__init__)
+    restated = {
+        name: value
+        for name, value in _defaults(getattr(PiKVM, socket)).items()
+        if value is not None and name in on_socket
+    }
+    assert restated == {name: on_socket[name] for name in restated}
+    # And the comparison is not vacuous: these are the ones it covers.
+    assert restated
