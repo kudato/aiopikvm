@@ -23,7 +23,10 @@ kvm = PiKVM(
 | `totp` | `str \| None` | `None` | TOTP code for two-factor auth |
 | `auth` | `AuthMode` | `"headers"` | Which credential to send — see [below](#authentication-modes) |
 | `session_expire` | `int` | `0` | Lifetime of a session `auth="cookie"` opens; `0` asks for unlimited |
-| `verify_ssl` | `bool` | `False` | Verify SSL certificates |
+| `verify_ssl` | `VerifyTypes` | `False` | What to trust: `bool`, a CA bundle path, or an `ssl.SSLContext` |
+| `cert` | `CertTypes \| None` | `None` | Client certificate to present |
+| `proxy` | `str \| None` | `None` | Proxy URL to reach the device through |
+| `trust_env` | `bool` | `True` | Read proxy settings from the environment |
 | `timeout` | `float` | `10.0` | Request timeout in seconds |
 | `http_client` | `httpx.AsyncClient \| None` | `None` | External httpx client |
 

@@ -164,7 +164,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   calls it, and without `remove_incomplete` a failed download leaves an
   incomplete image occupying the name, which is then refused on the retry
   (#40).
-- `totp` on `PiKVM()` now takes a zero-argument callable as well as a string,
+- `verify_ssl` on `PiKVM()` now takes a CA bundle path or a ready-made
+  `ssl.SSLContext` as well as a boolean, and `cert`, `proxy` and `trust_env`
+  join it. Installing a certificate from a private CA is a common PiKVM
+  hardening step and there was no way to trust one short of building a whole
+  `httpx.AsyncClient` and passing it in — which also took the WebSocket out
+  of the picture, since it does not go through httpx at all. The context is
+  built once from `verify_ssl` and `cert` and handed to both halves, so a
+  socket cannot end up trusting more than the REST calls do. A client
+  certificate cannot be combined with a context: load it in with
+  `load_cert_chain()` rather than have this client edit an object it does
+  not own (#69).
   and `aiopikvm.TOTP` is one: give it the base32 secret and the code is
   computed per request. A code is good for one thirty-second step and kvmd
   allows the neighbouring two, so a client built with a literal one used to
@@ -215,6 +225,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- The TLS settings reach httpx as a prepared `ssl.SSLContext` rather than as
+  `verify=<path>` and `cert=`, both of which httpx 0.28 deprecates in favour
+  of exactly that. Nothing changes for a boolean `verify_ssl` (#69).
 - Credentials are built per request instead of being baked into the HTTP
   client's default headers when it is opened. Nothing changes on the wire for
   a fixed password; it is what lets a rotating TOTP code be the one current
