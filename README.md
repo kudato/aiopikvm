@@ -20,6 +20,10 @@ or with [uv](https://docs.astral.sh/uv/):
 uv add aiopikvm
 ```
 
+WebRTC video needs one extra — `pip install 'aiopikvm[webrtc]'` — which
+pulls aiortc and its bundled FFmpeg. Everything else, the MJPEG stream and
+the H.264 media socket included, works with the base install.
+
 ## Requirements
 
 - Python 3.13 or later
@@ -66,6 +70,7 @@ asyncio.run(main())
 | **GPIO** | GPIO channel read/write control |
 | **Streamer** | Video snapshots, OCR, the MJPEG stream |
 | **Media** | H.264 video frames off the `kvmd-media` daemon |
+| **WebRTC** | Low-latency video through the Janus gateway (extra) |
 | **Switch** | Multi-port KVM switching, EDID management |
 | **Redfish** | DMTF Redfish BMC compatibility interface |
 | **Prometheus** | Metrics export in Prometheus format |
@@ -80,7 +85,8 @@ asyncio.run(main())
 - External `httpx.AsyncClient` support for advanced use cases
 - TOTP two-factor authentication support
 - WebSocket client for realtime events and low-latency HID input
-- Live video: the MJPEG stream frame by frame, and H.264 over a WebSocket
+- Live video: the MJPEG stream frame by frame, H.264 over a WebSocket, and
+  decoded WebRTC frames through Janus
 - Fully typed (PEP 561, mypy strict)
 
 ## Configuration

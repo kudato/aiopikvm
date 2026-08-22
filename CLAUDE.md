@@ -25,7 +25,8 @@ uv run mkdocs build                    # build static docs
 ## Code style
 
 - `from __future__ import annotations` only where `TYPE_CHECKING` forward
-  references need it (`_client.py`, `_base_resource.py`), not everywhere
+  references need it (`_client.py`, `_base_resource.py`, `_webrtc.py`), not
+  everywhere
 - Use `X | Y` unions and `type` aliases, never `Union[X, Y]` or `Optional[X]`
 - Break circular imports with `TYPE_CHECKING` guards, and import resource
   classes lazily inside the `@cached_property` getter of `PiKVM`

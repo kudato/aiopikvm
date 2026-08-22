@@ -8,6 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `PiKVM.webrtc()` and `WebRTCSession`, the third and lowest-latency of the
+  device's video surfaces: the Janus gateway at `/janus/ws`, with ustreamer's
+  own plugin inside it, which is the path kvmd's web UI takes by default.
+  Entering the session runs the whole negotiation — create, attach, features,
+  the plugin's SDP offer, the client's answer, DTLS — and returns once Janus
+  reports the peer connection up; `video()` and `audio()` then hand over
+  decoded PyAV frames, `events()` hands over what Janus says about the session
+  as it runs, and `request_keyframe()` asks the encoder for one. Like
+  `media_ws()`, it needs a `ws()` held open beside it: kvmd runs ustreamer
+  only while a session has asked to be counted as a viewer, and without one
+  the negotiation succeeds, Janus reports the peer connection up, and no frame
+  ever arrives (#94).
+- `WebRTCError`, carrying Janus's own numbering rather than an HTTP status,
+  and the `WebRTCEvent`, `WebRTCFeatures`, `WebRTCICE`, `WebRTCJSEP`,
+  `WebRTCPluginData`, `WebRTCPluginEvent` and `WebRTCResult` models behind it.
+  A *plugin* error rides inside a message Janus considers successful and has
+  its own codes — 400 for a malformed body, 405 for a request the plugin does
+  not implement — which is why it is not the top-level Janus error and is
+  reported as neither a kvmd envelope nor an HTTP status (#94).
+- The `webrtc` extra — `pip install 'aiopikvm[webrtc]'` — which is the only
+  thing in this library that needs one. It pulls aiortc and, with it, a
+  bundled FFmpeg, a DTLS stack and an SRTP binding: thirteen packages against
+  the base install's twelve, and roughly 65 MB against 10. Nothing else
+  imports any of it, and `_webrtc.py` does not touch it until a session is
+  opened, so an install without the extra is unchanged. A missing extra is a
+  `ConfigurationError` raised before anything reaches the device (#94).
 - `max_size`, `max_queue`, `ping_interval` and `ping_timeout` on `PiKVM.ws()`
   and `PiKVMWebSocket`, so the keepalive that decides when a link counts as
   dead can be adjusted for one where twenty seconds is the wrong answer.

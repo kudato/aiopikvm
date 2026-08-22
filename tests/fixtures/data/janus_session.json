@@ -1,0 +1,605 @@
+{
+  "description": "A whole Janus WebRTC session against /janus/ws, hand-recorded. The capture tool cannot reach any of this: Janus speaks neither HTTP nor the kvmd envelope here, half of what matters is a refusal, and the interesting messages arrive unprompted. The session also pins the one thing no amount of reading the protocol reveals — a negotiation that succeeds in every visible way still delivers no picture until a kvmd viewer socket is open beside it, because that is what keeps ustreamer running. Every SDP is scrubbed — addresses, DTLS fingerprints and ICE credentials are replaced with placeholders — and frame payloads are not stored at all.",
+  "recorded_with": "tests/fixtures/record_janus.py (see the README)",
+  "steps": [
+    {
+      "name": "upgrade_unauthenticated",
+      "description": "No credentials. Janus never sees the request: kvmd's auth sits in front of it, so the refusal is the same envelope every other unauthenticated call gets, and there is no socket to read an error off.",
+      "request": {
+        "method": "GET",
+        "path": "/janus/ws",
+        "headers": []
+      },
+      "status": 401,
+      "content_type": "text/html; charset=utf-8",
+      "response": {
+        "text": "<html>\r\n<head><title>401 Authorization Required</title></head>\r\n<body>\r\n<center><h1>401 Authorization Required</h1></center>\r\n<hr><center>nginx/1.31.4</center>\r\n</body>\r\n</html>"
+      }
+    },
+    {
+      "name": "upgrade_without_subprotocol",
+      "description": "Authenticated, but the handshake does not ask for `janus-protocol`. Janus serves its WebSocket transport only under that subprotocol, so a client that does not name it gets no usable socket.",
+      "request": {
+        "method": "GET",
+        "path": "/janus/ws",
+        "subprotocols": []
+      },
+      "error": "InvalidStatus",
+      "error_excerpt": "server rejected WebSocket connection: HTTP 502"
+    },
+    {
+      "name": "upgrade",
+      "description": "The handshake that works: kvmd credentials plus the `janus-protocol` subprotocol, which the server echoes back. Nothing arrives until the client speaks first — unlike the kvmd event socket, Janus has nothing to say to a session that does not exist yet.",
+      "request": {
+        "method": "GET",
+        "path": "/janus/ws",
+        "subprotocols": [
+          "janus-protocol"
+        ]
+      },
+      "subprotocol": "janus-protocol"
+    },
+    {
+      "name": "create",
+      "description": "A Janus session. `data.id` is what every later message has to carry as `session_id`, and the session dies about sixty seconds after the last message unless something keeps sending `keepalive`.",
+      "request": {
+        "janus": "create",
+        "transaction": "aiopikvm-1"
+      },
+      "response": {
+        "janus": "success",
+        "transaction": "aiopikvm-1",
+        "data": {
+          "id": 133674006476696
+        }
+      }
+    },
+    {
+      "name": "attach_unknown_plugin",
+      "description": "A plugin name Janus does not have. The error is Janus's own shape — `janus: \"error\"` with a numbered `error` object — and nothing like the kvmd envelope the rest of the API answers with.",
+      "request": {
+        "janus": "attach",
+        "session_id": 133674006476696,
+        "plugin": "janus.plugin.nope",
+        "transaction": "aiopikvm-2"
+      },
+      "response": {
+        "janus": "error",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-2",
+        "error": {
+          "code": 460,
+          "reason": "No such plugin 'janus.plugin.nope'"
+        }
+      }
+    },
+    {
+      "name": "attach",
+      "description": "The ustreamer plugin, `janus.plugin.ustreamer`. `data.id` is the handle every plugin message has to carry as `handle_id`; a session can hold several.",
+      "request": {
+        "janus": "attach",
+        "session_id": 133674006476696,
+        "plugin": "janus.plugin.ustreamer",
+        "transaction": "aiopikvm-3"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-3",
+        "data": {
+          "id": 1000829513529805
+        }
+      }
+    },
+    {
+      "name": "request_unknown",
+      "description": "A request name the plugin does not implement. It answers 405, and the error rides inside `plugindata.data` of a pushed event rather than at the top level — a plugin error is a successful Janus message.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {
+          "request": "nope"
+        },
+        "transaction": "aiopikvm-4"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-4",
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ok": true
+          }
+        }
+      },
+      "push": {
+        "janus": "event",
+        "session_id": 133674006476696,
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ustreamer": "event",
+            "error_code": 405,
+            "error": "Not implemented"
+          }
+        }
+      },
+      "push_shares_the_transaction": false
+    },
+    {
+      "name": "request_missing",
+      "description": "A body with no `request` at all: 400. Same place, same shape.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {},
+        "transaction": "aiopikvm-5"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-5",
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ok": true
+          }
+        }
+      },
+      "push": {
+        "janus": "event",
+        "session_id": 133674006476696,
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ustreamer": "event",
+            "error_code": 400,
+            "error": "Request missing"
+          }
+        }
+      },
+      "push_shares_the_transaction": false
+    },
+    {
+      "name": "request_not_a_string",
+      "description": "A `request` that is not a string: 400 again, with its own text.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {
+          "request": 42
+        },
+        "transaction": "aiopikvm-6"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-6",
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ok": true
+          }
+        }
+      },
+      "push": {
+        "janus": "event",
+        "session_id": 133674006476696,
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ustreamer": "event",
+            "error_code": 400,
+            "error": "Request not a string"
+          }
+        }
+      },
+      "push_shares_the_transaction": false
+    },
+    {
+      "name": "features",
+      "description": "What this build of ustreamer can do. `audio` and `mic` say whether the device has them wired up at all, and `ice` carries the STUN or TURN server kvmd was configured with — recorded as a marker here, because it can name a host that is not the device.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {
+          "request": "features"
+        },
+        "transaction": "aiopikvm-7"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-7",
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ok": true
+          }
+        }
+      },
+      "push": {
+        "janus": "event",
+        "session_id": 133674006476696,
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ustreamer": "event",
+            "result": {
+              "status": "features",
+              "features": {
+                "audio": true,
+                "mic": true,
+                "ice": {
+                  "url": "<redacted>"
+                }
+              }
+            }
+          }
+        }
+      },
+      "push_shares_the_transaction": false
+    },
+    {
+      "name": "watch",
+      "description": "The request that starts a negotiation. The ustreamer plugin is the offerer, so what it pushes back is `jsep.type == \"offer\"` and the client owes it an answer — the opposite way round from most WebRTC code. `result.status` is `started` even though nothing is flowing yet.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {
+          "request": "watch",
+          "params": {
+            "orientation": 0,
+            "audio": false,
+            "mic": false,
+            "camera": false
+          }
+        },
+        "transaction": "aiopikvm-8"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-8",
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ok": true
+          }
+        }
+      },
+      "push": {
+        "janus": "event",
+        "session_id": 133674006476696,
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ustreamer": "event",
+            "result": {
+              "status": "started"
+            }
+          }
+        },
+        "jsep": {
+          "type": "offer",
+          "sdp": "v=0\r\no=- 0 0 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\na=group:BUNDLE v\r\na=ice-options:trickle\r\na=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\na=extmap-allow-mixed\r\na=msid-semantic: WMS *\r\nm=video 9 UDP/TLS/RTP/SAVPF 96 97\r\nc=IN IP4 0.0.0.0\r\na=sendonly\r\na=mid:v\r\na=rtcp-mux\r\na=ice-ufrag:XXXXXXXX\r\na=ice-pwd:XXXXXXXXXXXXXXXXXXXXXXXX\r\na=ice-options:trickle\r\na=setup:actpass\r\na=rtpmap:96 H264/90000\r\na=fmtp:96 profile-level-id=42E01F;packetization-mode=1\r\na=rtcp-fb:96 ccm fir\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=extmap:1/sendonly urn:3gpp:video-orientation\r\na=extmap:2/sendonly http://www.webrtc.org/experiments/rtp-hdrext/playout-delay\r\na=extmap:3/sendonly http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time\r\na=rtpmap:97 rtx/90000\r\na=fmtp:97 apt=96\r\na=ssrc-group:FID 4170209383 3247805492\r\na=msid:video v\r\na=ssrc:4170209383 cname:janus\r\na=ssrc:3247805492 cname:janus\r\n"
+        }
+      },
+      "push_shares_the_transaction": false
+    },
+    {
+      "name": "start",
+      "description": "The answer, carried by `start`. From here Janus has both halves of the negotiation and begins the DTLS handshake; the plugin pushes `status: \"started\"` a second time, now with no jsep. The SDP in the request is this client's own answer, scrubbed the same way the offer is.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {
+          "request": "start"
+        },
+        "jsep": {
+          "type": "answer",
+          "sdp": "v=0\r\no=- 0 0 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\na=group:BUNDLE v\r\na=msid-semantic:WMS *\r\nm=video 51107 UDP/TLS/RTP/SAVPF 96 97\r\nc=IN IP4 0.0.0.0\r\na=recvonly\r\na=mid:v\r\na=msid:5ea589a5-8274-4c92-9d88-976ba0cf7e3b af45a5a8-401b-4bb4-8b45-25efb5935e19\r\na=rtcp:9 IN IP4 0.0.0.0\r\na=rtcp-mux\r\na=ssrc-group:FID 634326259 2294216525\r\na=ssrc:634326259 cname:97f808a3-3af0-411b-8d89-2fc6e323f7b8\r\na=ssrc:2294216525 cname:97f808a3-3af0-411b-8d89-2fc6e323f7b8\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\r\na=rtpmap:97 rtx/90000\r\na=fmtp:97 apt=96\r\na=ice-ufrag:XXXXXXXX\r\na=ice-pwd:XXXXXXXXXXXXXXXXXXXXXXXX\r\na=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\na=fingerprint:sha-384 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\na=fingerprint:sha-512 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\na=setup:active\r\n"
+        },
+        "transaction": "aiopikvm-9"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-9",
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ok": true
+          }
+        }
+      },
+      "push": {
+        "janus": "event",
+        "session_id": 133674006476696,
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ustreamer": "event",
+            "result": {
+              "status": "started"
+            }
+          }
+        }
+      },
+      "push_shares_the_transaction": false
+    },
+    {
+      "name": "trickle_completed",
+      "description": "This client gathers every candidate before it answers, so the answer above is already complete and the only trickle it has to send is the one that says so. Janus acknowledges a trickle and never events it.",
+      "request": {
+        "janus": "trickle",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "candidate": {
+          "completed": true
+        },
+        "transaction": "aiopikvm-10"
+      },
+      "response": {
+        "janus": "ack",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-10"
+      }
+    },
+    {
+      "name": "without_a_viewer",
+      "description": "The negotiation finished and no picture came. kvmd runs ustreamer only while a session asked to be counted as a viewer — `GET /api/ws?stream=1` — and the Janus plugin reads its frames out of ustreamer's memory sink, so with the streamer stopped there is simply nothing to send. Janus still completes the handshake and still says `webrtcup`: nothing in the signalling reports the silence.",
+      "events": [
+        {
+          "janus": "webrtcup",
+          "session_id": 133674006476696,
+          "sender": 1000829513529805
+        }
+      ],
+      "frames": []
+    },
+    {
+      "name": "session_events",
+      "description": "Everything Janus sent on its own once a kvmd viewer socket was open beside this one and the streamer came back up — which is nothing. `webrtcup` had already been sent before the picture existed, and Janus events `media` for what it *receives*: this session only receives, so no `media` ever arrives and the frames below are the only evidence that anything started flowing.",
+      "events": []
+    },
+    {
+      "name": "frames",
+      "description": "Decoded video off the peer connection. Only the shape is recorded — the pixels are the attached host's screen, the same reason the media fixture stores frame lengths and nothing else.",
+      "frames": [
+        {
+          "kind": "video",
+          "width": 1920,
+          "height": 1080,
+          "format": "yuv420p",
+          "pts_is_int": true
+        },
+        {
+          "kind": "video",
+          "width": 1920,
+          "height": 1080,
+          "format": "yuv420p",
+          "pts_is_int": true
+        },
+        {
+          "kind": "video",
+          "width": 1920,
+          "height": 1080,
+          "format": "yuv420p",
+          "pts_is_int": true
+        },
+        {
+          "kind": "video",
+          "width": 1920,
+          "height": 1080,
+          "format": "yuv420p",
+          "pts_is_int": true
+        },
+        {
+          "kind": "video",
+          "width": 1920,
+          "height": 1080,
+          "format": "yuv420p",
+          "pts_is_int": true
+        },
+        {
+          "kind": "video",
+          "width": 1920,
+          "height": 1080,
+          "format": "yuv420p",
+          "pts_is_int": true
+        },
+        {
+          "kind": "video",
+          "width": 1920,
+          "height": 1080,
+          "format": "yuv420p",
+          "pts_is_int": true
+        },
+        {
+          "kind": "video",
+          "width": 1920,
+          "height": 1080,
+          "format": "yuv420p",
+          "pts_is_int": true
+        }
+      ]
+    },
+    {
+      "name": "key_required",
+      "description": "Asks the encoder for a keyframe. The plugin sets a flag and says nothing further, so there is no push to wait for and a caller that waits for one waits forever.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {
+          "request": "key_required"
+        },
+        "transaction": "aiopikvm-11"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-11",
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ok": true
+          }
+        }
+      },
+      "push": null,
+      "push_shares_the_transaction": null
+    },
+    {
+      "name": "stop",
+      "description": "Ends the stream for this handle. The plugin answers `status: \"stopped\"`, and Janus tears the peer connection down behind it.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {
+          "request": "stop"
+        },
+        "transaction": "aiopikvm-12"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-12",
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ok": true
+          }
+        }
+      },
+      "push": {
+        "janus": "event",
+        "session_id": 133674006476696,
+        "sender": 1000829513529805,
+        "plugindata": {
+          "plugin": "janus.plugin.ustreamer",
+          "data": {
+            "ustreamer": "event",
+            "result": {
+              "status": "stopped"
+            }
+          }
+        }
+      },
+      "push_shares_the_transaction": false
+    },
+    {
+      "name": "after_stop",
+      "description": "What Janus sends once the peer connection is gone.",
+      "events": []
+    },
+    {
+      "name": "keepalive",
+      "description": "What keeps the session from timing out. Janus answers `ack` and nothing else; the web UI sends one every twenty-five seconds.",
+      "request": {
+        "janus": "keepalive",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-13"
+      },
+      "response": {
+        "janus": "ack",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-13"
+      }
+    },
+    {
+      "name": "detach",
+      "description": "Drops the handle. The session stays.",
+      "request": {
+        "janus": "detach",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "transaction": "aiopikvm-14"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-14"
+      }
+    },
+    {
+      "name": "message_to_a_dead_handle",
+      "description": "The same message again, to the handle just detached. This is the top-level error shape — `janus: \"error\"` — as opposed to a plugin error, which arrives inside `plugindata` of a message Janus considers successful.",
+      "request": {
+        "janus": "message",
+        "session_id": 133674006476696,
+        "handle_id": 1000829513529805,
+        "body": {
+          "request": "features"
+        },
+        "transaction": "aiopikvm-15"
+      },
+      "response": {
+        "janus": "error",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-15",
+        "error": {
+          "code": 459,
+          "reason": "No such handle 1000829513529805 in session 133674006476696"
+        }
+      },
+      "push": null,
+      "push_shares_the_transaction": null
+    },
+    {
+      "name": "destroy",
+      "description": "Ends the session. Every handle under it goes with it.",
+      "request": {
+        "janus": "destroy",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-16"
+      },
+      "response": {
+        "janus": "success",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-16"
+      }
+    },
+    {
+      "name": "keepalive_after_destroy",
+      "description": "A session id Janus no longer knows. Worth pinning because a keepalive loop that outlives its session sees this and nothing else — the socket stays open and healthy underneath it.",
+      "request": {
+        "janus": "keepalive",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-17"
+      },
+      "response": {
+        "janus": "error",
+        "session_id": 133674006476696,
+        "transaction": "aiopikvm-17",
+        "error": {
+          "code": 458,
+          "reason": "No such session 133674006476696"
+        }
+      }
+    }
+  ]
+}

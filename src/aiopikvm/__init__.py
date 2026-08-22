@@ -13,11 +13,13 @@ from aiopikvm._exceptions import (
     RedirectError,
     ResponseError,
     UnavailableError,
+    WebRTCError,
     WebSocketError,
 )
 from aiopikvm._media_ws import MediaWebSocket
 from aiopikvm._tls import CertTypes, VerifyTypes
 from aiopikvm._totp import TOTP
+from aiopikvm._webrtc import WebRTCSession
 from aiopikvm._ws import DeviceState, KvmdVersion, PiKVMWebSocket
 from aiopikvm.models.atx import ATXActs, ATXLeds, ATXState
 from aiopikvm.models.gpio import (
@@ -127,6 +129,15 @@ from aiopikvm.models.switch import (
     SwitchSummary,
     SwitchUnit,
     SwitchUnitFirmware,
+)
+from aiopikvm.models.webrtc import (
+    WebRTCEvent,
+    WebRTCFeatures,
+    WebRTCICE,
+    WebRTCJSEP,
+    WebRTCPluginData,
+    WebRTCPluginEvent,
+    WebRTCResult,
 )
 
 __version__ = "0.2.1"
@@ -248,6 +259,15 @@ __all__ = [
     "SwitchUnitFirmware",
     "UnavailableError",
     "VerifyTypes",
+    "WebRTCError",
+    "WebRTCEvent",
+    "WebRTCFeatures",
+    "WebRTCICE",
+    "WebRTCJSEP",
+    "WebRTCPluginData",
+    "WebRTCPluginEvent",
+    "WebRTCResult",
+    "WebRTCSession",
     "WebSocketError",
     "__version__",
 ]

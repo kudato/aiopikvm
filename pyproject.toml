@@ -24,6 +24,12 @@ dependencies = [
     "websockets>=15.0",
 ]
 
+# WebRTC is optional on purpose: aiortc pulls a bundled FFmpeg, a DTLS stack
+# and an SRTP binding, which is several times the size of everything above.
+# Only `PiKVM.webrtc()` needs it; the rest of the client never imports it.
+[project.optional-dependencies]
+webrtc = ["aiortc>=1.9"]
+
 [project.urls]
 Homepage = "https://github.com/kudato/aiopikvm"
 Repository = "https://github.com/kudato/aiopikvm"
@@ -43,6 +49,7 @@ docs = [
     "mkdocstrings[python]>=0.27",
 ]
 dev = [
+    "aiopikvm[webrtc]",
     "mypy>=1.15",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
