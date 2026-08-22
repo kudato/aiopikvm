@@ -70,6 +70,30 @@ except APIError as exc:
 Unlike the ATX calls, which wait by default, `wait` here defaults to `False`
 to match kvmd's own default.
 
+!!! warning "`state` is not the pin while `busy` is set"
+    kvmd does not read the hardware for a channel that has an action
+    running. It returns `state: false` and `online: true` for the duration,
+    whatever the pin is doing — so an output that is on reads as off for the
+    whole of any action against it. Read `busy` first; `state` means nothing
+    until it clears.
+
+    That is easy to walk into precisely because `wait` defaults to `False`:
+    the call returns as the action starts, and a read taken straight
+    afterwards lands inside the window.
+
+    ```python
+    await kvm.gpio.switch("relay1", True)
+    ch = (await kvm.gpio.get_state()).state.outputs["relay1"]
+    print(ch.state)  # False — the action is still running
+
+    await kvm.gpio.switch("relay1", True, wait=True, timeout=30.0)
+    ch = (await kvm.gpio.get_state()).state.outputs["relay1"]
+    print(ch.state)  # True
+    ```
+
+    Switching a channel to the state it already has is not a shortcut past
+    this: kvmd runs the action anyway, busy window and all.
+
 ## Pulse
 
 Send a pulse to a GPIO channel:

@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `tests/live/test_mutating.py`, live coverage of the endpoints that write.
+  `tests/live/` was read-only by construction, which left 41 mutating calls
+  with no confirmation from a device that what the client sends is what kvmd
+  reads — and the mocked suite cannot supply it, because each of its
+  assertions about an outgoing request encodes a *reading* of kvmd's sources.
+  Three bugs have shipped from this repository with the suite green
+  throughout. Every test here asserts on the state kvmd reports afterwards
+  and puts back what it changed. It needs `--live-mutating` on top of
+  `--live`, and `PIKVM_MUTATING_OK` set to the same URL as `PIKVM_URL`;
+  mass storage, GPIO and logout need a variable each of their own (#113).
 - The rest of kvmd's Redfish tree on `RedfishResource`: `get_managers()`,
   `get_manager()`, `get_virtual_media_collection()`, `get_virtual_media()`,
   `insert_media()` and `eject_media()`. None of them takes an id — kvmd writes
@@ -473,6 +483,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Documented that `GPIOChannel.state` is `False` — and `online` `True` —
+  for as long as `busy` is set, whatever the pin is doing: kvmd skips the
+  read entirely for a channel with an action running. Easy to walk into,
+  because `switch()` and `pulse()` answer as the action *starts* unless they
+  are given `wait=True`, so a read taken straight after one of them lands
+  inside that window. Switching a channel to the state it already has runs
+  the action anyway, busy window and all (#113).
+- Documented what `HIDResource.set_params(jiggler=…)` writes. It moves
+  `HIDState.jiggler.active`, whether the jiggler is running now, and not
+  `enabled`, which says the device was configured with one at all and which
+  no API call moves. A caller who checks `enabled` after a write sees it
+  unchanged and reads that as a write that was ignored (#113).
+- Documented the two edges of `StreamerResource.set_params()` that only a
+  device shows. The batch is applied about a second after the last write and
+  **restarts the streamer**, so every parameter change costs a moment of
+  video and neither `params` nor `applied` moves until it lands. And writing
+  the old value back inside that window does not cancel the change: kvmd
+  compares each value against the streamer that is running, finds the old one
+  equal, and drops it, so the pending change lands anyway (#113).
+- Documented that every switch *port* command answers HTTP 200 on a device
+  with no unit attached and does nothing — `set_active()`, the two
+  neighbours, `set_beacon()`, `set_port_params()`, `reset()`, `atx_power()`
+  and `atx_click()` alike. `SwitchState.model.units` is what says whether
+  there is anything there. EDID management and the indicator colours are the
+  exception: they are storage rather than hardware, so they work and read
+  back with no switch present (#113).
 - `SystemResource.get_info()` documented a field list that was wrong in both
   directions and a default that never existed. It named `hw` as a category
   like any other and left out `health`, `node` and `uptime` entirely, and it

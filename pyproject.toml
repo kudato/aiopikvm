@@ -56,6 +56,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "live: runs against a real PiKVM; needs --live and PIKVM_URL/PIKVM_PASSWD",
+    "mutating: changes device state; needs --live --live-mutating and PIKVM_MUTATING_OK",
 ]
 
 [tool.ruff]

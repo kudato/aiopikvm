@@ -44,6 +44,18 @@ class StreamerResource(BaseResource):
         have at all — the ones it has are the keys present in
         [`StreamerState.params`][aiopikvm.StreamerState].
 
+        Asynchronously here means about a second: kvmd holds the batch open
+        for further writes, then applies it and **restarts the streamer**, so
+        video drops for a moment. Until that happens neither ``params`` nor
+        ``applied`` moves — both describe the streamer that is still running.
+
+        That lag has a sharp edge. kvmd compares each incoming value against
+        the *running* streamer and queues only what differs, so writing the
+        old value back does not cancel a pending change: it is equal to what
+        is running, so it is dropped, and the pending change lands a moment
+        later. Undoing a write means waiting for it to take and then writing
+        the old value — by which time it differs again.
+
         Args:
             quality: JPEG quality, 1 to 100. Unsupported on devices with no
                 adjustable encoder.

@@ -39,7 +39,18 @@ class HIDMouse(_Base):
 
 
 class HIDJiggler(_Base):
-    """Mouse jiggler — the anti-idle mover built into kvmd."""
+    """Mouse jiggler — the anti-idle mover built into kvmd.
+
+    Two flags that read alike and are not the same.
+    [`HIDResource.set_params()`][aiopikvm.resources.hid.HIDResource.set_params]
+    with ``jiggler`` writes ``active``, which is whether it is running now.
+    ``enabled`` says the device was configured with a jiggler at all and no
+    API call moves it, so a caller who checks ``enabled`` after a write sees
+    it unchanged and concludes the write was ignored.
+
+    ``interval`` is the idle time in seconds before it starts nudging the
+    pointer, and is likewise read-only over the API.
+    """
 
     enabled: bool
     active: bool

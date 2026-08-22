@@ -51,6 +51,37 @@ Asking for a parameter the device does not have at all fails with `APIError`
 then drops it. Since the change is applied asynchronously either way, reading
 `applied` back is the only way to know what happened.
 
+!!! warning "Asynchronously means about a second, and a stream restart"
+    kvmd holds the pending values open for another second in case more
+    writes join them, then applies the batch and **restarts the streamer** —
+    so every parameter change costs a moment of video. Until that happens
+    neither `params` nor `applied` moves; both describe the streamer that is
+    still running.
+
+    ```python
+    before = (await kvm.streamer.get_state()).params.quality  # 80
+    await kvm.streamer.set_params(quality=55)
+    (await kvm.streamer.get_state()).params.quality           # still 80
+
+    await asyncio.sleep(4)
+    (await kvm.streamer.get_state()).params.quality           # 55
+    ```
+
+    Writing the old value back inside that window does **not** cancel the
+    change. kvmd compares each incoming value against the streamer that is
+    running, and queues only what differs — so the old value matches, is
+    dropped, and the pending change lands a moment later anyway:
+
+    ```python
+    await kvm.streamer.set_params(quality=55)
+    await kvm.streamer.set_params(quality=80)   # equals the running value: dropped
+    await asyncio.sleep(4)
+    (await kvm.streamer.get_state()).params.quality  # 55, not 80
+    ```
+
+    To undo a change, wait for it to take and then write the old value —
+    by which time it differs again and is queued like any other.
+
 ## Restart the streamer
 
 The usual recovery for a frozen pipeline. Video drops for a moment:
