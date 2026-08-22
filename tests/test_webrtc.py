@@ -910,6 +910,16 @@ async def _drain(rtc: WebRTCSession) -> AsyncIterator[WebRTCEvent]:
         yield rtc._events.popleft()
 
 
+async def test_pushes_nobody_is_waiting_for_do_not_pile_up() -> None:
+    """The negotiation takes the three it asked for; nothing reads the rest."""
+    with patch("aiopikvm._webrtc._PUSH_BUFFER", 2):
+        rtc = session()
+    for index in range(4):
+        rtc._route({**push_of("watch"), "jsep": {"type": "offer", "sdp": str(index)}})
+    kept = [rtc._pushes.get_nowait()[1] for _ in range(rtc._pushes.qsize())]
+    assert [jsep["sdp"] for jsep in kept if jsep is not None] == ["2", "3"]
+
+
 # --- Using it closed ------------------------------------------------------
 
 
@@ -923,6 +933,16 @@ async def test_nothing_works_before_the_block() -> None:
         await anext(rtc.video())
     with pytest.raises(WebRTCError, match="not open"):
         await anext(rtc.events())
+
+
+async def test_frames_before_the_block_are_not_reported_as_a_missing_decoder() -> None:
+    """Without the extra there is no PyAV to import, and that is not the news."""
+    rtc = session()
+    with patch.dict(sys.modules, {"av.video.frame": None, "av.audio.frame": None}):
+        with pytest.raises(WebRTCError, match="not open"):
+            await anext(rtc.video())
+        with pytest.raises(WebRTCError, match="not open"):
+            await anext(rtc.audio())
 
 
 async def test_the_session_can_be_opened_again() -> None:
@@ -986,6 +1006,20 @@ class Track:
         return a_frame()
 
 
+class Stalled:
+    """A track that produces nothing and does not end on its own."""
+
+    kind = "video"
+
+    async def recv(self) -> Any:
+        """Wait, and keep waiting.
+
+        Returns:
+            Nothing: the wait outlives everything but a cancellation.
+        """
+        await asyncio.Event().wait()
+
+
 async def _pumped(rtc: WebRTCSession, count: int) -> None:
     """Attach a finite track to a session and let it drain."""
     rtc._on_track(Track(count))  # type: ignore[arg-type]
@@ -1018,6 +1052,18 @@ async def test_the_track_is_reachable_for_a_caller_that_wants_it() -> None:
             await _pumped(rtc, 1)
             assert rtc.track() is not None
             assert rtc.track("audio") is None
+
+
+async def test_a_second_track_of_a_kind_does_not_strand_the_first_pump() -> None:
+    """The dict is the only handle on a pump, the teardown included."""
+    async with gateway() as (url, _, _requests):
+        async with session(url) as rtc:
+            rtc._on_track(Stalled())  # type: ignore[arg-type]
+            stranded = rtc._pumps["video"]
+            await _pumped(rtc, 1)
+            await asyncio.sleep(0)
+            assert stranded.cancelled()
+            assert [frame async for frame in rtc.video()] != []
 
 
 async def test_audio_yields_nothing_when_the_device_sent_no_audio_track() -> None:

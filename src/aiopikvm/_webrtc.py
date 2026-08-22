@@ -104,6 +104,17 @@ reads [`events()`][aiopikvm.WebRTCSession.events] is the normal case and must
 not accumulate.
 """
 
+_PUSH_BUFFER = 256
+"""How many plugin pushes to hold before the oldest is dropped.
+
+Only the negotiation takes anything off this queue, and it takes exactly the
+three it asked for. Everything the plugin pushes afterwards stays there for
+the life of the session, so it is capped for the same reason the event buffer
+is. Dropping the oldest cannot cost the negotiation the push it is waiting
+for: that would need this many to arrive ahead of it, and a plugin saying that
+much before answering is not one the wait is going to survive anyway.
+"""
+
 
 class _Finished(Exception):
     """Internal signal: the socket closed and the reader is done."""
@@ -245,7 +256,7 @@ class WebRTCSession:
         self._counter = 0
         self._acks: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._pushes: asyncio.Queue[tuple[WebRTCPluginEvent, dict[str, Any] | None]] = (
-            asyncio.Queue()
+            asyncio.Queue(maxsize=_PUSH_BUFFER)
         )
         self._events: deque[WebRTCEvent] = deque()
         self._event_wakeup = asyncio.Event()
@@ -406,6 +417,11 @@ class WebRTCSession:
         Raises:
             WebRTCError: The session is not open.
         """
+        # Ahead of the import: without the ``webrtc`` extra that raises
+        # ModuleNotFoundError('av') on the first frame asked for, which names
+        # neither the missing extra nor the session that was never opened. A
+        # session that did open has PyAV, because aiortc brought it.
+        self._ensure_open()
         from av.video.frame import VideoFrame
 
         async for frame in self._frames("video"):
@@ -425,6 +441,8 @@ class WebRTCSession:
         Raises:
             WebRTCError: The session is not open.
         """
+        # Ahead of the import, for the reason video() gives.
+        self._ensure_open()
         from av.audio.frame import AudioFrame
 
         async for frame in self._frames("audio"):
@@ -636,6 +654,13 @@ class WebRTCSession:
             track: The track aiortc built for it.
         """
         kind = track.kind
+        running = self._pumps.get(kind)
+        if running is not None and not running.done():
+            # Overwriting the entry instead would leave that pump reading a
+            # track nothing can reach any more — not the teardown, which
+            # cancels what is in this dict, and not the consumer, which reads
+            # the buffer this is about to replace.
+            running.cancel()
         self._tracks[kind] = track
         self._buffers[kind] = deque(maxlen=max(1, self._frame_buffer))
         self._wakeups[kind] = asyncio.Event()
@@ -982,6 +1007,12 @@ class WebRTCSession:
         push = self._plugin_push(message)
         if push is not None:
             jsep = message.get("jsep")
+            if self._pushes.full():
+                # The queue is bounded, so put_nowait() would raise here and
+                # take the reader down with it. The buffer beside this one
+                # drops the oldest; so does this.
+                self._pushes.get_nowait()
+                logger.debug("Dropping the oldest buffered plugin push")
             self._pushes.put_nowait(
                 (push, jsep if isinstance(jsep, dict) else None),
             )

@@ -572,6 +572,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Three latent defects in `WebRTCSession`, none of them reachable against
+  PiKVM as it ships today. `video()` and `audio()` imported PyAV before
+  checking there was a session, so on an install without the `webrtc` extra
+  the first frame asked for on an unopened session reported
+  `ModuleNotFoundError('av')` instead of the documented `WebRTCError`; the
+  check now comes first, and a session that did open has PyAV because aiortc
+  brought it. The queue holding the plugin's pushes was unbounded while the
+  event buffer beside it was capped, and only the negotiation ever takes
+  anything off it — so it is capped now too, dropping the oldest the same way.
+  And `_on_track()` overwrote the pump of a track kind it already had one for,
+  leaving that pump reading a track nothing could reach, the teardown
+  included; the pump already there is now cancelled (#141).
 - A WebRTC teardown no longer waits out a timeout it cannot win, and no longer
   gives up before the step that matters. `_drain()`'s exit fails only the
   acknowledgements that existed when it left, so one registered afterwards has
