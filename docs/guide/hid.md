@@ -73,7 +73,46 @@ await kvm.hid.send_key("KeyA", state=True)
 
 # Release only
 await kvm.hid.send_key("KeyA", state=False)
+
+# Press, and have kvmd release it in the same event
+await kvm.hid.send_key("KeyA", state=True, finish=True)
 ```
+
+### `finish`, and the keys it does not release
+
+A held key is held until a release arrives, and a script that dies between
+the two never sends one — the device keeps typing `aaaaaaa` at whatever
+was on screen. `finish=True` asks kvmd to send the release itself, straight
+after the press and before it reads anything else, which is the one
+keystroke a lost connection cannot interrupt halfway.
+
+It is a press flag: kvmd reads it beside `state` and acts on it only when
+that is a press, so `send_key("KeyA", state=False, finish=True)` sends the
+plain release and nothing else goes on the wire.
+
+kvmd exempts the modifiers, because holding those is what they are for —
+`ShiftLeft`, `ShiftRight`, `ControlLeft`, `ControlRight`, `AltLeft`,
+`AltRight`, `MetaLeft`, `MetaRight`, and `PrintScreen`, which it counts as
+one for the sake of `Alt+SysRq`. Asking for `finish` on one of those nine
+presses the key and leaves it held, with nothing said either way. So does
+asking for it on a device running kvmd older than 4.33, which does not read
+the parameter at all.
+
+Those nine are kvmd 4.34 and after. 4.33, the release that introduced the
+flag, exempted six of them: a mapping bug spelled the control pair
+`{ControlRight, ControlRight}` and left the `Meta` keys out of the modifier
+set, so on that one version `finish` releases `ControlLeft`, `MetaLeft` and
+`MetaRight` like any ordinary key.
+
+!!! note
+    `send_key("KeyA")` with no `state` **is** the press-and-release above:
+    kvmd 4.33 replaced the two events it used to send with a single press
+    carrying `finish`. The exempt keys are exempt there too, so
+    `send_key("ShiftLeft")` presses Shift and leaves it down — where kvmd
+    4.32 and earlier released it. Pass `state=False` to let it up.
+
+The [WebSocket](websocket.md#keyboard-input) takes the same flag, with one
+wrinkle of its own on [the binary channel](websocket.md#the-binary-channel).
 
 ### Key names
 

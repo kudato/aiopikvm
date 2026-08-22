@@ -220,6 +220,9 @@ async with kvm.ws() as ws:
 
     # Release a key
     await ws.send_key("KeyA", state=False)
+
+    # Press, and have kvmd release it in the same event
+    await ws.send_key("KeyA", state=True, finish=True)
 ```
 
 Key names are kvmd's web names — `KeyA`, `Digit1`, `ControlLeft`, `F5`; the
@@ -228,6 +231,20 @@ until the release arrives, and ignores a name it does not know without
 answering anything at all — over this socket there is no 400 to tell a typo
 from a keystroke that landed, which is why a name from an untrusted source is
 worth checking against the set before it goes out.
+
+The socket dropping is how a key gets left down: the press arrived and the
+process that owed the release is gone. Whether it stays down is up to the HID
+backend — closing the socket makes kvmd clear its keyboard, which on OTG
+sends an all-up report, while CH9329 only discards what it had queued and
+lets the keys stand. `finish=True` takes the client out of that: kvmd queues
+the release itself, in the same handler call that queued the press, so no
+further frame is owed. On CH9329 it narrows the window rather than closing
+it — the two are separate commands in one queue, and a socket lost after the
+device has taken the press but not the release leaves that key down like any
+other. It rides a press only, and kvmd applies it to every key
+except the eight modifiers and `PrintScreen` — the full rule, and the kvmd
+version that reads it, are in
+[the HID guide](hid.md#finish-and-the-keys-it-does-not-release).
 
 ## Mouse input
 
@@ -358,9 +375,22 @@ and mouse move, since it is a few bytes instead of a JSON object to parse.
 
 ```python
 async with kvm.ws(binary=True) as ws:
-    await ws.send_key("KeyA", state=True)   # b"\x01\x01KeyA"
-    await ws.send_key("KeyA", state=False)  # b"\x01\x00KeyA"
+    await ws.send_key("KeyA", state=True)                 # b"\x01\x01KeyA"
+    await ws.send_key("KeyA", state=False)                # b"\x01\x00KeyA"
+    await ws.send_key("KeyA", state=True, finish=True)    # b"\x01\x03KeyA"
 ```
+
+The second byte is a flag field: bit 0 is the state and bit 1 is `finish`, so
+a press asking for the release is `0b11`. A release never carries bit 1 —
+kvmd would not act on it, and on an older device it would cost the release
+itself:
+
+!!! warning "`finish` over the binary channel needs kvmd 4.33"
+    An older kvmd reads that byte as a whole boolean, which accepts `0` and
+    `1` and nothing else, so a frame carrying bit 1 fails validation and is
+    dropped entire, with no answer to say so. `state` is lost along with the
+    flag, so `finish=True` there types nothing at all — where over JSON, and
+    over HTTP, the same call presses the key and leaves it held.
 
 Everything else is unchanged: the same methods, the same arguments, and events
 still arrive as JSON — that direction has nothing else in it. Two details only

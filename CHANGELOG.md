@@ -35,6 +35,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   movement. `squash` asks kvmd to add consecutive steps together where they fit
   into one report — fewer reports for the host, and nothing at all sent when a
   squashed batch adds up to zero (#60).
+- `finish` on `HIDResource.send_key()` and `PiKVMWebSocket.send_key()`: kvmd
+  queues the release itself, in the same handler call that took the press, so
+  no second request is owed — on the CH9329 backend the two are separate
+  commands in one queue, which narrows the window rather than closing it. It
+  rides a press and nothing else, and kvmd exempts the modifiers and
+  `PrintScreen`: those are pressed and stay down with no error to say so, and
+  4.33 built its own modifier set wrong, releasing `ControlLeft` and both Meta
+  keys like any other key. It needs kvmd 4.33 at the very least; over the
+  binary WebSocket channel an older one reads the whole flags byte as a
+  boolean and throws away any frame whose byte is neither 0 nor 1, so the
+  press never happens and nothing comes back to say it did not (#74).
 - `aiopikvm.resources.hid.KEY_NAMES`, the 115 key names kvmd accepts — the
   keys of its `WEB_TO_EVDEV` table, matched case-sensitively. Only one of the
   two transports says when a name is wrong: `send_key()` and

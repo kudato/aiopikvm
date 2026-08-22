@@ -752,7 +752,7 @@ class PiKVMWebSocket:
         """
         await self._send_frame(bytes([op]) + payload, what)
 
-    async def send_key(self, key: str, *, state: bool) -> None:
+    async def send_key(self, key: str, *, state: bool, finish: bool = False) -> None:
         """Send a keyboard key event.
 
         Args:
@@ -764,6 +764,15 @@ class PiKVMWebSocket:
                 landed.
             state: ``True`` for press, ``False`` for release. kvmd holds the
                 key until the release arrives.
+            finish: Ask kvmd to release the key in the same event that
+                pressed it, so a socket that goes away mid-keystroke leaves
+                nothing held. It goes out only on a press, the only place
+                kvmd acts on it; ``HIDResource.send_key`` and the HID guide
+                have the keys it exempts. It needs kvmd 4.33, and over the
+                binary channel an older one does worse than ignore it: it
+                validates the whole flags byte as a boolean, so a frame
+                carrying bit 1 fails that check and is thrown away entire —
+                the press never happens, and nothing comes back to say so.
 
         Raises:
             ConfigurationError: The key name cannot go into a binary frame,
@@ -772,13 +781,25 @@ class PiKVMWebSocket:
             WebSocketError: The client is not connected, or the connection
                 broke before the frame could be sent.
         """
+        # kvmd acts on the flag only on a press. On a release it is dead
+        # weight in every version, and worse than that over the binary
+        # channel: kvmd 4.32 and older read the whole flags byte as a
+        # boolean and drop a frame whose byte is neither 0 nor 1, so the
+        # release would never arrive and the key would stay down — the very
+        # failure the flag is for.
+        finish = finish and state
         if self._binary:
-            flags = 0b01 if state else 0
+            flags = (0b01 if state else 0) | (0b10 if finish else 0)
             await self._send_bin(
                 _OP_KEY, bytes([flags]) + _name_bytes(key, "Key"), "key"
             )
         else:
-            await self._send_event("key", {"key": key, "state": state})
+            event: dict[str, Any] = {"key": key, "state": state}
+            if finish:
+                # kvmd defaults it to False, so leaving it out is the same
+                # event a client that never heard of the flag would send.
+                event["finish"] = True
+            await self._send_event("key", event)
 
     async def send_mouse_move(self, to_x: int, to_y: int) -> None:
         """Move the mouse to an absolute position.

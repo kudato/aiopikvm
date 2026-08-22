@@ -285,14 +285,35 @@ class HIDResource(BaseResource):
             timeout=timeout,
         )
 
-    async def send_key(self, key: str, *, state: bool | None = None) -> None:
+    async def send_key(
+        self, key: str, *, state: bool | None = None, finish: bool | None = None
+    ) -> None:
         """Send a single key event.
 
         Args:
             key: Key name, one of :data:`KEY_NAMES` and matched
                 case-sensitively.
             state: Key state (``True`` = press, ``False`` = release,
-                ``None`` = press and release).
+                ``None`` = press carrying *finish*, which is what kvmd 4.33
+                and after do for an event that names no state of its own —
+                so a modifier passed this way is pressed and stays down).
+            finish: Ask kvmd to release the key in the same event that
+                pressed it, so a script that dies mid-keystroke leaves
+                nothing held. It goes out only on a press: kvmd reads it
+                beside *state* and acts on it only when that is one, so a
+                release is sent as a plain release. Not every key is
+                released — kvmd exempts the eight modifiers, ``Shift``,
+                ``Control``, ``Alt`` and ``Meta``, left and right, along
+                with ``PrintScreen``, and presses those and leaves them held
+                with no error to say so. A kvmd older than 4.33 has no such
+                parameter and does that to every key. The HID guide has the
+                exact names and the versions behind them.
+
+                ``None`` asks for nothing and is not the same as ``False``
+                everywhere: a *state* of ``None`` is finished by kvmd 4.33
+                and after whatever this says, so ``False`` there names a
+                behaviour no request can bring about. Pass ``state=True`` to
+                press a key and leave it down.
 
         Raises:
             APIError: If kvmd has no key by that name (HTTP 400).
@@ -300,6 +321,10 @@ class HIDResource(BaseResource):
         params: dict[str, Any] = {"key": key}
         if state is not None:
             params["state"] = int(state)
+            # kvmd reads `finish` beside `state` and acts on it only on a
+            # press. Anywhere else it names something kvmd never looks at.
+            if state and finish:
+                params["finish"] = 1
         await self._post("/api/hid/events/send_key", params=params)
 
     async def send_shortcut(self, *keys: str) -> None:
