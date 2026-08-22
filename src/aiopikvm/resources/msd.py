@@ -204,8 +204,8 @@ class MSDResource(BaseResource):
                 are refused.
             timeout: Override this client's timeout for the request. By
                 default the read timeout is disabled, since the response
-                stays open for the length of the download, while connect and
-                write keep their client-level values.
+                stays open for the length of the download, while connect,
+                write and pool keep their client-level values.
 
         Returns:
             The last progress record, whose ``name`` is what kvmd stored and
@@ -305,16 +305,12 @@ class MSDResource(BaseResource):
             params["remove_incomplete"] = int(remove_incomplete)
         if connect_timeout is not None:
             params["timeout"] = connect_timeout
-        async with self._client.stream(
+        async with self._stream(
             "POST",
             _WRITE_REMOTE_PATH,
             params=params,
             headers={"Accept": "application/x-ndjson"},
-            timeout=(
-                timeout
-                if timeout is not None
-                else httpx.Timeout(self._client._timeout, read=None)
-            ),
+            timeout=timeout,
         ) as response:
             async for line in response.aiter_lines():
                 if line.strip():
@@ -386,8 +382,8 @@ class MSDResource(BaseResource):
             chunk_size: Size of the chunks yielded, in bytes.
             timeout: Override the request timeout. By default the read
                 timeout is disabled — an image takes far longer to transfer
-                than the client default allows — while connect and write
-                keep their client-level values.
+                than the client default allows — while connect, write and
+                pool keep their client-level values.
 
         Yields:
             Chunks of the image, in order.
@@ -405,16 +401,12 @@ class MSDResource(BaseResource):
         params: dict[str, Any] = {"image": name}
         if compress:
             params["compress"] = compress
-        async with self._client.stream(
+        async with self._stream(
             "GET",
             "/api/msd/read",
             params=params,
             headers={"Accept": "application/octet-stream"},
-            timeout=(
-                timeout
-                if timeout is not None
-                else httpx.Timeout(self._client._timeout, read=None)
-            ),
+            timeout=timeout,
         ) as response:
             async for chunk in response.aiter_bytes(chunk_size):
                 yield chunk

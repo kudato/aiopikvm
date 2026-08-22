@@ -131,8 +131,8 @@ class StreamerResource(BaseResource):
                 [`MJPEGFrame.data`][aiopikvm.MJPEGFrame] is then empty.
             chunk_size: How much to read off the socket at a time, in bytes.
             timeout: Override the request timeout. By default the read timeout
-                is disabled — a stream has no end to wait for — while connect
-                and write keep their client-level values.
+                is disabled — a stream has no end to wait for — while connect,
+                write and pool keep their client-level values.
 
         Yields:
             Each frame, with whatever its part headers said about it.
@@ -154,15 +154,11 @@ class StreamerResource(BaseResource):
             params["extra_headers"] = 1
         if zero_data:
             params["zero_data"] = 1
-        async with self._client.stream(
+        async with self._stream(
             "GET",
             "/streamer/stream",
             params=params or None,
-            timeout=(
-                timeout
-                if timeout is not None
-                else httpx.Timeout(self._client._timeout, read=None)
-            ),
+            timeout=timeout,
         ) as response:
             reader = _MultipartReader(_boundary_of(response))
             async for chunk in response.aiter_bytes(chunk_size):

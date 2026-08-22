@@ -1,17 +1,20 @@
 """PiKVM client lifecycle tests."""
 
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import httpx
 import pytest
 import respx
 
+import aiopikvm
 from aiopikvm import ConfigurationError, PiKVM, PiKVMError, RedirectError
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._client import _RESOURCE_NAMES
+from tests.fixtures import load_json
 
 OK = {"ok": True, "result": {}}
 
@@ -320,3 +323,153 @@ async def test_a_refused_stream_closes_the_context_that_owns_it(
         with pytest.raises(RedirectError):
             [line async for line in kvm.system.stream_log()]
         assert [type(exc) for exc in exited] == [RedirectError]
+
+
+_STREAMS: dict[str, tuple[str, str]] = {
+    "stream_log": ("GET", "/api/log"),
+    "download": ("GET", "/api/msd/read"),
+    "upload_remote_progress": ("POST", "/api/msd/write_remote"),
+    "mjpeg": ("GET", "/streamer/stream"),
+}
+"""Every streaming call, and the request each one makes.
+
+`test_no_streaming_call_is_missing_from_this_list` is what keeps it that way:
+the bug these tests are about was one call site drifting from the others, so a
+list of call sites that quietly falls behind would be the same mistake again.
+"""
+
+
+def _stream_route(mock_api: respx.MockRouter, call: str) -> None:
+    """Answer *call*'s endpoint with a stream that ends where it starts.
+
+    The body is empty because nothing here reads one: these tests assert on
+    the request that went out, and an empty stream is the shortest way to get
+    one sent and the connection back.
+
+    Args:
+        mock_api: The router to register on.
+        call: Which streaming call, keyed as in ``_STREAMS``.
+    """
+    (method, path) = _STREAMS[call]
+    headers = {}
+    if call == "mjpeg":
+        # The one header read before the body: mjpeg() refuses an answer that
+        # is not a multipart stream. Taken from the recording rather than
+        # retyped, since the device writes no space after the semicolon.
+        headers["Content-Type"] = _recorded_stream_content_type()
+    mock_api.request(method, path).mock(
+        return_value=httpx.Response(200, content=b"", headers=headers)
+    )
+
+
+def _recorded_stream_content_type() -> str:
+    """Return the ``Content-Type`` ustreamer's MJPEG stream arrived with.
+
+    Returns:
+        The value recorded in the ``media_stream`` scenario.
+
+    Raises:
+        KeyError: If the scenario no longer has the step it is read from.
+    """
+    for recorded in load_json("media_stream")["steps"]:
+        if recorded["name"] == "stream_plain":
+            content_type: str = recorded["content_type"]
+            return content_type
+    raise KeyError("media_stream has no stream_plain step to read a content type from")
+
+
+def _streaming_call(
+    kvm: PiKVM, call: str, timeout: float | httpx.Timeout | None = None
+) -> AsyncIterator[Any]:
+    """Open one of the streaming calls, by the name ``_STREAMS`` keys it under.
+
+    Args:
+        kvm: The client to call it on.
+        call: Which one, keyed as in ``_STREAMS``.
+        timeout: Passed on as the call's own *timeout*.
+
+    Returns:
+        The iterator, with nothing sent yet — a streaming method makes its
+        request when it is first read from.
+    """
+    calls: dict[str, Callable[[], AsyncIterator[Any]]] = {
+        "stream_log": lambda: kvm.system.stream_log(timeout=timeout),
+        "download": lambda: kvm.msd.download("boot.iso", timeout=timeout),
+        "upload_remote_progress": lambda: kvm.msd.upload_remote_progress(
+            "http://host/a.iso", timeout=timeout
+        ),
+        "mjpeg": lambda: kvm.streamer.mjpeg(timeout=timeout),
+    }
+    return calls[call]()
+
+
+@pytest.mark.parametrize("call", list(_STREAMS))
+async def test_streaming_keeps_an_injected_clients_timeout(
+    mock_api: respx.MockRouter, call: str
+) -> None:
+    """An injected client's timeout survives a streaming call (#137).
+
+    Each of these built its own `httpx.Timeout` from the *timeout* argument
+    this client was given, which the constructor documents as ignored when an
+    *http_client* is passed in. A caller who injected a client tuned for a
+    slow link got aiopikvm's own connect and write back on exactly the four
+    calls where a long transfer is expected.
+    """
+    _stream_route(mock_api, call)
+    ext_client = httpx.AsyncClient(base_url="https://pikvm.local", timeout=60.0)
+    async with PiKVM("https://pikvm.local", http_client=ext_client) as kvm:
+        assert [record async for record in _streaming_call(kvm, call)] == []
+    await ext_client.aclose()
+    sent = mock_api.calls[-1].request.extensions["timeout"]
+    # The read one is lifted for all of them: a stream has no end to wait for.
+    assert sent == {"connect": 60.0, "read": None, "write": 60.0, "pool": 60.0}
+
+
+@pytest.mark.parametrize("call", list(_STREAMS))
+async def test_streaming_takes_a_timeout_of_its_own(
+    mock_api: respx.MockRouter, call: str
+) -> None:
+    """Every streaming call takes an override, ``stream_log()`` too (#137).
+
+    Only the ``stream_log`` case is new behaviour: it was the one streaming
+    method with no *timeout* parameter at all, for no stated reason and with
+    nothing at the call site to show it. The other three took one before this
+    change and passed it through, so those cases record what already held —
+    worth keeping for ``mjpeg``, which had no timeout test of its own, and
+    for the shape of the parameter list, which is the thing that drifted.
+    """
+    _stream_route(mock_api, call)
+    async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
+        stream = _streaming_call(kvm, call, timeout=httpx.Timeout(5.0, read=90.0))
+        assert [record async for record in stream] == []
+    sent = mock_api.calls[-1].request.extensions["timeout"]
+    # Passed on as given: an override says what it wants of all four fields.
+    assert sent == {"connect": 5.0, "read": 90.0, "write": 5.0, "pool": 5.0}
+
+
+def test_no_streaming_call_is_missing_from_this_list() -> None:
+    """A new streaming call has to go through `BaseResource._stream()` (#137).
+
+    That helper is where the streaming timeout default lives. A method that
+    opens `PiKVM.stream()` itself gets the client-level read timeout back —
+    which is the bug #137 is about, four times over — and neither test above
+    would see it, since both drive the calls this file knows.
+
+    Searching the source is what catches it: the resources are the only place
+    a streaming endpoint is reached from, and none of them has a reason to
+    open one directly.
+    """
+    resources = Path(cast(str, aiopikvm.__file__)).parent / "resources"
+    bypassing = sorted(
+        path.name
+        for path in resources.glob("*.py")
+        if "self._client.stream(" in path.read_text()
+    )
+    assert bypassing == []
+    # And every one that does go through it is exercised above.
+    helpers = sorted(
+        path.name
+        for path in resources.glob("*.py")
+        if "self._stream(" in path.read_text()
+    )
+    assert helpers == ["msd.py", "streamer.py", "system.py"]

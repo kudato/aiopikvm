@@ -72,8 +72,8 @@ async for frame in kvm.streamer.mjpeg():
 
 The iteration ends only when the far end stops sending, so it is a loop to
 leave with a `break` or to cancel from outside. The read timeout is disabled by
-default — a stream has no end to wait for — while connect and write keep their
-client-level values.
+default — a stream has no end to wait for — while connect, write and pool keep
+their client-level values.
 
 ### Naming a connection
 
