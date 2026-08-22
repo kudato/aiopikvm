@@ -8,6 +8,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `PiKVM.media_ws()` and `MediaWebSocket`, the H.264 stream the `kvmd-media`
+  daemon serves — the moving picture the client had no way to reach at all,
+  having only `snapshot()`'s one frame per request. The daemon has two
+  sockets and both are here: `video="h264"` (the default) opens the one that
+  streams a single format and starts during the handshake, where every
+  message is one raw Annex B frame; `video=None` opens the general-purpose
+  one, which announces what it can send — `ws.media`, the same `MediaState`
+  the REST endpoint returns, parsed before the first frame — sends nothing
+  until `start()`, and flags each frame as key or delta. `request_keyframe()`
+  works on both, `ping()` only on the second. Asking for a format the daemon
+  does not serve is refused with HTTP 400 before the socket exists (#84).
+- `MediaResource` (`kvm.media`) with `get_state()`, the `GET /api/media`
+  announcement of what the daemon can stream, as a `MediaState` (#84).
+- `StreamerResource.mjpeg()`, ustreamer's `multipart/x-mixed-replace` stream
+  read frame by frame, and `StreamerResource.get_ustreamer_state()`, the same
+  `Streamer` model `StreamerState.streamer` holds but read from ustreamer
+  itself rather than from kvmd's last poll — which is what makes
+  `clients_stat` usable for watching a stream this process opened, since
+  `mjpeg(key=...)` is the only way to find its own row there. Neither path
+  carries the kvmd envelope: a stopped streamer arrives as an nginx HTTP 502
+  and `APIError`, not the `UnavailableError` the REST API answers with (#84).
+- `MJPEGFrame`, one part of that stream with whatever its headers said —
+  `timestamp` always, and the rest under `extra_headers=True`, with the raw
+  headers kept on `headers` so a newer ustreamer's additions are not lost.
+  `zero_data=True` asks for the headers with no JPEG behind them, which turns
+  the stream into a frame-timing feed. Two ustreamer flags are deliberately
+  not offered: `advance_headers` drops `Content-Length` and every
+  `X-UStreamer-*` header with it, so no parser that finds frames by their
+  declared length can follow it, and `dual_final_frames` is the same kind of
+  browser workaround (#84).
 - `tests/live/test_mutating.py`, live coverage of the endpoints that write.
   `tests/live/` was read-only by construction, which left 41 mutating calls
   with no confirmation from a device that what the client sends is what kvmd
@@ -255,6 +285,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** `StreamerStream.clients_stat` is a
+  `dict[str, StreamerClientStat]` instead of a `dict[str, Any]`. Nothing had
+  read it, since there was no way to open a stream and so nothing to read it
+  about; with `mjpeg()` there is, and `stat.key` is what matches a row to the
+  connection that made it (#84).
 - The TLS settings reach httpx as a prepared `ssl.SSLContext` rather than as
   `verify=<path>` and `cert=`, both of which httpx 0.28 deprecates in favour
   of exactly that. Nothing changes for a boolean `verify_ssl` (#69).

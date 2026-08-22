@@ -196,11 +196,41 @@ All response models inherit from a base class with `extra="allow"` for forward-c
     options:
       show_bases: false
 
+::: aiopikvm.StreamerClientStat
+    options:
+      show_bases: false
+
+::: aiopikvm.MJPEGFrame
+    options:
+      show_bases: false
+
 ::: aiopikvm.OCRInfo
     options:
       show_bases: false
 
 ::: aiopikvm.OCRLangs
+    options:
+      show_bases: false
+
+## Media
+
+::: aiopikvm.MediaState
+    options:
+      show_bases: false
+
+::: aiopikvm.MediaVideoFormats
+    options:
+      show_bases: false
+
+::: aiopikvm.MediaH264
+    options:
+      show_bases: false
+
+::: aiopikvm.MediaJPEG
+    options:
+      show_bases: false
+
+::: aiopikvm.MediaFrame
     options:
       show_bases: false
 

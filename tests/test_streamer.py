@@ -7,7 +7,13 @@ import httpx
 import pytest
 import respx
 
-from aiopikvm import APIError, ConfigurationError, PiKVM
+from aiopikvm import (
+    APIError,
+    ConfigurationError,
+    PiKVM,
+    ResponseError,
+    UnavailableError,
+)
 from tests.fixtures import load_json
 
 OK = {"ok": True, "result": {}}
@@ -424,3 +430,288 @@ async def test_snapshot_ignores_unparsable_headers(
 async def test_set_params_without_arguments(client: PiKVM) -> None:
     with pytest.raises(ConfigurationError, match="at least one parameter"):
         await client.streamer.set_params()
+
+
+# --- ustreamer's own endpoints -------------------------------------------
+
+
+def stream_step(name: str) -> dict[str, Any]:
+    """Return one recorded step of the live-video scenario.
+
+    Args:
+        name: Step name from the ``media_stream`` scenario.
+
+    Returns:
+        The recorded step.
+
+    Raises:
+        KeyError: If the scenario has no such step.
+    """
+    steps = load_json("media_stream")["steps"]
+    for recorded in steps:
+        if recorded["name"] == name:
+            return dict(recorded)
+    known = ", ".join(recorded["name"] for recorded in steps)
+    raise KeyError(f"Unknown media_stream step {name!r}; recorded: {known}")
+
+
+def multipart(name: str) -> tuple[bytes, str]:
+    """Rebuild a recorded MJPEG stream.
+
+    The scenario stores each part's headers, its length and its first four
+    bytes, and no more: a JPEG off this device is a picture of the attached
+    host's screen. The framing is what a parser reads, and that is recorded
+    in full — only the picture inside each part is stood in for.
+
+    Args:
+        name: Step name from the ``media_stream`` scenario.
+
+    Returns:
+        The body and the ``Content-Type`` it arrived with.
+    """
+    recorded = stream_step(name)
+    content_type = recorded["content_type"]
+    boundary = content_type.partition("boundary=")[2]
+    body = b""
+    for part in recorded["parts"]:
+        head = "".join(f"{n}: {v}\r\n" for n, v in part["headers"].items())
+        head_bytes = bytes.fromhex(part["data_head"])
+        body += f"--{boundary}\r\n{head}\r\n".encode()
+        body += head_bytes + bytes(part["data_len"] - len(head_bytes))
+        body += b"\r\n"
+    # A stream has no end: the next part's boundary is already on the wire.
+    body += f"--{boundary}\r\n".encode()
+    return (body, content_type)
+
+
+def streaming(name: str) -> httpx.Response:
+    """Build the response a recorded MJPEG stream arrived as."""
+    (body, content_type) = multipart(name)
+    return httpx.Response(200, content=body, headers={"Content-Type": content_type})
+
+
+async def test_get_ustreamer_state(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/streamer/state").mock(
+        return_value=httpx.Response(200, json=stream_step("state_idle")["response"])
+    )
+    state = await client.streamer.get_ustreamer_state()
+    # The same object kvmd relays into StreamerState.streamer, read from
+    # ustreamer rather than from kvmd's poll of it.
+    assert state.source.resolution.width == 1920
+    assert state.encoder.type == "M2M-IMAGE"
+    assert state.stream.clients == 0
+    assert state.stream.clients_stat == {}
+
+
+async def test_get_ustreamer_state_names_its_clients(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/streamer/state").mock(
+        return_value=httpx.Response(
+            200, json=stream_step("state_with_client")["response"]
+        )
+    )
+    state = await client.streamer.get_ustreamer_state()
+    assert state.stream.clients == 1
+    ((_, stat),) = state.stream.clients_stat.items()
+    # The id is ustreamer's; `key` is the only way a client finds its own row.
+    assert stat.key == "aiopikvm-capture"
+    assert stat.extra_headers is True
+    assert stat.advance_headers is False
+    assert stat.fps == 1
+
+
+async def test_get_ustreamer_state_with_the_streamer_stopped(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # nginx has no upstream socket to reach, so this is a 502 and an HTML
+    # page — not kvmd's 503, and not an envelope with an error to match on.
+    recorded = stream_step("state_stopped")
+    mock_api.get("/streamer/state").mock(
+        return_value=httpx.Response(
+            recorded["status"],
+            text=recorded["body_excerpt"],
+            headers={"Content-Type": recorded["content_type"]},
+        )
+    )
+    with pytest.raises(APIError) as caught:
+        await client.streamer.get_ustreamer_state()
+    assert caught.value.status_code == 502
+    assert not isinstance(caught.value, UnavailableError)
+    assert caught.value.error == ""
+
+
+async def test_mjpeg_yields_the_recorded_frames(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    recorded = stream_step("stream_plain")["parts"]
+    mock_api.get("/streamer/stream").mock(return_value=streaming("stream_plain"))
+    frames = [frame async for frame in client.streamer.mjpeg()]
+    assert len(frames) == len(recorded)
+    for frame, part in zip(frames, recorded, strict=True):
+        assert len(frame.data) == part["data_len"]
+        assert frame.data[:2] == b"\xff\xd8"
+        assert frame.timestamp == float(part["headers"]["X-Timestamp"])
+        assert frame.headers["Content-Type"] == "image/jpeg"
+        # Without extra_headers ustreamer annotates nothing.
+        assert frame.online is None
+        assert frame.width is None
+
+
+async def test_mjpeg_reads_the_extra_headers(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    part = stream_step("stream_extra_headers")["parts"][0]
+    route = mock_api.get("/streamer/stream").mock(
+        return_value=streaming("stream_extra_headers")
+    )
+    frames = [frame async for frame in client.streamer.mjpeg(extra_headers=True)]
+    assert route.calls.last.request.url.params["extra_headers"] == "1"
+    first = frames[0]
+    assert first.online is True
+    assert first.width == 1920
+    assert first.height == 1080
+    assert first.dropped == int(part["headers"]["X-UStreamer-Dropped"])
+    assert first.client_fps == int(part["headers"]["X-UStreamer-Client-FPS"])
+    assert first.latency == float(part["headers"]["X-UStreamer-Latency"])
+    # The timing headers have no field of their own; the raw headers are how
+    # a caller reaches them.
+    assert (
+        first.headers["X-UStreamer-Grab-Begin-Time"]
+        == (part["headers"]["X-UStreamer-Grab-Begin-Time"])
+    )
+
+
+async def test_mjpeg_zero_data_keeps_the_headers(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    route = mock_api.get("/streamer/stream").mock(
+        return_value=streaming("stream_zero_data")
+    )
+    # One byte at a time: every part header and every boundary lands split
+    # across chunks, which is the case a buffering parser gets wrong.
+    frames = [
+        frame
+        async for frame in client.streamer.mjpeg(
+            zero_data=True, extra_headers=True, chunk_size=1
+        )
+    ]
+    assert route.calls.last.request.url.params["zero_data"] == "1"
+    assert len(frames) == 2
+    assert all(frame.data == b"" for frame in frames)
+    assert frames[0].online is True
+    assert frames[0].width == 1920
+
+
+async def test_mjpeg_names_the_connection(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    route = mock_api.get("/streamer/stream").mock(
+        return_value=streaming("stream_plain")
+    )
+    async for _ in client.streamer.mjpeg(key="watcher"):
+        break
+    assert route.calls.last.request.url.params["key"] == "watcher"
+
+
+async def test_mjpeg_sends_no_flags_by_default(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    route = mock_api.get("/streamer/stream").mock(
+        return_value=streaming("stream_plain")
+    )
+    async for _ in client.streamer.mjpeg():
+        break
+    assert route.calls.last.request.url.query == b""
+
+
+async def test_mjpeg_without_a_content_length(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # What advance_headers puts on the wire, recorded verbatim: ustreamer
+    # sends the headers before it has the frame, so it cannot say how long
+    # one is. The client does not ask for that flag, but a proxy that
+    # rewrites the stream would look the same.
+    recorded = stream_step("stream_advance_headers")
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200,
+            content=recorded["raw"].encode("latin-1"),
+            headers={"Content-Type": recorded["content_type"]},
+        )
+    )
+    with pytest.raises(ResponseError, match="no Content-Length"):
+        [frame async for frame in client.streamer.mjpeg()]
+
+
+async def test_mjpeg_with_an_unreadable_content_length(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    body = b"--x\r\nContent-Type: image/jpeg\r\nContent-Length: soon\r\n\r\n"
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200,
+            content=body,
+            headers={"Content-Type": "multipart/x-mixed-replace;boundary=x"},
+        )
+    )
+    with pytest.raises(ResponseError, match="which is not a length"):
+        [frame async for frame in client.streamer.mjpeg()]
+
+
+async def test_mjpeg_of_something_that_is_not_a_stream(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(200, text="<html>hello</html>")
+    )
+    with pytest.raises(ResponseError, match="rather than a multipart stream"):
+        [frame async for frame in client.streamer.mjpeg()]
+
+
+async def test_mjpeg_falls_back_to_the_ustreamer_boundary(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    (body, _) = multipart("stream_plain")
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200, content=body, headers={"Content-Type": "multipart/x-mixed-replace"}
+        )
+    )
+    frames = [frame async for frame in client.streamer.mjpeg()]
+    assert len(frames) == 2
+
+
+async def test_mjpeg_ignores_unparsable_headers(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    body = (
+        b"--x\r\nContent-Type: image/jpeg\r\nContent-Length: 4\r\n"
+        b"X-Timestamp: just now\r\nX-UStreamer-Width: wide\r\n\r\njpeg\r\n--x\r\n"
+    )
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200,
+            content=body,
+            headers={"Content-Type": "multipart/x-mixed-replace;boundary=x"},
+        )
+    )
+    frames = [frame async for frame in client.streamer.mjpeg()]
+    assert frames[0].data == b"jpeg"
+    assert frames[0].timestamp is None
+    assert frames[0].width is None
+
+
+async def test_mjpeg_stops_at_a_closing_boundary(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    (body, content_type) = multipart("stream_plain")
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200, content=body + b"--\r\n", headers={"Content-Type": content_type}
+        )
+    )
+    # ustreamer never ends its stream, so this only turns up when something
+    # else finished the body for it — and it is not a missing Content-Length.
+    frames = [frame async for frame in client.streamer.mjpeg()]
+    assert len(frames) == 2

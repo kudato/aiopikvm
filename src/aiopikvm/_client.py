@@ -28,6 +28,7 @@ from aiopikvm._exceptions import (
     _error_fields,
     _status_error,
 )
+from aiopikvm._media_ws import MediaWebSocket
 from aiopikvm._tls import CertTypes, VerifyTypes, build_ssl_context
 from aiopikvm._ws import PiKVMWebSocket
 
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from aiopikvm.resources.auth import AuthResource
     from aiopikvm.resources.gpio import GPIOResource
     from aiopikvm.resources.hid import HIDResource
+    from aiopikvm.resources.media import MediaResource
     from aiopikvm.resources.msd import MSDResource
     from aiopikvm.resources.prometheus import PrometheusResource
     from aiopikvm.resources.redfish import RedfishResource
@@ -55,6 +57,7 @@ _RESOURCE_NAMES = (
     "msd",
     "gpio",
     "streamer",
+    "media",
     "switch",
     "redfish",
     "prometheus",
@@ -671,6 +674,14 @@ class PiKVM:
         return StreamerResource(self)
 
     @cached_property
+    def media(self) -> MediaResource:
+        """Live video from the kvmd-media daemon."""
+        from aiopikvm.resources.media import MediaResource
+
+        self._ensure_client()
+        return MediaResource(self)
+
+    @cached_property
     def switch(self) -> SwitchResource:
         """Multi-port KVM switch resource."""
         from aiopikvm.resources.switch import SwitchResource
@@ -829,21 +840,7 @@ class PiKVM:
             ConfigurationError: If this client has been closed, or the URL it
                 was built with has no usable scheme.
         """
-        if self._closed:
-            raise ConfigurationError(
-                "This PiKVM client has been closed; it cannot open a new "
-                "WebSocket. Build a new client."
-            )
-        token = ""
-        if self._auth == "cookie":
-            token = self._session_token()
-            if not token:
-                raise ConfigurationError(
-                    "auth='cookie' has no session token to open a WebSocket "
-                    "with. ws() cannot log in — it is not a coroutine — so "
-                    "call 'await kvm.auth.login(user, passwd)', or make any "
-                    "request first, and open the socket after that."
-                )
+        token = self._ws_token("ws()")
         return PiKVMWebSocket(
             url=self._url,
             user=self._user,
@@ -861,3 +858,115 @@ class PiKVM:
             open_timeout=open_timeout if open_timeout is not None else self._timeout,
             close_timeout=close_timeout if close_timeout is not None else self._timeout,
         )
+
+    def media_ws(
+        self,
+        *,
+        video: str | None = "h264",
+        max_size: int | None = None,
+        max_queue: int | None = None,
+        ping_interval: float | None = 20.0,
+        ping_timeout: float | None = 20.0,
+        open_timeout: float | None = None,
+        close_timeout: float | None = None,
+    ) -> MediaWebSocket:
+        """Open a live video socket to the kvmd-media daemon.
+
+        This is a different daemon from the one
+        [`ws()`][aiopikvm.PiKVM.ws] talks to, and it does not count as a video
+        viewer: kvmd runs the streamer while at least one *kvmd* session asks
+        for video, and this socket is not one. Hold a
+        [`ws()`][aiopikvm.PiKVM.ws] open alongside it, and keep reading it, or
+        the frames stop arriving with nothing to say why.
+
+        The socket carries whichever credential this client's *auth* mode
+        says, the same way [`ws()`][aiopikvm.PiKVM.ws] does.
+
+        Args:
+            video: The format to stream. Naming one opens the pure socket,
+                which starts sending during the handshake and sends nothing
+                but raw frames; ``None`` opens the regular one, which waits
+                for [`MediaWebSocket.start()`][aiopikvm.MediaWebSocket.start]
+                and flags its keyframes. A format the daemon does not serve is
+                refused with HTTP 400 during the handshake.
+            max_size: Largest message to accept, in bytes. ``None``, the
+                default, accepts any — a message here is one video frame, and
+                a limit does not truncate an oversized one, it closes the
+                connection.
+            max_queue: How many frames to buffer before *websockets* stops
+                reading the socket. ``None`` takes this client's default,
+                which is larger than the *websockets* one: once the buffer is
+                full *websockets* pauses the transport, and because it parses
+                everything — its own keepalive pongs included — only while
+                reading, a consumer that stalls for longer than *ping_timeout*
+                has its healthy connection closed underneath it. Raising this
+                buys slack; ``ping_interval=None`` removes the trap and the
+                dead-link detection with it.
+            ping_interval: Seconds between *websockets*' own keepalive pings,
+                ``None`` to send none.
+            ping_timeout: Seconds to wait for a keepalive pong before
+                declaring the link dead, ``None`` to wait forever.
+            open_timeout: Timeout for opening the connection (defaults to the
+                client *timeout*).
+            close_timeout: Timeout for closing the connection (defaults to the
+                client *timeout*).
+
+        Returns:
+            A *MediaWebSocket* async context manager. It inherits this
+            client's *verify_ssl*, proxy configuration and *follow_redirects*.
+
+        Raises:
+            ConfigurationError: If this client has been closed, or the URL it
+                was built with has no usable scheme.
+        """
+        token = self._ws_token("media_ws()")
+        return MediaWebSocket(
+            url=self._url,
+            user=self._user,
+            # The property, not its value: read when the handshake is made.
+            passwd=lambda: self._password,
+            auth=self._auth,
+            token=token,
+            verify_ssl=self._verify_ssl,
+            cert=self._cert,
+            proxy=self._proxy,
+            trust_env=self._trust_env,
+            video=video,
+            follow_redirects=self._follow_redirects,
+            open_timeout=open_timeout if open_timeout is not None else self._timeout,
+            close_timeout=close_timeout if close_timeout is not None else self._timeout,
+            max_size=max_size,
+            max_queue=max_queue,
+            ping_interval=ping_interval,
+            ping_timeout=ping_timeout,
+        )
+
+    def _ws_token(self, what: str) -> str:
+        """Find the session token a WebSocket handshake needs, if it needs one.
+
+        Args:
+            what: Name of the method asking, for the error message.
+
+        Returns:
+            The token under ``auth="cookie"``, otherwise an empty string.
+
+        Raises:
+            ConfigurationError: This client has been closed, or it is using
+                cookie auth and has no session token yet.
+        """
+        if self._closed:
+            raise ConfigurationError(
+                "This PiKVM client has been closed; it cannot open a new "
+                "WebSocket. Build a new client."
+            )
+        if self._auth != "cookie":
+            return ""
+        token = self._session_token()
+        if not token:
+            raise ConfigurationError(
+                f"auth='cookie' has no session token to open a WebSocket "
+                f"with. {what} cannot log in — it is not a coroutine — so "
+                "call 'await kvm.auth.login(user, passwd)', or make any "
+                "request first, and open the socket after that."
+            )
+        return token

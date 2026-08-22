@@ -21,9 +21,11 @@ from aiopikvm import (
     HIDKeymaps,
     HIDState,
     InfoState,
+    MediaState,
     MSDState,
     MSDUpload,
     OCRInfo,
+    Streamer,
     StreamerState,
     SwitchState,
 )
@@ -236,3 +238,34 @@ def test_the_capture_contains_a_partial_update() -> None:
         for first in [sent[0]]
         for later in sent[1:]
     ), "no event carries a subset of the keys the first one did"
+
+
+def test_live_video_scenario_parses_into_its_models() -> None:
+    """Every recorded live-video payload is one a model fully describes.
+
+    The scenario is hand-recorded rather than captured, and it holds two
+    shapes no other fixture does: ustreamer's own ``/state``, which is the
+    object kvmd relays into ``StreamerState.streamer``, and what the media
+    daemon says it can send — once over REST and once as the announcement
+    the regular socket opens with.
+    """
+    steps = {entry["name"]: entry for entry in load_json("media_stream")["steps"]}
+
+    for name in ("state_idle", "state_with_client"):
+        state = Streamer.model_validate(steps[name]["response"]["result"])
+        assert undeclared_fields(state) == [], name
+
+    # A client of its own is the only thing that puts a row in clients_stat,
+    # so without this the typed entries would go unproven.
+    assert Streamer.model_validate(
+        steps["state_with_client"]["response"]["result"]
+    ).stream.clients_stat
+
+    rest = MediaState.model_validate(
+        steps["media_state"]["response"]["result"]["media"]
+    )
+    assert undeclared_fields(rest) == []
+
+    announcement = steps["media_ws_regular"]["frames"][0]["msg"]
+    assert announcement["event_type"] == "media"
+    assert MediaState.model_validate(announcement["event"]) == rest
