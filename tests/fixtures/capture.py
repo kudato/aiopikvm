@@ -100,6 +100,8 @@ class Endpoint(NamedTuple):
 ENDPOINTS: tuple[Endpoint, ...] = (
     Endpoint("info", "/api/info"),
     Endpoint("info_hw_system", "/api/info", {"fields": "hw,system"}),
+    Endpoint("info_hw", "/api/info", {"fields": "hw"}),
+    Endpoint("info_legacy0", "/api/info", {"legacy": 0}),
     Endpoint("log_seek60", "/api/log", {"seek": 60}, "text"),
     Endpoint("atx", "/api/atx"),
     Endpoint("hid", "/api/hid"),

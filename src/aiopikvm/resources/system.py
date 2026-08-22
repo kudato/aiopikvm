@@ -1,34 +1,73 @@
 """System API — device info and logs."""
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
 from aiopikvm._base_resource import BaseResource
 
+type InfoField = Literal[
+    "auth", "extras", "fan", "health", "hw", "meta", "node", "system", "uptime"
+]
+"""A category
+[`SystemResource.get_info()`][aiopikvm.resources.system.SystemResource.get_info]
+may ask for.
+
+Eight of them are kvmd's own submanagers. ``hw`` is not: it is an alias the
+legacy shape assembles, and asking for it with ``legacy=False`` is HTTP 400.
+"""
+
 
 class SystemResource(BaseResource):
     """System information and logs for PiKVM."""
 
-    async def get_info(self, *fields: str) -> dict[str, Any]:
+    async def get_info(self, *fields: InfoField, legacy: bool = True) -> dict[str, Any]:
         """Get general device information.
 
+        kvmd builds this out of eight submanagers — ``auth``, ``extras``,
+        ``fan``, ``health``, ``meta``, ``node``, ``system`` and ``uptime`` —
+        and then, unless *legacy* is off, rearranges them into the shape its
+        older API had:
+
+        - ``hw`` appears, holding ``health`` and the ``platform`` block
+          lifted out of ``system``;
+        - ``health`` leaves the default set, so a call that names no field
+          does not return it;
+        - ``system`` loses its ``platform`` whenever ``hw`` is in the same
+          request, and is dropped altogether unless it was named too.
+
+        With ``legacy=False`` none of that happens: each submanager comes
+        back as it is, ``health`` is in the default set, ``system`` keeps
+        its ``platform``, and ``hw`` is refused. That is also the shape the
+        WebSocket ``info`` events carry.
+
         Args:
-            *fields: Optional category filters (``"auth"``, ``"extras"``,
-                ``"fan"``, ``"hw"``, ``"meta"``, ``"system"``).
-                When omitted, all categories are returned.
+            *fields: Categories to return. Naming none asks for kvmd's own
+                default, which is every category but ``health`` under the
+                legacy shape and every category under the modern one.
+                ``hw`` is only a field while *legacy* is on.
+            legacy: Ask for the legacy shape. ``True`` matches kvmd's own
+                default and is what this client has always sent, so the
+                request goes out unchanged; ``False`` adds ``legacy=0``.
 
         Returns:
             Dictionary with device information grouped by category.
+
+        Raises:
+            APIError: If a category is not one kvmd knows (HTTP 400) —
+                ``hw`` with *legacy* off included, since the modern shape
+                has no such submanager.
         """
-        params: dict[str, Any] | None = None
+        params: dict[str, Any] = {}
         if fields:
             # kvmd reads `fields` as a single comma-separated value; passing
             # a list makes httpx send repeated params (fields=a&fields=b) and
             # the server keeps only the first one.
-            params = {"fields": ",".join(fields)}
-        result: dict[str, Any] = await self._get("/api/info", params=params)
+            params["fields"] = ",".join(fields)
+        if not legacy:
+            params["legacy"] = 0
+        result: dict[str, Any] = await self._get("/api/info", params=params or None)
         return result
 
     async def get_log(self, *, seek: int = 0) -> str:

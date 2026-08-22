@@ -5,10 +5,10 @@ pikvm_atx_enabled 0
 pikvm_atx_power 0
 
 # TYPE pikvm_hw_cpu_percent gauge
-pikvm_hw_cpu_percent 18
+pikvm_hw_cpu_percent 25
 
 # TYPE pikvm_hw_mem_available gauge
-pikvm_hw_mem_available 3409182720
+pikvm_hw_mem_available 3408814080
 
 # TYPE pikvm_hw_mem_percent gauge
 pikvm_hw_mem_percent 10.0
