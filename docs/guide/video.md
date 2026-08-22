@@ -18,33 +18,18 @@ Two things are true of everything here:
 
 ## Keeping the streamer up
 
-Open a [WebSocket](websocket.md) with `stream=True` (the default) and **keep
-reading it** for as long as video is wanted:
+Open a [WebSocket](websocket.md) with `stream=True` (the default) and hold it
+for as long as video is wanted:
 
 ```python
-import asyncio
-import contextlib
-
-async def drain(ws):
-    async for _ in ws.events():
-        pass
-
-async with kvm.ws() as ws:
-    reader = asyncio.create_task(drain(ws))
-    try:
-        ...  # read video here
-    finally:
-        reader.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await reader
+async with kvm.ws():
+    ...  # read video here
 ```
 
-!!! warning "An open socket is not enough — it has to be read"
-    A socket nobody reads dies after about forty seconds, and takes the
-    streamer with it ten seconds later. The inbound queue fills, the library
-    stops reading the transport, its own keepalive pong is never parsed, and
-    the connection fails on the ping timeout. `stream=True` on a socket that
-    is merely open buys less than a minute of video.
+That is all of it — the socket reads itself, and a session that never touches
+`events()` keeps counting as a viewer for as long as the block runs. See
+[Backpressure](websocket.md#backpressure) for why that has to be true and what
+happens to the events nobody collects.
 
 Devices configured with `kvmd.streamer.forever: true` run the streamer
 regardless, and none of this applies to them.
@@ -217,8 +202,7 @@ Hand frames off to something that cannot block — a queue, a file, a subprocess
 
 ## Full example
 
-Recording ten seconds of H.264 to a file, with a session held open and drained
-throughout:
+Recording ten seconds of H.264 to a file, with a session held open throughout:
 
 ```python
 import asyncio
@@ -227,24 +211,14 @@ from aiopikvm import PiKVM
 
 async def main() -> None:
     async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
-        async with kvm.ws() as ws:
-            async def drain() -> None:
-                async for _ in ws.events():
-                    pass
-
-            reader = asyncio.create_task(drain())
-            try:
-                with open("capture.h264", "wb") as out:
-                    async with kvm.media_ws() as video:
-                        await video.request_keyframe()
+        async with kvm.ws():                    # keeps the streamer running
+            with open("capture.h264", "wb") as out:
+                async with kvm.media_ws() as video:
+                    await video.request_keyframe()
+                    with contextlib.suppress(TimeoutError):
                         async with asyncio.timeout(10):
-                            with contextlib.suppress(TimeoutError):
-                                async for frame in video.frames():
-                                    out.write(frame.data)
-            finally:
-                reader.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await reader
+                            async for frame in video.frames():
+                                out.write(frame.data)
 
 asyncio.run(main())
 ```

@@ -80,7 +80,7 @@ class StreamerResource(BaseResource):
                 [`UnavailableError`][aiopikvm.UnavailableError]: that one means
                 HTTP 503, and kvmd never sees this request. kvmd runs the
                 streamer while at least one session asks for video, so open a
-                [`ws()`][aiopikvm.PiKVM.ws] first and keep reading it.
+                [`ws()`][aiopikvm.PiKVM.ws] first and hold it open.
             ResponseError: The body was not the envelope this endpoint
                 documents, which is what a proxy answering instead of
                 ustreamer looks like.
@@ -107,8 +107,8 @@ class StreamerResource(BaseResource):
         loop to be left with a ``break`` or cancelled from outside. The
         streamer has to be running for there to be anything to read, and kvmd
         runs it while at least one session asks for video — so open a
-        [`ws()`][aiopikvm.PiKVM.ws] around this and keep reading it, or the
-        stream dies under this loop.
+        [`ws()`][aiopikvm.PiKVM.ws] around this, or the stream dies under
+        this loop.
 
         Two of ustreamer's flags are deliberately missing. ``advance_headers``
         sends each part's headers before the frame they describe exists, which

@@ -30,7 +30,13 @@ from aiopikvm._exceptions import (
 )
 from aiopikvm._media_ws import MediaWebSocket
 from aiopikvm._tls import CertTypes, VerifyTypes, build_ssl_context
-from aiopikvm._ws import PiKVMWebSocket
+from aiopikvm._ws import (
+    _WS_MAX_QUEUE,
+    _WS_MAX_SIZE,
+    _WS_PING_INTERVAL,
+    _WS_PING_TIMEOUT,
+    PiKVMWebSocket,
+)
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -803,6 +809,10 @@ class PiKVM:
         binary: bool = False,
         open_timeout: float | None = None,
         close_timeout: float | None = None,
+        max_size: int | None = _WS_MAX_SIZE,
+        max_queue: int = _WS_MAX_QUEUE,
+        ping_interval: float | None = _WS_PING_INTERVAL,
+        ping_timeout: float | None = _WS_PING_TIMEOUT,
     ) -> PiKVMWebSocket:
         """Create a WebSocket connection.
 
@@ -829,6 +839,17 @@ class PiKVM:
                 the client *timeout*).
             close_timeout: Timeout for closing the connection (defaults to
                 the client *timeout*).
+            max_size: Largest frame to accept, in bytes, or ``None`` for no
+                limit. kvmd's events are small; the cap is *websockets*' own.
+            max_queue: How many frames the transport may buffer before it
+                pauses reading. The socket is drained continuously, so this
+                is here for a caller who knows their case is unusual.
+            ping_interval: Seconds between the protocol keepalive pings, or
+                ``None`` to send none — which leaves a link that dies
+                silently looking open. This is *websockets*' keepalive, not
+                [`PiKVMWebSocket.ping()`][aiopikvm.PiKVMWebSocket.ping].
+            ping_timeout: Seconds to wait for a keepalive pong before the
+                connection is failed, or ``None`` to wait forever.
 
         Returns:
             A *PiKVMWebSocket* async context manager. It inherits this
@@ -857,6 +878,10 @@ class PiKVM:
             follow_redirects=self._follow_redirects,
             open_timeout=open_timeout if open_timeout is not None else self._timeout,
             close_timeout=close_timeout if close_timeout is not None else self._timeout,
+            max_size=max_size,
+            max_queue=max_queue,
+            ping_interval=ping_interval,
+            ping_timeout=ping_timeout,
         )
 
     def media_ws(
@@ -876,8 +901,8 @@ class PiKVM:
         [`ws()`][aiopikvm.PiKVM.ws] talks to, and it does not count as a video
         viewer: kvmd runs the streamer while at least one *kvmd* session asks
         for video, and this socket is not one. Hold a
-        [`ws()`][aiopikvm.PiKVM.ws] open alongside it, and keep reading it, or
-        the frames stop arriving with nothing to say why.
+        [`ws()`][aiopikvm.PiKVM.ws] open alongside it, or the frames stop
+        arriving with nothing to say why.
 
         The socket carries whichever credential this client's *auth* mode
         says, the same way [`ws()`][aiopikvm.PiKVM.ws] does.

@@ -288,13 +288,42 @@ async def test_connector_forwards_what_it_was_given() -> None:
         proxy=None,
         open_timeout=7.0,
         close_timeout=3.0,
+        max_size=123,
+        max_queue=7,
+        ping_interval=1.5,
+        ping_timeout=2.5,
     )
     assert connector.open_timeout == 7.0
     assert connector.connection_kwargs["ssl"] is context
     assert connector.additional_headers == {"X-KVMD-User": "admin"}
-    # close_timeout only reaches the connection websockets builds per attempt.
+    # These only reach the connection websockets builds per attempt.
     built = connector.protocol_factory(parse_uri(connector.uri))
     assert built.close_timeout == 3.0
+    assert built.ping_interval == 1.5
+    assert built.ping_timeout == 2.5
+    assert built.max_queue_high == 7
+    assert built.protocol.max_message_size == 123
+
+
+async def test_the_socket_settings_reach_the_handshake() -> None:
+    """What ws() takes for the keepalive is what the connector is given."""
+    ws = socket(max_size=None, max_queue=99, ping_interval=1.0, ping_timeout=2.0)
+    connector = AsyncMock(return_value=iterating())
+    with patch("aiopikvm._ws._Connector", connector):
+        async with ws:
+            pass
+    passed = connector.call_args.kwargs
+    assert passed["max_size"] is None
+    assert passed["max_queue"] == 99
+    assert passed["ping_interval"] == 1.0
+    assert passed["ping_timeout"] == 2.0
+
+
+def test_the_socket_defaults_to_what_websockets_does() -> None:
+    """Overriding one of these is a choice, not a correction of this client."""
+    ws = socket()
+    assert (ws._max_size, ws._max_queue) == (2**20, 16)
+    assert (ws._ping_interval, ws._ping_timeout) == (20.0, 20.0)
 
 
 async def test_aenter_oserror() -> None:
@@ -1257,38 +1286,10 @@ async def test_ping_does_not_outlive_the_socket() -> None:
             await pinging
 
 
-async def test_ping_answered_while_it_waits_for_its_turn_reads_nothing() -> None:
-    """The pong can land between the check and the socket becoming free.
-
-    Two tasks reading and one pong is enough for it: the ping has to notice
-    that its answer already arrived, or it blocks on a frame nobody wants.
-    """
-
-    class _ContendedLock(asyncio.Lock):
-        """A lock whose acquire yields, the way a contended one does."""
-
-        async def acquire(self) -> bool:
-            await asyncio.sleep(0)
-            return await super().acquire()
-
-    ws = socket()
-    conn = iterating()
-    ws._connection = conn
-    ws._read_lock = _ContendedLock()
-    waiter: asyncio.Future[float] = asyncio.get_running_loop().create_future()
-    ws._pong_waiters.append(waiter)
-
-    waiting = asyncio.create_task(ws._wait_pong(waiter))
-    await asyncio.sleep(0)
-    ws._resolve_pongs()
-    await waiting
-
-    conn.recv.assert_not_called()
-    assert not ws._read_lock.locked()
-
-
-async def test_ping_buffers_only_so_much(caplog: pytest.LogCaptureFixture) -> None:
-    """A caller that only ever pings must not accumulate a day of broadcasts."""
+async def test_the_buffer_holds_only_so_much(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A socket nobody reads must not accumulate a day of broadcasts."""
     ws = socket()
     with caplog.at_level(logging.WARNING, logger="aiopikvm._ws"):
         for index in range(_PENDING_LIMIT + 2):
@@ -1296,6 +1297,51 @@ async def test_ping_buffers_only_so_much(caplog: pytest.LogCaptureFixture) -> No
     assert len(ws._pending) == _PENDING_LIMIT
     assert ws._pending[0]["event"]["index"] == 2, "the oldest went first"
     assert caplog.text.count("Dropping WebSocket events") == 1, "warned once"
+
+
+async def test_a_dropped_event_is_merged_into_the_next_of_its_kind() -> None:
+    """Dropping the oldest must not drop what only it said (#126).
+
+    kvmd sends a subsystem in full once and then only what changed, so an
+    event lost off the front of the queue would leave every later one without
+    the rest of its model.
+    """
+    ws = socket()
+    ws._buffer({"event_type": "atx", "event": {"leds": {"power": True}}})
+    for index in range(_PENDING_LIMIT):
+        ws._buffer({"event_type": "info", "event": {"index": index}})
+    ws._buffer({"event_type": "atx", "event": {"busy": False}})
+
+    events = [ws._next_event() for _ in range(len(ws._pending))]
+    atx = [event for event in events if event["event_type"] == "atx"]
+    assert len(atx) == 1, "the full one was dropped, the partial one survived"
+    assert atx[0]["event"] == {"leds": {"power": True}, "busy": False}
+
+
+async def test_a_carry_with_nothing_to_merge_into_is_handed_over_whole() -> None:
+    """A dropped event whose successor carries no payload still counts."""
+    ws = socket()
+    ws._carry_over({"event_type": "atx", "event": {"leds": {"power": True}}})
+    ws._pending.append({"event_type": "atx"})
+    assert ws._next_event() == {
+        "event_type": "atx",
+        "event": {"leds": {"power": True}},
+    }
+
+
+async def test_an_event_with_no_type_is_handed_over_untouched() -> None:
+    """Nothing to key a carry by, so there is nothing to fold in."""
+    ws = socket()
+    ws._pending.append({"event": {"whatever": 1}})
+    assert ws._next_event() == {"event": {"whatever": 1}}
+
+
+async def test_a_dropped_event_carries_only_what_was_an_event() -> None:
+    """A frame shaped like nothing kvmd sends leaves no carry behind."""
+    ws = socket()
+    ws._carry_over({"event_type": "atx", "event": "not an object"})
+    ws._carry_over({"event": {"no": "type"}})
+    assert ws._carry == {}
 
 
 async def _collect(ws: PiKVMWebSocket, into: list[dict[str, Any]]) -> None:
@@ -1349,6 +1395,133 @@ async def test_version_ignores_a_loop_event_without_one(event: Any) -> None:
 
 
 # --- Lifecycle -----------------------------------------------------------
+
+
+# --- Reading a socket nobody reads ---------------------------------------
+
+
+async def until(check: Callable[[], bool], timeout: float = 5.0) -> None:
+    """Let the reader task run until *check* holds.
+
+    Args:
+        check: What is being waited for.
+        timeout: Seconds to give up after, so a broken expectation fails the
+            test instead of hanging it.
+
+    Raises:
+        TimeoutError: *check* never held.
+    """
+    async with asyncio.timeout(timeout):
+        while not check():
+            await asyncio.sleep(0)
+
+
+async def entered(conn: AsyncMock) -> PiKVMWebSocket:
+    """Enter a socket whose handshake hands back *conn*.
+
+    Args:
+        conn: The connection the handshake resolves to.
+
+    Returns:
+        The socket, entered, its reader running.
+    """
+    ws = socket()
+    with patch("aiopikvm._ws._Connector", AsyncMock(return_value=conn)):
+        await ws.__aenter__()
+    return ws
+
+
+async def announcing(
+    connection: websockets.asyncio.server.ServerConnection,
+) -> None:
+    """Send what kvmd sends on connecting, then hold the socket open."""
+    await connection.send(json.dumps(recorded("loop")))
+    await connection.send(json.dumps(recorded("atx")))
+    await _hold(connection)
+
+
+async def test_an_open_socket_is_read_even_when_nobody_reads_it() -> None:
+    """The whole of #126: an unread socket stops answering its own keepalive.
+
+    *websockets* parses frames in the transport callback and pauses reading
+    once its queue fills, so the keepalive pong is never seen and the
+    connection is dropped about forty seconds in — taking kvmd's streamer
+    with it. Nothing here waits forty seconds; what is checked is that the
+    frames were taken off the transport with nothing asking for them.
+    """
+    async with serving(handler=announcing) as (url, _):
+        async with socket(url) as ws:
+            await until(lambda: len(ws._pending) == 2)
+            assert [event["event_type"] for event in ws._pending] == ["loop", "atx"]
+            assert ws.version == KvmdVersion(4, 206), "read without an events() call"
+
+
+async def test_the_reader_stops_with_the_block() -> None:
+    """Nothing keeps reading a socket the caller is done with."""
+    async with serving(handler=announcing) as (url, _):
+        ws = socket(url)
+        async with ws:
+            reader = ws._reader
+            assert reader is not None
+        assert reader.done()
+        assert ws._reader is None
+
+
+async def test_events_hand_over_what_arrived_before_they_were_asked() -> None:
+    """The reader collects from the moment the socket opens, not on demand."""
+    async with serving(handler=announcing) as (url, _):
+        async with socket(url) as ws:
+            await until(lambda: len(ws._pending) == 2)
+            collected = []
+            async for event in ws.events():
+                collected.append(event["event_type"])
+                if len(collected) == 2:
+                    break
+    assert collected == ["loop", "atx"]
+
+
+async def test_a_break_nobody_noticed_is_raised_at_exit() -> None:
+    """A block that only holds the socket has nowhere else to find out."""
+    conn = iterating(closed=websockets.exceptions.ConnectionClosedError(None, None))
+    ws = await entered(conn)
+    await until(lambda: ws._reader is not None and ws._reader.done())
+    with pytest.raises(WebSocketError, match="Connection lost"):
+        await ws.__aexit__(None, None, None)
+    assert ws._connection is None, "still closed, whatever it raised"
+
+
+async def test_a_clean_close_is_not_raised_at_exit() -> None:
+    """kvmd saying goodbye is not a failure to report."""
+    ws = await entered(iterating())
+    await until(lambda: ws._reader is not None and ws._reader.done())
+    await ws.__aexit__(None, None, None)
+
+
+async def test_a_break_the_block_already_raised_is_not_raised_again() -> None:
+    """__aexit__ must not step on whatever the block was failing with."""
+    conn = iterating(closed=websockets.exceptions.ConnectionClosedError(None, None))
+    ws = await entered(conn)
+    await until(lambda: ws._reader is not None and ws._reader.done())
+    await ws.__aexit__(ValueError, ValueError("the block failed"), None)
+
+
+async def test_a_break_events_reported_is_not_reported_twice() -> None:
+    """A caller that read the socket has already been told."""
+    conn = iterating(closed=websockets.exceptions.ConnectionClosedError(None, None))
+    ws = await entered(conn)
+    with pytest.raises(WebSocketError, match="Connection lost"):
+        async for _ in ws.events():
+            pass
+    await ws.__aexit__(None, None, None)
+
+
+async def test_a_break_a_ping_reported_is_not_reported_twice() -> None:
+    """Nor a caller who found out by pinging."""
+    conn = iterating(closed=websockets.exceptions.ConnectionClosedError(None, None))
+    ws = await entered(conn)
+    with pytest.raises(WebSocketError, match="Connection lost"):
+        await ws.ping(timeout=5)
+    await ws.__aexit__(None, None, None)
 
 
 async def test_aexit_closes_connection() -> None:

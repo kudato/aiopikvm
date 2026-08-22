@@ -472,13 +472,12 @@ async def _wait_for_the_streamer(live: PiKVM) -> None:
 
 @contextlib.asynccontextmanager
 async def watching(live: PiKVM) -> AsyncIterator[None]:
-    """Hold a session that asks kvmd for video, and keep reading it.
+    """Hold a session that asks kvmd for video.
 
     kvmd runs the streamer while at least one connected session asks for
-    video, so everything below needs one open. It also has to be *read*:
-    *websockets* stops reading the transport once its inbound queue fills, its
-    own keepalive pong then goes unread, and the connection is closed about
-    forty seconds in — taking the streamer with it (#126).
+    video, so everything below needs one open. Nothing here reads it: the
+    socket reads itself, which is what keeps it — and the streamer with it —
+    from dying about forty seconds in (#126).
 
     Args:
         live: The connected client.
@@ -486,20 +485,32 @@ async def watching(live: PiKVM) -> AsyncIterator[None]:
     Yields:
         Nothing; the streamer is running for the duration of the block.
     """
+    async with live.ws(stream=True):
+        await _wait_for_the_streamer(live)
+        yield
+
+
+UNREAD_SOCKET_WINDOW = 55.0
+"""How long an unread socket has to survive to prove #126 is fixed.
+
+The bug killed it at about forty seconds — one keepalive interval plus one
+keepalive timeout — and kvmd stopped the streamer some ten seconds after that.
+"""
+
+
+async def test_an_unread_socket_outlives_its_own_keepalive(live: PiKVM) -> None:
+    """A held socket keeps the streamer up without being read (#126).
+
+    Slow by construction: the failure this guards against takes about forty
+    seconds to happen, so nothing shorter can tell a pass from one.
+    """
     async with live.ws(stream=True) as ws:
-
-        async def drain() -> None:
-            async for _ in ws.events():
-                pass
-
-        reader = asyncio.create_task(drain())
-        try:
-            await _wait_for_the_streamer(live)
-            yield
-        finally:
-            reader.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await reader
+        await _wait_for_the_streamer(live)
+        await asyncio.sleep(UNREAD_SOCKET_WINDOW)
+        # A dead socket answers neither, and a stopped streamer has no
+        # upstream for nginx to reach, which arrives as HTTP 502.
+        assert await ws.ping() >= 0
+        assert (await live.streamer.get_ustreamer_state()).stream.clients >= 0
 
 
 async def test_media_daemon_lists_a_video_format(live: PiKVM) -> None:
