@@ -1,12 +1,50 @@
-"""Assertions shared by the mocked suite and the live-device suite."""
+"""Helpers shared across the test suite.
+
+`undeclared_fields` is an assertion used by both the mocked suite and the
+live-device suite. `scrub_proxy_environment` is the opposite shape: every
+test uses it except the live ones, which need the environment it takes away.
+"""
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 
-__all__ = ["undeclared_fields"]
+__all__ = ["scrub_proxy_environment", "undeclared_fields"]
+
+
+def scrub_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Take the machine's proxy configuration away from a test.
+
+    *websockets* resolves a proxy from the environment itself, through
+    `urllib.request`, unless the caller passes `proxy=` or connects over
+    `sock`/`unix`. This client passes none of those, so `tests/test_ws.py`
+    dials whatever the machine has configured instead of the server it just
+    started.
+
+    ``no_proxy=*`` is the line that stops it: `urllib.request.proxy_bypass()`
+    reads the star as a blanket bypass and answers before any proxy is looked
+    up. Setting it also does what deleting cannot — on macOS and Windows
+    `urllib.request.getproxies()` falls back to the operating system's own
+    settings when the environment names no proxy at all, so an empty
+    environment uncovers a system-wide proxy rather than hiding one. (Linux
+    has no such fallback; `getproxies` there is `getproxies_environment`.)
+
+    The variables go too, in every spelling `getproxies_environment()` scans
+    for. No test here needs that today, and removing the loop leaves the suite
+    green: it is so that anything reading ``HTTPS_PROXY`` on its own, without
+    honouring ``no_proxy``, also sees a machine with no proxy on it.
+
+    Args:
+        monkeypatch: Patcher whose scope decides how long this lasts.
+    """
+    for name in list(os.environ):
+        if name.lower().endswith("_proxy"):
+            monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("no_proxy", "*")
 
 
 def undeclared_fields(value: Any, path: str = "") -> list[str]:

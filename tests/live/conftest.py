@@ -25,6 +25,18 @@ def _require(name: str) -> str:
     return value
 
 
+@pytest.fixture(autouse=True)
+def no_machine_proxy() -> None:
+    """Keep the machine's proxy, overriding the scrub in `tests/conftest.py`.
+
+    The rest of the suite either mocks the network away or talks to a server
+    on this machine, and wants the proxy environment gone. These reach
+    whatever `PIKVM_URL` points at, which may only be reachable through it.
+
+    `tests/live/test_isolation.py` is what keeps this honest.
+    """
+
+
 @pytest.fixture()
 async def live() -> AsyncIterator[PiKVM]:
     """Client connected to the real device."""

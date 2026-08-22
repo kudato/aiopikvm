@@ -6,6 +6,7 @@ import pytest
 import respx
 
 from aiopikvm import PiKVM
+from tests.helpers import scrub_proxy_environment
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -21,13 +22,37 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Skip everything marked ``live`` unless ``--live`` was given."""
+    """Skip everything marked ``live`` unless ``--live`` was given.
+
+    The marker is what decides, not the path. ``item.keywords`` carries the
+    names of every parent node, and the directory is called ``live``, so
+    testing against it would skip anything under `tests/live` whether it
+    needs a device or not — `tests/live/test_isolation.py` needs none.
+    """
     if config.getoption("--live"):
         return
     skip = pytest.mark.skip(reason="needs --live and a reachable PiKVM")
     for item in items:
-        if "live" in item.keywords:
+        if item.get_closest_marker("live") is not None:
             item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True)
+def no_machine_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Hide the machine's proxy from every test outside `tests/live`.
+
+    `tests/test_ws.py` starts a real server on this machine and points a real
+    *websockets* client at it. A developer who works behind a proxy watches
+    the client dial the proxy instead, and the assertions about what it
+    connected to stop holding, with nothing in the output to say the
+    environment is why. `scrub_proxy_environment` covers what it takes to
+    make this stick.
+
+    `tests/live` overrides this fixture with one that does nothing: those talk
+    to a real device, which may only be reachable through the very proxy this
+    one throws away.
+    """
+    scrub_proxy_environment(monkeypatch)
 
 
 @pytest.fixture()
