@@ -131,8 +131,8 @@ class StreamerResource(BaseResource):
                 [`MJPEGFrame.data`][aiopikvm.MJPEGFrame] is then empty.
             chunk_size: How much to read off the socket at a time, in bytes.
             timeout: Override the request timeout. By default the read timeout
-                is disabled — a stream has no end to wait for — while connect
-                and write keep their client-level values.
+                is disabled — a stream has no end to wait for — while connect,
+                write and pool keep their client-level values.
 
         Yields:
             Each frame, with whatever its part headers said about it.

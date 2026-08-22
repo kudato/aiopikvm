@@ -120,10 +120,18 @@ class SystemResource(BaseResource):
             seek: How many seconds of history to return (``0`` = default).
             timeout: Override the request timeout. By default the read
                 timeout is disabled — an idle device logs nothing for hours —
-                while connect and write keep their client-level values.
+                while connect, write and pool keep their client-level values.
 
         Yields:
             Individual log lines as they arrive.
+
+        Raises:
+            APIError: If kvmd refuses the read — a ``seek`` its validators do
+                not accept, say. The body is plain text either way, so the
+                reason arrives in kvmd's own error envelope rather than in
+                the stream.
+            PiKVMError: If PiKVM is unreachable, or the connection breaks
+                while the log is being followed.
         """
         params: dict[str, Any] = {"follow": 1}
         if seek > 0:

@@ -204,8 +204,8 @@ class MSDResource(BaseResource):
                 are refused.
             timeout: Override this client's timeout for the request. By
                 default the read timeout is disabled, since the response
-                stays open for the length of the download, while connect and
-                write keep their client-level values.
+                stays open for the length of the download, while connect,
+                write and pool keep their client-level values.
 
         Returns:
             The last progress record, whose ``name`` is what kvmd stored and
@@ -382,8 +382,8 @@ class MSDResource(BaseResource):
             chunk_size: Size of the chunks yielded, in bytes.
             timeout: Override the request timeout. By default the read
                 timeout is disabled — an image takes far longer to transfer
-                than the client default allows — while connect and write
-                keep their client-level values.
+                than the client default allows — while connect, write and
+                pool keep their client-level values.
 
         Yields:
             Chunks of the image, in order.

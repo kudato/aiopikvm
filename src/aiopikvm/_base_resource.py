@@ -91,7 +91,7 @@ class BaseResource:
         headers: dict[str, str] | None = None,
         timeout: float | httpx.Timeout | None = None,
     ) -> AsyncIterator[httpx.Response]:
-        """Open a streaming connection with the read timeout lifted.
+        """Open a streaming connection, by default with the read timeout lifted.
 
         Every streaming endpoint wants the same thing from its timeout and
         none of them want the client-level one, which is sized for a request
@@ -104,16 +104,21 @@ class BaseResource:
             params: Query parameters.
             headers: Extra HTTP headers.
             timeout: Override the default described above, in full — a value
-                here is passed on as given, read timeout included.
+                here is passed on as given, so a read timeout named in it is
+                applied rather than lifted.
 
         Yields:
             The *httpx.Response* with an unconsumed body.
 
         Raises:
-            PiKVMError: Whatever [`PiKVM.stream()`][aiopikvm.PiKVM.stream]
-                raises for a transport failure or an error status. Nothing
-                here reads the body, so the response envelope — which a
-                streaming endpoint sends per record anyway — is the caller's.
+            PiKVMError: If this client has been closed, or the async context
+                has not been entered yet — the default timeout is read off
+                the underlying client, so that is settled before anything is
+                sent. Otherwise whatever
+                [`PiKVM.stream()`][aiopikvm.PiKVM.stream] raises for a
+                transport failure or an error status. Nothing here reads the
+                body, so the response envelope — which a streaming endpoint
+                sends per record anyway — is the caller's.
         """
         async with self._client.stream(
             method,

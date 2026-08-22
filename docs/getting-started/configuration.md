@@ -243,9 +243,12 @@ async with httpx.AsyncClient(verify=False, timeout=30.0) as http:
     `PiKVM` that keeps serving requests through an `httpx.AsyncClient` its
     owner is free to have closed in the meantime.
 
-    Its `timeout` is the one every call uses, streaming calls included: those
-    lift the read timeout, since a stream has no end to wait for, and keep the
-    connect, write and pool values the injected client was built with.
+    Its `timeout` is the one every HTTP call uses, streaming calls included:
+    those lift the read timeout, since a stream has no end to wait for, and
+    keep the connect, write and pool values the injected client was built
+    with. The sockets are the exception — `ws()`, `media_ws()` and `webrtc()`
+    do not go through httpx at all, and take their `open_timeout` and
+    `close_timeout` from the `timeout` passed to `PiKVM` itself.
 
 ## Resource access
 

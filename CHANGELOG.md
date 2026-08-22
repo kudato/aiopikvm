@@ -586,7 +586,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   connect, write and pool values back on exactly the calls where a long
   transfer is expected. They now read the underlying client's own timeout and
   lift only the read one, which is what a stream needs and all any of them
-  ever wanted (#137).
+  ever wanted. Two smaller escapes went with it: a `PiKVM` built with an
+  `httpx.Timeout` rather than a float — which `httpx.AsyncClient` itself
+  accepts — made every streaming call raise a bare `AssertionError` from
+  inside httpx, outside this library's exception hierarchy and so past
+  `except PiKVMError`, and under `python -O`, where that assert is compiled
+  out, it streamed with the full read timeout instead. One built with a
+  four-tuple never lifted the read timeout at all (#137).
 - `PiKVMWebSocket.states()` no longer starts merging from nothing. Its merge
   base was a local of the async generator, so it began empty on every call,
   while kvmd sends each subsystem in full only when the socket opens and only
