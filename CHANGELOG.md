@@ -164,6 +164,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   calls it, and without `remove_incomplete` a failed download leaves an
   incomplete image occupying the name, which is then refused on the retry
   (#40).
+- `auth` on `PiKVM()`, choosing which of kvmd's credential sources the client
+  uses: `"headers"` (the `X-KVMD-*` pair, unchanged and still the default),
+  `"basic"` (`Authorization: Basic`, what Redfish tooling and ordinary HTTP
+  clients expect), or `"cookie"` (a session token). kvmd tries its four
+  sources in a fixed order and the first one *present* decides the request,
+  so sending more than one is not a fallback — the earlier one wins and the
+  rest are never looked at, which is why the modes are exclusive rather than
+  additive. `"cookie"` logs in on the first request that needs a token and
+  once more if kvmd refuses the one it holds, then gives up, so a wrong
+  password fails as a wrong password instead of looping. The WebSocket
+  handshake carries whichever credential the mode says (#63).
+- `session_expire` on `PiKVM()`, the lifetime of a session `auth="cookie"`
+  opens. kvmd cannot close a single session — `logout()` ends every session
+  its user has — so on a device that sets no limit of its own, a client that
+  logs in and goes away leaves that session behind for good. This is how to
+  have it lapse instead (#63).
 - `SystemResource.get_state()` and the `Info*` models behind it. `/api/info`
   was the one subsystem with no types at all, and it carries what a dashboard
   polls: CPU load and temperature, throttling flags, memory, fan state, the
