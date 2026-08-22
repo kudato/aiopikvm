@@ -234,6 +234,36 @@ All response models inherit from a base class with `extra="allow"` for forward-c
     options:
       show_bases: false
 
+## WebRTC
+
+::: aiopikvm.WebRTCFeatures
+    options:
+      show_bases: false
+
+::: aiopikvm.WebRTCICE
+    options:
+      show_bases: false
+
+::: aiopikvm.WebRTCEvent
+    options:
+      show_bases: false
+
+::: aiopikvm.WebRTCJSEP
+    options:
+      show_bases: false
+
+::: aiopikvm.WebRTCPluginData
+    options:
+      show_bases: false
+
+::: aiopikvm.WebRTCPluginEvent
+    options:
+      show_bases: false
+
+::: aiopikvm.WebRTCResult
+    options:
+      show_bases: false
+
 ## Switch
 
 ::: aiopikvm.SwitchState

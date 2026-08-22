@@ -30,6 +30,40 @@ aiopikvm automatically installs the following dependencies:
 | [pydantic](https://docs.pydantic.dev/) v2 | Response models |
 | [websockets](https://websockets.readthedocs.io/) | WebSocket client |
 
+## The `webrtc` extra
+
+One feature needs more than that:
+[`PiKVM.webrtc()`][aiopikvm.PiKVM.webrtc], which talks to the device's Janus
+gateway.
+
+=== "pip"
+
+    ```bash
+    pip install 'aiopikvm[webrtc]'
+    ```
+
+=== "uv"
+
+    ```bash
+    uv add 'aiopikvm[webrtc]'
+    ```
+
+=== "poetry"
+
+    ```bash
+    poetry add 'aiopikvm[webrtc]'
+    ```
+
+It pulls [aiortc](https://github.com/aiortc/aiortc), which brings a bundled
+FFmpeg, a DTLS stack and an SRTP binding — thirteen packages and around 65 MB,
+against the twelve and 10 MB of the base install. Hence the extra: nothing
+else in the client imports any of it, and the two video paths that need
+nothing extra are described in [Live Video](../guide/video.md).
+
+PyAV, the FFmpeg binding, publishes wheels for manylinux and musllinux on
+x86_64, aarch64 and armv7l as well as macOS and Windows, so a Raspberry Pi or
+an Alpine container installs from binaries like anything else.
+
 ## Python version
 
 aiopikvm requires **Python 3.13** or later.

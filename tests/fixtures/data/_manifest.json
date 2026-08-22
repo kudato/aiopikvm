@@ -206,6 +206,10 @@
       "file": "hid_keys.json",
       "description": "Every key name kvmd accepts: the keys of its WEB_TO_EVDEV table, sorted. Read off the device rather than off the wire — no endpoint exposes the table — and kept verbatim, so re-running the command diffs clean: python3 -c 'import json; from kvmd.keyboard.mappings import WEB_TO_EVDEV; print(json.dumps({\"keys\": sorted(WEB_TO_EVDEV)}, indent=2))'"
     },
+    "janus_session": {
+      "file": "janus_session.json",
+      "description": "A whole WebRTC session against the Janus gateway at /janus/ws, where nothing speaks the kvmd envelope: create, attach, features, watch and its SDP offer, the answer carried by start, trickle, keepalive, key_required, stop, detach and destroy, with every refusal beside them — an unauthenticated upgrade (nginx 401, not kvmd), a handshake without the janus-protocol subprotocol (502), an unknown plugin, a request the plugin does not implement, a body with no request and one whose request is not a string, a message to a detached handle, and a keepalive after the session is gone. Pins that the plugin answers by pushing an event that does not carry the request's transaction, and that a negotiation which succeeds in every visible way still delivers no frames until a kvmd viewer socket is open beside it."
+    },
     "media_stream": {
       "file": "media_stream.json",
       "description": "Live video from both surfaces kvmd proxies: ustreamer own API under /streamer and the kvmd-media daemon under /api/media. Holds the ustreamer state with nobody watching, with a session watching and with a named stream client in clients_stat; the MJPEG part headers plain, with extra_headers, with zero_data, and under the two browser workaround flags the client does not offer; the 404 and 502 shapes that carry no kvmd envelope; the media daemon state; and both media sockets, pure and regular, with the two refused video formats."

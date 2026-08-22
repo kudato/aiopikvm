@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Self
@@ -30,6 +30,7 @@ from aiopikvm._exceptions import (
 )
 from aiopikvm._media_ws import MediaWebSocket
 from aiopikvm._tls import CertTypes, VerifyTypes, build_ssl_context
+from aiopikvm._webrtc import WebRTCSession
 from aiopikvm._ws import (
     _WS_MAX_QUEUE,
     _WS_MAX_SIZE,
@@ -962,6 +963,102 @@ class PiKVM:
             close_timeout=close_timeout if close_timeout is not None else self._timeout,
             max_size=max_size,
             max_queue=max_queue,
+            ping_interval=ping_interval,
+            ping_timeout=ping_timeout,
+        )
+
+    def webrtc(
+        self,
+        *,
+        audio: bool = False,
+        orientation: int = 0,
+        ice_servers: Sequence[str] | None = None,
+        frame_buffer: int = 8,
+        keepalive_interval: float = 25.0,
+        open_timeout: float | None = None,
+        close_timeout: float | None = None,
+        negotiate_timeout: float = 30.0,
+        ping_interval: float | None = 20.0,
+        ping_timeout: float | None = 20.0,
+    ) -> WebRTCSession:
+        """Open a WebRTC session against the device's Janus gateway.
+
+        This is the lowest-latency of the three video paths, and the one
+        kvmd's own web UI takes. It is also the only one that needs an extra:
+        ``pip install 'aiopikvm[webrtc]'``, for aiortc and the FFmpeg it
+        bundles. The frames it hands over are decoded, where
+        [`media_ws()`][aiopikvm.PiKVM.media_ws] hands over the encoded stream
+        and [`StreamerResource`][aiopikvm.resources.streamer.StreamerResource]
+        hands over MJPEG.
+
+        Like [`media_ws()`][aiopikvm.PiKVM.media_ws], this needs a
+        [`ws()`][aiopikvm.PiKVM.ws] held open beside it. kvmd runs ustreamer
+        only while a session has asked to be counted as a viewer, and the
+        Janus plugin reads its frames out of ustreamer, so without one the
+        negotiation succeeds in every visible way — Janus even reports the
+        peer connection up — and not a single frame ever arrives.
+
+        The signalling socket carries whichever credential this client's
+        *auth* mode says, the same way [`ws()`][aiopikvm.PiKVM.ws] does. The
+        media does not: it is UDP between this process and the device, and it
+        is secured by DTLS-SRTP rather than by TLS.
+
+        Args:
+            audio: Ask for the host's audio alongside the video. The device
+                needs a capture device for it, which
+                [`WebRTCSession.features`][aiopikvm.WebRTCSession.features]
+                reports.
+            orientation: Rotate the video, ``0``, ``90``, ``180`` or ``270``.
+            ice_servers: STUN or TURN URLs to gather candidates through.
+                ``None``, the default, uses none: host candidates reach a
+                device on the same network, and a STUN server is a third
+                party this client will not contact uninvited.
+            frame_buffer: How many decoded frames to hold per track before the
+                oldest is dropped. Live video wants this small.
+            keepalive_interval: Seconds between Janus session keepalives.
+                Janus drops a session silent for sixty.
+            open_timeout: Timeout for opening the connection and for each
+                individual Janus message (defaults to the client *timeout*).
+            close_timeout: Timeout for closing the connection (defaults to the
+                client *timeout*).
+            negotiate_timeout: Seconds to allow the whole negotiation, from
+                the session being created to the peer connection coming up.
+            ping_interval: Seconds between *websockets*' own keepalive pings
+                on the signalling socket, ``None`` to send none.
+            ping_timeout: Seconds to wait for a keepalive pong before
+                declaring the signalling link dead, ``None`` to wait forever.
+
+        Returns:
+            A *WebRTCSession* async context manager. It inherits this client's
+            *verify_ssl*, proxy configuration and *follow_redirects*.
+
+        Raises:
+            ConfigurationError: If this client has been closed, or the URL it
+                was built with has no usable scheme. The missing ``webrtc``
+                extra is reported here too, but only once the session is
+                entered.
+        """
+        token = self._ws_token("webrtc()")
+        return WebRTCSession(
+            url=self._url,
+            user=self._user,
+            # The property, not its value: read when the handshake is made.
+            passwd=lambda: self._password,
+            auth=self._auth,
+            token=token,
+            verify_ssl=self._verify_ssl,
+            cert=self._cert,
+            proxy=self._proxy,
+            trust_env=self._trust_env,
+            audio=audio,
+            orientation=orientation,
+            ice_servers=ice_servers,
+            frame_buffer=frame_buffer,
+            keepalive_interval=keepalive_interval,
+            follow_redirects=self._follow_redirects,
+            open_timeout=open_timeout if open_timeout is not None else self._timeout,
+            close_timeout=close_timeout if close_timeout is not None else self._timeout,
+            negotiate_timeout=negotiate_timeout,
             ping_interval=ping_interval,
             ping_timeout=ping_timeout,
         )

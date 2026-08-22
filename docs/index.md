@@ -10,7 +10,8 @@ Targets **kvmd 4.206** or later — see
 - **Full async/await API** built on [httpx](https://www.python-httpx.org/)
 - **11 API resources**: ATX, HID, MSD, GPIO, Streamer, Media, Switch, Redfish, Prometheus, System, Auth
 - **WebSocket client** for realtime events and low-latency HID input
-- **Live video**: the MJPEG stream and H.264 frames off the media daemon
+- **Live video**: the MJPEG stream, H.264 frames off the media daemon, and
+  WebRTC through Janus with the `webrtc` extra
 - **Pydantic v2** response models with full type safety
 - **PEP 561** compatible — works with mypy strict mode
 - **TOTP** two-factor authentication support
@@ -57,6 +58,7 @@ Detailed guides for each API resource:
 - [GPIO Channels](guide/gpio.md) — read/write GPIO state
 - [Streamer & OCR](guide/streamer.md) — screenshots and text recognition
 - [Live Video](guide/video.md) — the MJPEG stream and H.264 over the media socket
+- [WebRTC Video](guide/webrtc.md) — the low-latency path, through Janus
 - [KVM Switch](guide/switch.md) — multi-port switching and EDID management
 - [Redfish BMC](guide/redfish.md) — DMTF Redfish compatibility
 - [Prometheus Metrics](guide/prometheus.md) — metrics export
@@ -71,6 +73,7 @@ Auto-generated from source code docstrings:
 - [PiKVM Client](reference/client.md) — main client class
 - [WebSocket](reference/ws.md) — WebSocket client
 - [Media WebSocket](reference/media-ws.md) — the video socket
+- [WebRTC Session](reference/webrtc.md) — the Janus signalling session
 - [Models](reference/models.md) — Pydantic response models
 - [Exceptions](reference/exceptions.md) — exception hierarchy
 - [Resources](reference/resources/auth.md) — all API resource classes

@@ -35,6 +35,7 @@ from aiopikvm import (
     PiKVM,
     PiKVMWebSocket,
     StreamerState,
+    WebRTCError,
 )
 from aiopikvm.resources.redfish import RESET_TYPES
 from tests.helpers import undeclared_fields
@@ -589,3 +590,64 @@ async def test_media_socket_delivers_video(live: PiKVM) -> None:
                     # The daemon holds everything back until it has one.
                     assert frame.key is True
                     break
+
+
+# --- WebRTC --------------------------------------------------------------
+
+WEBRTC_TIMEOUT = 45.0
+"""How long to allow a whole Janus negotiation plus the first frames.
+
+ICE, DTLS and the wait for a keyframe all live inside it, and none of them is
+instant on a device that has to start the streamer first.
+"""
+
+
+async def test_webrtc_session_delivers_decoded_video(live: PiKVM) -> None:
+    """The whole Janus path, end to end (#94).
+
+    One test rather than several: every one of these costs a full
+    negotiation, and this file's own preamble is about opening as few sockets
+    as the check needs.
+
+    The `ws()` is not decoration. kvmd runs ustreamer only while a session
+    has asked to be counted as a viewer, and the plugin reads its frames out
+    of ustreamer — without one this negotiates perfectly, Janus reports the
+    peer connection up, and no frame ever arrives.
+    """
+    pytest.importorskip("aiortc", reason="the webrtc extra is not installed")
+
+    async with asyncio.timeout(WEBRTC_TIMEOUT):
+        async with live.ws():
+            async with live.webrtc() as rtc:
+                assert rtc.session_id is not None
+                assert rtc.handle_id is not None
+                assert rtc.features is not None
+                assert (await live.streamer.get_state()).streamer is not None
+
+                await rtc.request_keyframe()
+                async for frame in rtc.video():
+                    assert frame.width > 0
+                    assert frame.height > 0
+                    break
+
+            # Leaving the block destroyed the session, so the handle is gone.
+            assert rtc.session_id is None
+
+
+async def test_webrtc_reports_what_the_plugin_refuses(live: PiKVM) -> None:
+    """A plugin error is a successful Janus message with a code inside (#94).
+
+    `_plugin_request` is private on purpose — the public API has no way to
+    send a request the plugin does not implement — but the error path it
+    raises on is the one every public call shares, and nothing else exercises
+    it against a real gateway.
+    """
+    pytest.importorskip("aiortc", reason="the webrtc extra is not installed")
+
+    async with asyncio.timeout(WEBRTC_TIMEOUT):
+        async with live.webrtc() as rtc:
+            await rtc._plugin_request("nope")
+            with pytest.raises(WebRTCError) as excinfo:
+                await rtc._push()
+    assert excinfo.value.code == 405
+    assert excinfo.value.reason

@@ -81,6 +81,7 @@ nav:
       - GPIO Channels: guide/gpio.md
       - Streamer & OCR: guide/streamer.md
       - Live Video: guide/video.md
+      - WebRTC Video: guide/webrtc.md
       - KVM Switch: guide/switch.md
       - Redfish BMC: guide/redfish.md
       - Prometheus Metrics: guide/prometheus.md
@@ -91,6 +92,7 @@ nav:
       - PiKVM Client: reference/client.md
       - WebSocket: reference/ws.md
       - Media WebSocket: reference/media-ws.md
+      - WebRTC Session: reference/webrtc.md
       - Models: reference/models.md
       - Exceptions: reference/exceptions.md
       - Resources:

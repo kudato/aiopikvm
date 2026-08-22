@@ -168,6 +168,49 @@ few bytes are recorded, which is what the framing tests need. Re-recording it
 holds an event socket open for about a minute and reads video; nothing needs
 undoing afterwards, but it is somebody's device, so ask first.
 
+`janus_session.json` is the WebRTC scenario, with the second recorder of its
+own — [`record_janus.py`](record_janus.py), which needs the `webrtc` extra
+(`uv sync --all-groups`) because building an answer Janus will accept means a
+real peer connection:
+
+```bash
+PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \
+    uv run python tests/fixtures/record_janus.py
+```
+
+It walks one whole session against `/janus/ws` — create, attach, features,
+watch, answer, start, trickle, keepalive, key_required, stop, detach, destroy —
+and records the refusals alongside it: an unauthenticated upgrade (nginx's own
+**401**, no kvmd envelope anywhere), a handshake without the `janus-protocol`
+subprotocol (**502**), an unknown plugin, a request name the plugin does not
+implement, a body with no `request` and one whose `request` is not a string, a
+message to a detached handle, and a keepalive after the session is destroyed.
+It also holds what Janus sends unprompted, which is the half no
+request/response capture can reach — and what it does *not* send: `media` never
+arrives, because Janus events that for the media it receives and a session that
+only watches sends none.
+
+The `without_a_viewer` step is the one worth the recording on its own. The
+negotiation succeeds in every visible way and no picture comes, because kvmd
+runs ustreamer only while some session has asked to be counted as a viewer and
+the plugin reads its frames out of ustreamer. The recorder then opens
+`/api/ws?stream=1` beside the signalling socket and the same peer connection
+starts delivering frames, which is what the `session_events` and `frames` steps
+hold.
+
+Nothing device-specific survives in it. Every SDP goes through `scrub_sdp`
+first: addresses become `0.0.0.0`, the DTLS fingerprint becomes zeros, the ICE
+credentials become placeholders and the candidate lines are dropped outright,
+leaving the media lines, the codecs and their parameters — the part a parser
+cares about. The ICE server `features` announces is recorded as `<redacted>`,
+since it can name a host that is not the device, and frame payloads are not
+stored at all, only their dimensions and pixel format. A final guard refuses to
+write the file at all if the host, the user name, the password or an address
+that is not `0.0.0.0` survived anywhere in it. Re-recording it opens a real
+video session for about half a minute and holds a viewer socket open while it
+does; nothing needs undoing afterwards, but it is somebody's device, so ask
+first.
+
 `redfish_actions.json` is hand-recorded for the same reason: the capture tool
 only records GETs that succeed, and everything interesting about the Redfish
 actions is either an empty 204 or a refusal. It holds the one system id this

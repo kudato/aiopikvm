@@ -114,6 +114,30 @@ class WebSocketError(PiKVMError):
     """WebSocket connection error."""
 
 
+class WebRTCError(PiKVMError):
+    """The Janus gateway or its ustreamer plugin refused, or the media failed.
+
+    Everything under ``/janus/ws`` is Janus's own protocol rather than kvmd's,
+    so a failure there has neither an HTTP status nor a kvmd error class to
+    report. This carries Janus's numbering instead: a top-level error, where
+    Janus itself refused — an unknown session, a handle that is gone — or a
+    plugin error, where the request reached the ustreamer plugin and it said
+    no. It also reports a negotiation that never completed.
+
+    Attributes:
+        code: Janus's own error code, or the plugin's. ``0`` when the failure
+            had no code — a negotiation that timed out, or an answer whose
+            shape this release does not recognise.
+        reason: The text Janus or the plugin sent beside that code. Empty when
+            there was none.
+    """
+
+    def __init__(self, message: str, code: int = 0, *, reason: str = "") -> None:
+        super().__init__(message)
+        self.code = code
+        self.reason = reason
+
+
 _STATUS_ERRORS: dict[int, type[APIError]] = {
     401: AuthError,
     403: AuthError,

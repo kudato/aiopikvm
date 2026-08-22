@@ -61,3 +61,7 @@ PiKVMError
 ::: aiopikvm.WebSocketError
     options:
       show_bases: true
+
+::: aiopikvm.WebRTCError
+    options:
+      show_bases: true

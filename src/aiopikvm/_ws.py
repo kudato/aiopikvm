@@ -24,7 +24,7 @@ import logging
 import ssl
 import struct
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from types import TracebackType
 from typing import Any, Literal, NamedTuple, Self
 from urllib.parse import urlparse, urlunparse
@@ -33,6 +33,7 @@ import websockets
 import websockets.asyncio.client
 import websockets.http11
 from pydantic import BaseModel, ValidationError
+from websockets.typing import Subprotocol
 
 from aiopikvm._constants import AuthMode
 from aiopikvm._exceptions import (
@@ -197,6 +198,7 @@ class _Connector(websockets.asyncio.client.connect):
         max_queue: int = _WS_MAX_QUEUE,
         ping_interval: float | None = _WS_PING_INTERVAL,
         ping_timeout: float | None = _WS_PING_TIMEOUT,
+        subprotocols: Sequence[Subprotocol] | None = None,
     ) -> None:
         """Prepare the handshake.
 
@@ -219,6 +221,8 @@ class _Connector(websockets.asyncio.client.connect):
             ping_interval: Seconds between keepalive pings, ``None`` for none.
             ping_timeout: Seconds to wait for a keepalive pong, ``None`` to
                 wait forever.
+            subprotocols: Subprotocols to offer, ``None`` to offer none. Only
+                Janus needs one; kvmd's own sockets have none.
         """
         self._follow_redirects = follow_redirects
         super().__init__(
@@ -232,6 +236,7 @@ class _Connector(websockets.asyncio.client.connect):
             max_queue=max_queue,
             ping_interval=ping_interval,
             ping_timeout=ping_timeout,
+            subprotocols=subprotocols,
         )
 
     def process_redirect(self, exc: Exception) -> Exception | str:
