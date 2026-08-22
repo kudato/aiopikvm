@@ -710,9 +710,24 @@ class WebRTCSession:
         Raises:
             WebRTCError: Janus refused, or it said nothing within
                 *open_timeout*.
-            WebSocketError: The client is not connected, or the connection
-                broke before the message could be sent.
+            WebSocketError: The client is not connected, the reader that
+                resolves acknowledgements is no longer running, or the
+                connection broke before the message could be sent.
         """
+        if self._reader is None or self._reader.done():
+            # Nothing is left to match an acknowledgement to its transaction,
+            # so the wait below could only end in the timeout — and that
+            # message names the request, not the reason. It is raised rather
+            # than handed to _raise_failure(), which would mark it reported:
+            # the teardown sends through here and swallows what comes back,
+            # and __aexit__ would then have nothing left to say about a link
+            # that died with nobody looking.
+            if self._failure is not None:
+                raise self._failure
+            raise WebSocketError(
+                "The Janus signalling reader is not running, so nothing can "
+                "be acknowledged"
+            )
         self._counter += 1
         transaction = f"aiopikvm-{self._counter}"
         future: asyncio.Future[dict[str, Any]] = (
@@ -845,6 +860,11 @@ class WebRTCSession:
         session with nothing keeping it alive is dropped after a minute — so
         a failure is logged and swallowed rather than raised over whatever
         the block was already doing.
+
+        Each step is independent and each is guarded on its own, so one that
+        fails does not take the rest with it. ``destroy`` is the step that
+        actually frees the session, and giving up before it is what leaves
+        one on the device for Janus's sixty-second silence timeout to reap.
         """
         if self._connection is None or self._session_id is None:
             return
@@ -873,7 +893,7 @@ class WebRTCSession:
                 logger.debug(
                     "Could not %s the Janus session: %s", message["janus"], exc
                 )
-                break
+                continue
         self._handle_id = None
         self._session_id = None
 

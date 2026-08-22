@@ -572,6 +572,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A WebRTC teardown no longer waits out a timeout it cannot win, and no longer
+  gives up before the step that matters. `_drain()`'s exit fails only the
+  acknowledgements that existed when it left, so one registered afterwards has
+  nobody to resolve it — and the socket may well still be open, so the message
+  goes out and the only thing that ends the wait is *open_timeout*. Janus
+  sending a single frame that is not a JSON object puts the reader in that
+  state, and every teardown step then took the full timeout, ten seconds each
+  by default, before reporting that Janus had not answered rather than why. A
+  request whose acknowledgement nothing can resolve is now refused at once,
+  with the recorded failure. Separately, `_farewell()` stopped at the first
+  step that failed; `destroy` is the last of the three and the only one that
+  frees the session on the device, so a refused `stop` left a session behind
+  for Janus's sixty-second silence timeout to reap, mentioned at debug level
+  only. Each step is independent and each is now run (#135).
 - A WebRTC session that dies now says so. `WebRTCSession.__aexit__` documents
   that it raises when the signalling broke while nothing was looking and the
   block itself ended cleanly, and three things stopped it. The send path marked

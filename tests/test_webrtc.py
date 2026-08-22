@@ -450,6 +450,107 @@ async def test_leaving_the_block_stops_the_stream_and_destroys_the_session() -> 
     assert rtc.handle_id is None
 
 
+async def test_a_farewell_step_that_fails_does_not_take_the_rest_with_it() -> None:
+    """`destroy` is the step that actually frees the session on the device.
+
+    The others are courtesies Janus would sort out for itself. Giving up on
+    the first refusal used to skip it, leaving a session behind for Janus's
+    sixty-second silence timeout — and saying so at debug level only.
+    """
+    recorded = answer_of("message_to_a_dead_handle")
+
+    def refuse_stop(message: dict[str, Any], out: list[dict[str, Any]]) -> Any:
+        if message.get("body", {}).get("request") == "stop":
+            return [{**recorded, "transaction": message["transaction"]}]
+        return out
+
+    async with gateway(rewrite=refuse_stop) as (url, seen, _requests):
+        async with session(url):
+            pass
+    assert [message["janus"] for message in seen[-2:]] == ["detach", "destroy"]
+
+
+async def test_a_teardown_after_the_reader_died_does_not_wait_out_the_timeout() -> None:
+    """A request nothing can acknowledge is refused, not waited on.
+
+    `_drain`'s exit fails only the acknowledgements that existed when it left;
+    one registered afterwards has nobody to resolve it, and the socket is
+    still open so the message goes out. Every teardown step then ran to the
+    full *open_timeout* — three of them, ten seconds each by default — and
+    ended by reporting a timeout instead of the failure that caused it.
+
+    Janus sending one frame that is not a JSON object is all it takes to put
+    the reader in that state with the socket open.
+    """
+    armed = asyncio.Event()
+
+    async with gateway(after=_confuse_on_a_keepalive(armed)) as (url, seen, _requests):
+        rtc = session(url, keepalive_interval=0.01, open_timeout=30.0)
+        await rtc.__aenter__()
+        await _wait_for_the_reader(rtc, armed)
+        with pytest.raises(WebSocketError, match="reader stopped"):
+            # A whole teardown in a thirtieth of what one step used to take.
+            async with asyncio.timeout(1.0):
+                await rtc.__aexit__(None, None, None)
+    # And it does not send what it knows it cannot hear the answer to. The
+    # session is left for Janus's own timeout, which is what a teardown that
+    # waited three times over ended up doing anyway.
+    assert "stop" not in bodies(seen)
+
+
+async def test_a_request_after_the_reader_died_reports_the_cause() -> None:
+    """The failure, not a timeout naming the request that ran into it.
+
+    `request_keyframe()` used to wait out *open_timeout* and then say Janus
+    had not answered `message`, which is true and useless: Janus was never
+    going to, and the reason it was not is the one thing worth reporting.
+    """
+    armed = asyncio.Event()
+
+    async with gateway(after=_confuse_on_a_keepalive(armed)) as (url, _, _requests):
+        async with session(url, keepalive_interval=0.01, open_timeout=30.0) as rtc:
+            await _wait_for_the_reader(rtc, armed)
+            with pytest.raises(WebSocketError, match="reader stopped"):
+                async with asyncio.timeout(1.0):
+                    await rtc.request_keyframe()
+
+
+def _confuse_on_a_keepalive(armed: asyncio.Event) -> Aftermath:
+    """Make a gateway send one frame that is not a JSON object.
+
+    That stops the reader where it stands while leaving the socket open,
+    which is the state the acknowledgements have nobody to resolve them in.
+    As with the cut above, *armed* is how a test says when.
+
+    Args:
+        armed: Set by the test once the frame is allowed to go out.
+
+    Returns:
+        The hook that sends it.
+    """
+
+    async def confuse(
+        connection: websockets.asyncio.server.ServerConnection,
+        message: dict[str, Any],
+    ) -> None:
+        if armed.is_set() and message["janus"] == "keepalive":
+            await connection.send(json.dumps([1, 2, 3]))
+
+    return confuse
+
+
+async def _wait_for_the_reader(rtc: WebRTCSession, armed: asyncio.Event) -> None:
+    """Arm a gateway hook and wait for the session's reader to stop.
+
+    Args:
+        rtc: The open session.
+        armed: The event its gateway hook is waiting on.
+    """
+    armed.set()
+    assert rtc._reader is not None
+    await asyncio.wait_for(asyncio.shield(rtc._reader), timeout=5.0)
+
+
 async def test_a_failed_negotiation_still_destroys_what_it_created() -> None:
     """`__aexit__` never runs for a failed `__aenter__`, so `__aenter__` does it."""
 
