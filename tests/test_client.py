@@ -1,10 +1,15 @@
 """PiKVM client lifecycle tests."""
 
+import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
 import httpx
 import pytest
 import respx
 
-from aiopikvm import ConfigurationError, PiKVM, PiKVMError
+from aiopikvm import ConfigurationError, PiKVM, PiKVMError, RedirectError
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._client import _RESOURCE_NAMES
 
@@ -249,3 +254,45 @@ async def test_patch_request(mock_api: respx.MockRouter, client: PiKVM) -> None:
     resource = BaseResource(client)
     result = await resource._patch("/api/test", json={"key": "value"})
     assert result == {"patched": True}
+
+
+async def test_a_refused_stream_closes_the_context_that_owns_it(
+    mock_api: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A status `stream()` refuses leaves nothing suspended behind it.
+
+    `httpx.AsyncClient.stream()` is a context manager, and exiting it is what
+    hands the connection back. `stream()` connects before it knows whether
+    the status is one it will report, so the attempt that turns out to be a
+    failure has to exit that context itself — the caller never gets an
+    ``async with`` to do it for them.
+
+    A redirect is what shows it: `stream()` reads the body of a 4xx before
+    reporting it, and reading a response to its end closes the response in
+    httpx anyway, which hides the difference. A 3xx is reported from its
+    ``Location`` alone.
+    """
+    exited: list[BaseException | None] = []
+    opened = httpx.AsyncClient.stream
+
+    def watched(self: httpx.AsyncClient, *args: Any, **kwargs: Any) -> Any:
+        inner = opened(self, *args, **kwargs)
+
+        @asynccontextmanager
+        async def watch() -> AsyncIterator[httpx.Response]:
+            async with inner as response:
+                try:
+                    yield response
+                finally:
+                    exited.append(sys.exception())
+
+        return watch()
+
+    monkeypatch.setattr(httpx.AsyncClient, "stream", watched)
+    mock_api.get("/api/log").mock(
+        return_value=httpx.Response(302, headers={"Location": "https://elsewhere/"})
+    )
+    async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
+        with pytest.raises(RedirectError):
+            [line async for line in kvm.system.stream_log()]
+        assert [type(exc) for exc in exited] == [RedirectError]
