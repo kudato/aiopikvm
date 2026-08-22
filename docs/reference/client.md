@@ -5,6 +5,7 @@
       show_bases: false
       members:
         - __init__
+        - cookies
         - request
         - stream
         - ws

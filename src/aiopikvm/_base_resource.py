@@ -17,8 +17,8 @@ class BaseResource:
     """Base class for all PiKVM API resources.
 
     Provides convenience methods that delegate HTTP work to
-    :pymethod:`PiKVM.request` and parse the standard PiKVM response
-    envelope ``{"ok": true, "result": {...}}``.
+    [`PiKVM.request()`][aiopikvm.PiKVM.request] and parse the standard PiKVM
+    response envelope ``{"ok": true, "result": {...}}``.
     """
 
     __slots__ = ("_client",)
@@ -82,7 +82,7 @@ class BaseResource:
     def _unwrap(body: Any, path: str, status_code: int = 0) -> Any:
         """Unwrap one ``{"ok": ..., "result": ...}`` envelope.
 
-        Split out of :meth:`_request` because kvmd also sends envelopes that
+        Split out of `_request()` because kvmd also sends envelopes that
         are not the whole body: ``/api/msd/write_remote`` streams one per
         line, and a failing one arrives under HTTP 200.
 
@@ -90,8 +90,8 @@ class BaseResource:
             body: The already-parsed envelope.
             path: URL path it came from, for the error message.
             status_code: Status the envelope arrived with, recorded on a
-                :class:`ResponseError` so a caller can tell an unparsable
-                body apart from an unexpected one.
+                [`ResponseError`][aiopikvm.ResponseError] so a caller can tell
+                an unparsable body apart from an unexpected one.
 
         Returns:
             The ``result`` payload.
@@ -226,10 +226,10 @@ class BaseResource:
             The *httpx.Response* object, body included.
 
         Raises:
-            PiKVMError: Whatever :meth:`PiKVM.request` raises for a transport
-                failure or an error status. The response envelope is not
-                checked here, so an ``{"ok": false}`` body arriving with
-                HTTP 200 reaches the caller as-is.
+            PiKVMError: Whatever [`PiKVM.request()`][aiopikvm.PiKVM.request]
+                raises for a transport failure or an error status. The
+                response envelope is not checked here, so an ``{"ok": false}``
+                body arriving with HTTP 200 reaches the caller as-is.
         """
         return await self._client.request(
             "GET",
@@ -261,10 +261,11 @@ class BaseResource:
             The *httpx.Response* object, headers and body included.
 
         Raises:
-            PiKVMError: Whatever :meth:`PiKVM.request` raises for a transport
-                failure or an error status. The response envelope is not
-                checked here, so a caller that cares about it — rather than
-                only about the headers — has to look at the body itself.
+            PiKVMError: Whatever [`PiKVM.request()`][aiopikvm.PiKVM.request]
+                raises for a transport failure or an error status. The
+                response envelope is not checked here, so a caller that cares
+                about it — rather than only about the headers — has to look at
+                the body itself.
         """
         return await self._client.request("POST", path, data=data, timeout=timeout)
 

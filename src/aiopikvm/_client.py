@@ -56,7 +56,7 @@ _RESOURCE_NAMES = (
 class PiKVM:
     """Async client for PiKVM API.
 
-    Usage::
+    Usage:
 
         async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
             await kvm.atx.power_on()
@@ -66,14 +66,15 @@ class PiKVM:
 
     The lifecycle follows the one *httpx.AsyncClient* has, so that wrapping
     one does not change the rules: a client is used once and then closed.
-    :meth:`aclose` — which ``async with`` calls on the way out — releases the
-    resources and leaves the object closed for good, whether the underlying
-    HTTP client was built here or handed in.
+    [`aclose()`][aiopikvm.PiKVM.aclose] — which ``async with`` calls on the
+    way out — releases the resources and leaves the object closed for good,
+    whether the underlying HTTP client was built here or handed in.
 
-    Reopening and nesting both raise :class:`ConfigurationError`. Reopening
-    used to build a second connection pool under the same object, rereading
-    the credentials as they stood at that moment; nesting used to leave the
-    inner block's exit closing the connection the outer one was still using.
+    Reopening and nesting both raise
+    [`ConfigurationError`][aiopikvm.ConfigurationError]. Reopening used to
+    build a second connection pool under the same object, rereading the
+    credentials as they stood at that moment; nesting used to leave the inner
+    block's exit closing the connection the outer one was still using.
     """
 
     def __init__(
@@ -99,11 +100,11 @@ class PiKVM:
                 PiKVM ships a self-signed one.
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
-                :class:`RedirectError`. Off by default: a redirect resends
-                the credential headers to whatever it points at, and the
-                usual cause — an ``http://`` base URL that nginx redirects
-                to ``https://`` — has already exposed the password in
-                cleartext by then.
+                [`RedirectError`][aiopikvm.RedirectError]. Off by default: a
+                redirect resends the credential headers to whatever it points
+                at, and the usual cause — an ``http://`` base URL that nginx
+                redirects to ``https://`` — has already exposed the password
+                in cleartext by then.
             http_client: Pre-built httpx client. When given, this client
                 does not close it and the arguments above are ignored.
         """
@@ -168,29 +169,31 @@ class PiKVM:
     def cookies(self) -> httpx.Cookies:
         """Cookies the underlying HTTP client carries.
 
-        :meth:`AuthResource.login` leaves kvmd's ``auth_token`` here, and
-        every later request sends it back.
+        [`AuthResource.login()`][aiopikvm.resources.auth.AuthResource.login]
+        leaves kvmd's ``auth_token`` here, and every later request sends it
+        back.
 
         Putting a token here is not enough to authenticate by session,
         though. kvmd tries the ``X-KVMD-*`` headers first and, once it sees a
         non-empty ``X-KVMD-User``, either accepts that pair or refuses the
         request outright — it never falls through to the cookie. Since this
         client always sends the header, the token is only ever the credential
-        for an :class:`httpx.AsyncClient` passed in as *http_client* without
-        those headers::
+        for an `httpx.AsyncClient` passed in as *http_client* without
+        those headers:
 
             async with httpx.AsyncClient(base_url=url, verify=False) as http:
                 http.cookies.set("auth_token", saved_token)
                 async with PiKVM(url, http_client=http) as kvm:
                     ...
 
-        :meth:`ws` does not take part in this. The WebSocket authenticates
-        with the *user* and *passwd* this client was built with, which are
-        the defaults when an *http_client* carries the credentials instead.
+        [`ws()`][aiopikvm.PiKVM.ws] does not take part in this. The WebSocket
+        authenticates with the *user* and *passwd* this client was built with,
+        which are the defaults when an *http_client* carries the credentials
+        instead.
 
         Returns:
             The live cookie jar — mutating it affects subsequent requests.
-            Set a cookie through :meth:`httpx.Cookies.set`; two entries of
+            Set a cookie through `httpx.Cookies.set()`; two entries of
             the same name under different domains make httpx's own lookup
             raise, which is why aiopikvm clears before it sets.
 
@@ -568,19 +571,21 @@ class PiKVM:
         """Create a WebSocket connection.
 
         The socket authenticates with the *user* and *passwd* this client was
-        built with; it does not use :attr:`cookies`.
+        built with; it does not use [`cookies`][aiopikvm.PiKVM.cookies].
 
         Args:
-            stream: Count this client as a video viewer, which is also
-                kvmd's own default. kvmd runs the streamer while at least one
+            stream: Count this client as a video viewer, which is also kvmd's
+                own default. kvmd runs the streamer while at least one
                 connected session asked for it, so a socket opened with
                 ``False`` lets the video pipeline stop — and
-                :meth:`StreamerResource.snapshot` then answers HTTP 503
-                unless something else is watching. Pass ``False`` only for a
-                client that reads events and never looks at the picture.
+                [`StreamerResource.snapshot()`][aiopikvm.resources.streamer.StreamerResource.snapshot]
+                then answers HTTP 503 unless something else is watching. Pass
+                ``False`` only for a client that reads events and never looks
+                at the picture.
             binary: Send HID input over kvmd's binary channel instead of as
                 JSON events, the way kvmd's own web UI does. Both reach the
-                same handlers; see :class:`PiKVMWebSocket`.
+                same handlers; see
+                [`PiKVMWebSocket`][aiopikvm.PiKVMWebSocket].
             open_timeout: Timeout for opening the connection (defaults to
                 the client *timeout*).
             close_timeout: Timeout for closing the connection (defaults to

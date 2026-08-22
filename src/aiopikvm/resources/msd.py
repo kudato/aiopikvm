@@ -22,7 +22,8 @@ _WRITE_PATH = "/api/msd/write"
 _WRITE_REMOTE_PATH = "/api/msd/write_remote"
 
 type Compression = Literal["", "none", "lzma", "zstd"]
-"""How :meth:`MSDResource.download` may ask kvmd to compress an image.
+"""How [`MSDResource.download()`][aiopikvm.resources.msd.MSDResource.download]
+may ask kvmd to compress an image.
 
 ``""`` and ``"none"`` are the same thing and send the image verbatim;
 ``"lzma"`` produces what ``.xz`` holds and ``"zstd"`` what ``.zst`` does.
@@ -108,7 +109,7 @@ class MSDResource(BaseResource):
                 directory, so a prefix that is not there yet fails on an
                 unhandled ``FileNotFoundError`` — a plain-text HTTP 500 with
                 no error block, which reaches the caller as an
-                :class:`APIError` carrying only the status.
+                [`APIError`][aiopikvm.APIError] carrying only the status.
             remove_incomplete: Whether kvmd deletes a partially written image
                 if the connection breaks. Leave unset for the kvmd default,
                 which is to keep it, listed with ``complete=False``.
@@ -176,7 +177,8 @@ class MSDResource(BaseResource):
         The transfer happens between PiKVM and *url*; the image never passes
         through this client. Progress is read from kvmd's own stream, so this
         call lasts as long as the download does — see
-        :meth:`upload_remote_progress` to watch it go by.
+        [`upload_remote_progress()`][aiopikvm.resources.msd.MSDResource.upload_remote_progress]
+        to watch it go by.
 
         Args:
             url: Remote image URL. kvmd's validator accepts ``http`` and
@@ -187,7 +189,8 @@ class MSDResource(BaseResource):
                 URL path — and it refuses the whole call if neither is a name
                 it will accept.
             prefix: Subdirectory of the storage, with the same
-                already-has-to-exist caveat as in :meth:`upload`.
+                already-has-to-exist caveat as in
+                [`upload()`][aiopikvm.resources.msd.MSDResource.upload].
             insecure: Skip TLS verification of the remote — kvmd's own fetch,
                 not this client's connection to PiKVM.
             remove_incomplete: Whether kvmd deletes the partial image when
@@ -264,10 +267,10 @@ class MSDResource(BaseResource):
         ``contextlib.aclosing`` so that happens where you decide rather than
         whenever the generator is collected.
 
-        A failed download is *not* an error status. kvmd has already sent
-        HTTP 200 by then, so it writes the failure as one last record and
-        lets the connection break without closing the body properly. This
-        raises that record as an :class:`APIError` when it arrives, which is
+        A failed download is *not* an error status. kvmd has already sent HTTP
+        200 by then, so it writes the failure as one last record and lets the
+        connection break without closing the body properly. This raises that
+        record as an [`APIError`][aiopikvm.APIError] when it arrives, which is
         before the broken connection surfaces.
 
         Args:
@@ -353,7 +356,7 @@ class MSDResource(BaseResource):
 
         Raises:
             ResponseError: If ``result`` holds no ``image`` block, or the
-                block does not match :class:`MSDUpload`.
+                block does not match [`MSDUpload`][aiopikvm.MSDUpload].
         """
         image = result.get("image") if isinstance(result, dict) else None
         if image is None:
@@ -376,9 +379,10 @@ class MSDResource(BaseResource):
         Args:
             name: Name of the stored image to read.
             compress: Compression kvmd applies on the fly, one of
-                :data:`Compression`. The default sends the image verbatim; a
-                compressed response carries no ``Content-Length``, so the
-                size is unknown until it ends.
+                [`Compression`][aiopikvm.resources.msd.Compression]. The
+                default sends the image verbatim; a compressed response
+                carries no ``Content-Length``, so the size is unknown until it
+                ends.
             chunk_size: Size of the chunks yielded, in bytes.
             timeout: Override the request timeout. By default the read
                 timeout is disabled — an image takes far longer to transfer
@@ -421,7 +425,8 @@ class MSDResource(BaseResource):
         The file is gone when this returns, but the listing kvmd checks a
         write against is rebuilt from the storage a moment later. Uploading
         the same name immediately afterwards is refused as already existing;
-        poll :meth:`get_state` until ``storage.images`` has dropped it.
+        poll [`get_state()`][aiopikvm.resources.msd.MSDResource.get_state]
+        until ``storage.images`` has dropped it.
 
         Args:
             name: Image file name to remove, as it appears in

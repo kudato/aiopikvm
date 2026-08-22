@@ -369,6 +369,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The API reference printed its cross-references as their own source text.
+  The docstrings used reStructuredText roles — ``:meth:`PiKVM.request` `` and
+  the like — and nothing renders reST here: mkdocstrings is configured for
+  Google style, so each one reached the page verbatim. There were 124 in the
+  source, of which 22 sit in docstrings the site never renders, so about a
+  hundred were actually on show. They read correctly in an editor and in
+  `help()`, which is why it went unnoticed for so long. 120 are now
+  mkdocstrings cross-references, checked one at a time against the anchors the
+  site actually has, and the two `:pymethod:` among them — never a Sphinx role
+  at all — are gone with them. The remaining four had no target to reach:
+  `httpx.AsyncClient` twice, `httpx.Cookies.set` and the private
+  `BaseResource._request` became plain code spans rather than links to
+  nowhere, since no inventory for httpx is configured and the base resource is
+  not published. `PiKVM.cookies` *is* now published, since five references
+  point at it. Four reST literal-block markers (``Usage::``) went the same way
+  as the roles, for the same reason. Four type-alias summaries were reworded
+  so the sentence ends on the link rather than wrapping around it (#111).
+- The `Returns:` table on seven published members listed one row per source
+  line, repeating the return type down the column and cutting the sentence
+  between them — `RedfishResource.get_system` rendered as four rows reading
+  "System resource document, including `PowerState` and the" / "`ResetType`
+  values" / "`reset()`" / "accepts for it." Griffe's Google parser treats each
+  unindented line of a `Returns:` body as a separate returned value, and no
+  docstring in this package ever meant that: all fifteen multi-line bodies are
+  one value with its prose wrapped. `returns_multiple_items` is now off, which
+  says so once instead of reindenting fifteen docstrings (#111).
+- CI never built the documentation, so nothing ran the one check that catches
+  a cross-reference pointing at something the site does not publish —
+  mkdocs-autorefs warns, and `mkdocs build --strict` fails on the warning. The
+  deploy workflow runs `mkdocs gh-deploy --force`, which is not strict. CI now
+  builds the docs strictly (#111).
 - The HID guide had the mouse wheel backwards: it labelled
   `send_mouse_wheel(0, -5)` "Scroll up" where the WebSocket guide labels the
   same call "scroll down". Both reach the same kvmd handler and the same HID

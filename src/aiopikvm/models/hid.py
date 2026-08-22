@@ -53,9 +53,10 @@ class HIDState(_Base):
     whether the target host has the HID plugged in, and only the MCU-based
     backends can tell — ``otg``, ``ch9329`` and ``bt`` report ``None``. The
     MCU backends are also the only ones that implement
-    :meth:`HIDResource.set_connected`, so a ``bool`` here says that call does
-    something. A ``None`` does not say the reverse: an MCU backend reports it
-    too until its microcontroller has sent a status word carrying the flag.
+    [`HIDResource.set_connected()`][aiopikvm.resources.hid.HIDResource.set_connected],
+    so a ``bool`` here says that call does something. A ``None`` does not say
+    the reverse: an MCU backend reports it too until its microcontroller has
+    sent a status word carrying the flag.
     """
 
     enabled: bool
@@ -71,7 +72,8 @@ class HIDKeymaps(_Base):
     """Keyboard layouts installed on the device.
 
     Returned by ``GET /api/hid/keymaps``; the names are what
-    :meth:`HIDResource.type_text` accepts as its ``keymap`` argument.
+    [`HIDResource.type_text()`][aiopikvm.resources.hid.HIDResource.type_text]
+    accepts as its ``keymap`` argument.
     """
 
     default: str

@@ -36,26 +36,30 @@ class StreamerResource(BaseResource):
         """Change the streamer parameters.
 
         kvmd applies these asynchronously — the call returns once the change
-        is queued, and :attr:`StreamerState.applied` is what the running
-        streamer ended up with. Read it back to confirm: a value outside the
-        device's own limits is accepted with HTTP 200 and then dropped
-        silently, so only re-reading the state shows what happened. What is
-        rejected outright is a parameter the device does not have at all —
-        the ones it has are the keys present in
-        :attr:`StreamerState.params`.
+        is queued, and [`StreamerState.applied`][aiopikvm.StreamerState] is
+        what the running streamer ended up with. Read it back to confirm: a
+        value outside the device's own limits is accepted with HTTP 200 and
+        then dropped silently, so only re-reading the state shows what
+        happened. What is rejected outright is a parameter the device does not
+        have at all — the ones it has are the keys present in
+        [`StreamerState.params`][aiopikvm.StreamerState].
 
         Args:
             quality: JPEG quality, 1 to 100. Unsupported on devices with no
                 adjustable encoder.
             desired_fps: Target frame rate, 0 to 120 for kvmd, and within
-                :attr:`StreamerLimits.desired_fps` to actually take effect.
+                [`StreamerLimits.desired_fps`][aiopikvm.StreamerLimits] to
+                actually take effect.
             resolution: Capture resolution as ``"WIDTHxHEIGHT"``, one of
-                :attr:`StreamerLimits.available_resolutions`. Only on
-                resolution-capable hardware.
+                [`StreamerLimits.available_resolutions`][aiopikvm.StreamerLimits].
+                Only on resolution-capable hardware.
             h264_bitrate: H.264 bitrate in kbps, 25 to 20000 for kvmd, and
-                within :attr:`StreamerLimits.h264_bitrate` to take effect.
+                within
+                [`StreamerLimits.h264_bitrate`][aiopikvm.StreamerLimits] to
+                take effect.
             h264_gop: H.264 group-of-pictures size, 0 to 60 for kvmd, and
-                within :attr:`StreamerLimits.h264_gop` to take effect.
+                within [`StreamerLimits.h264_gop`][aiopikvm.StreamerLimits] to
+                take effect.
             timeout: Per-call timeout in seconds.
 
         Raises:
@@ -104,21 +108,23 @@ class StreamerResource(BaseResource):
     ) -> SnapshotImage:
         """Take a JPEG screenshot.
 
-        Without ``allow_offline``, kvmd returns HTTP 503 whenever the
-        video source is not online (host asleep, HDMI unplugged, etc.).
-        Passing ``allow_offline=True`` makes kvmd return a "NO LIVE VIDEO"
-        placeholder JPEG instead, and the returned
-        :attr:`SnapshotImage.online` says which one arrived. The flag has no
-        effect when the streamer process is fully stopped (no UI clients) —
-        the call still fails with HTTP 503, unless ``load`` is used.
+        Without ``allow_offline``, kvmd returns HTTP 503 whenever the video
+        source is not online (host asleep, HDMI unplugged, etc.). Passing
+        ``allow_offline=True`` makes kvmd return a "NO LIVE VIDEO" placeholder
+        JPEG instead, and the returned
+        [`SnapshotImage.online`][aiopikvm.SnapshotImage] says which one
+        arrived. The flag has no effect when the streamer process is fully
+        stopped (no UI clients) — the call still fails with HTTP 503, unless
+        ``load`` is used.
 
         Args:
             allow_offline: When ``True``, accept a placeholder frame if the
                 video source is offline.
             save: Also store this frame as the device's saved snapshot, where
-                it shows up in :attr:`StreamerState.snapshot` and survives the
-                streamer being stopped. Ignored together with ``load``, which
-                returns before anything is saved.
+                it shows up in
+                [`StreamerState.snapshot`][aiopikvm.StreamerState] and
+                survives the streamer being stopped. Ignored together with
+                ``load``, which returns before anything is saved.
             load: Return the saved snapshot instead of capturing a new one.
                 Works while the streamer is stopped, which is the point.
             preview: Have kvmd scale the image down before sending it. The
@@ -196,7 +202,8 @@ class StreamerResource(BaseResource):
         Args:
             langs: Tesseract language codes (e.g. ``["eng"]``,
                 ``["eng", "rus"]``). When omitted the kvmd default is used.
-                Available languages can be queried via :meth:`get_ocr_info`.
+                Available languages can be queried via
+                [`get_ocr_info()`][aiopikvm.resources.streamer.StreamerResource.get_ocr_info].
             left: Left edge of the region to read, in pixels. Cropping is what
                 makes OCR quick: Tesseract needs 10-20 s for a full screen.
             top: Top edge of the region to read.
@@ -235,7 +242,8 @@ class StreamerResource(BaseResource):
         return response.text
 
     def _snapshot_image(self, response: httpx.Response) -> SnapshotImage:
-        """Build a :class:`SnapshotImage` from a snapshot response.
+        """Build a [`SnapshotImage`][aiopikvm.SnapshotImage] from a snapshot
+        response.
 
         A header that cannot be read is dropped rather than failing the call:
         the JPEG is what the caller asked for, and these are ustreamer's own
