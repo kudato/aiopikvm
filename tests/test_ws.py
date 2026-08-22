@@ -807,8 +807,14 @@ def test_the_table_lands_in_the_fields_and_nowhere_else() -> None:
     Derived from the dataclass rather than listed, so the two cannot be
     edited apart; equality in both directions is the contract. A subsystem
     with no field is what #143 was filed over, and a field with no subsystem
-    means either a model nobody wrote or, like `clients`, a scalar with a
-    branch of its own that has to be excluded here.
+    is either a model nobody wrote or, like `clients` and `updated`, a name
+    the derivation has to leave out.
+
+    This is not the whole of it: nothing here says the exclusions are the
+    right ones, because a table entry deleted and excluded in the same edit
+    keeps the equality true. `test_every_typed_subsystem_has_a_field_to_land_in`
+    in the contract suite is what checks the table against the dataclass
+    without going through this set.
     """
     assert set(_STATE_MODELS) == _STATE_FIELDS
 
@@ -822,9 +828,9 @@ async def test_states_ignore_a_table_entry_with_nowhere_to_land(
     `dataclasses.replace()` answers a keyword the dataclass has no field for
     with a bare `TypeError`, which is not a `PiKVMError`, on a socket that is
     otherwise healthy — and it answers a second `updated=` the same way. The
-    test above keeps the two lists together, so this is about the build that
-    shipped without it: the event is skipped like any other this release
-    cannot place.
+    test above and its counterpart in the contract suite keep the table and
+    the fields together, so this is about the build that shipped without
+    them: the event is skipped like any other this release cannot place.
 
     `__class__` is there because `DeviceState` has plenty of attributes that
     are not fields, and only a field is somewhere a subsystem can land.
