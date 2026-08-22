@@ -25,17 +25,46 @@ OK = {"ok": True, "result": {}}
 
 
 async def test_context_manager(mock_api: respx.MockRouter) -> None:
+    """An entered client hands out every resource it has (#143).
+
+    Named off the registry rather than by hand: the hand-written list here
+    had nine of the eleven, and the two it was missing are exactly the two a
+    hand-written list loses — the ones added after it was written.
+    """
     async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as client:
         assert client._client is not None
-        assert client.atx is not None
-        assert client.hid is not None
-        assert client.msd is not None
-        assert client.gpio is not None
-        assert client.streamer is not None
-        assert client.switch is not None
-        assert client.redfish is not None
-        assert client.prometheus is not None
-        assert client.auth is not None
+        built = {name: getattr(client, name) for name in _RESOURCE_NAMES}
+    # Each one is a resource, which is what lets the registry read every
+    # cached property off the class instead of naming them: a cached property
+    # of some other kind would fail here rather than be quietly cleared by
+    # `aclose()`.
+    assert built
+    assert all(isinstance(resource, BaseResource) for resource in built.values())
+    # And each one comes from the module of the same name. Both this test and
+    # the directory one below compare names to names, so a getter copied from
+    # the one above it and left returning the wrong class — the mistake #143
+    # was filed over — passed each of them.
+    assert all(
+        type(resource).__module__ == f"aiopikvm.resources.{name}"
+        for (name, resource) in built.items()
+    )
+
+
+def test_every_resource_module_is_reachable_from_the_client() -> None:
+    """The registry is complete, checked against something outside it (#143).
+
+    `_RESOURCE_NAMES` is derived from the class, and the tests that iterate it
+    are as blind to a missing resource as the tuple was — a name that is not
+    there is simply not iterated. The directory is the independent list: one
+    module per resource, and every one of them has a property on `PiKVM`.
+    """
+    package = Path(cast(str, aiopikvm.__file__)).parent
+    modules = {
+        path.stem
+        for path in (package / "resources").glob("*.py")
+        if not path.stem.startswith("_")
+    }
+    assert modules == set(_RESOURCE_NAMES)
 
 
 async def test_auth_headers(mock_api: respx.MockRouter) -> None:

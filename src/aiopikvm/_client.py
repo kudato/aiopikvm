@@ -114,21 +114,6 @@ def _httpx_errors_translated() -> Iterator[None]:
         raise ConnectError(str(exc)) from exc
 
 
-_RESOURCE_NAMES = (
-    "auth",
-    "atx",
-    "hid",
-    "msd",
-    "gpio",
-    "streamer",
-    "media",
-    "switch",
-    "redfish",
-    "prometheus",
-    "system",
-)
-
-
 class PiKVM:
     """Async client for PiKVM API.
 
@@ -1298,3 +1283,21 @@ class PiKVM:
                 "request first, and open the socket after that."
             )
         return token
+
+
+_RESOURCE_NAMES = tuple(
+    name for name, value in vars(PiKVM).items() if isinstance(value, cached_property)
+)
+"""Every lazily-built resource on [`PiKVM`][aiopikvm.PiKVM], in declaration order.
+
+Read off the class rather than listed beside it. `aclose()` clears each of
+these out of the instance `__dict__`, so a name missing from the list is a
+resource that outlives the close: the getter is what raises `PiKVMError` on a
+client that is gone, and one already in `__dict__` is handed back without it
+ever running again — and a list nothing derives is one a new resource is
+added without (#143).
+
+Every `cached_property` on this class is a resource today, and the tests hold
+that: one of them asserts each name here builds a `BaseResource`, so a cached
+property of some other kind would fail rather than be quietly cleared.
+"""

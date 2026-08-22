@@ -1,6 +1,7 @@
 """PiKVMWebSocket tests."""
 
 import asyncio
+import dataclasses
 import json
 import logging
 import ssl
@@ -40,7 +41,15 @@ from aiopikvm import (
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import _PENDING_LIMIT, _Connector, _merge, _open
+from aiopikvm._ws import (
+    _PENDING_LIMIT,
+    _STATE_FIELDS,
+    _STATE_MODELS,
+    _Connector,
+    _landing_fields,
+    _merge,
+    _open,
+)
 from tests.fixtures import load_json, load_jsonl
 from tests.helpers import defaults
 
@@ -789,6 +798,83 @@ async def test_states_ignore_an_event_type_they_do_not_know() -> None:
     ws = socket()
     ws._connection = iterating(
         json.dumps({"event_type": "quantum", "event": {"spin": "up"}}),
+        json.dumps(recorded("atx")),
+    )
+    assert [state.updated async for state in ws.states()] == ["atx"]
+
+
+def test_the_table_lands_in_the_fields_and_nowhere_else() -> None:
+    """`_STATE_FIELDS` is the set `states()` checks a table entry against.
+
+    Derived from the dataclass rather than listed, so the two cannot be
+    edited apart; equality in both directions is the contract. A subsystem
+    with no field is what #143 was filed over, and a field with no subsystem
+    is either a model nobody wrote or, like `clients` and `updated`, a name
+    the derivation has to leave out.
+
+    This is not the whole of it: nothing here says the exclusions are the
+    right ones, because a table entry deleted and excluded in the same edit
+    keeps the equality true. `test_every_typed_subsystem_has_a_field_to_land_in`
+    in the contract suite is what checks the table against the dataclass
+    without going through this set. What `states()` does with an entry this
+    equality would have caught is
+    `test_states_ignore_a_table_entry_with_nowhere_to_land` below.
+    """
+    assert set(_STATE_MODELS) == _STATE_FIELDS
+
+
+def test_a_field_replace_will_not_take_is_not_a_landing_field() -> None:
+    """A field declared `init=False` is a field, and not somewhere to land.
+
+    `dataclasses.replace()` refuses one before `__init__` runs, with the same
+    bare `TypeError` a name with no field at all gets, so a derivation that
+    went by `dataclasses.fields()` alone would hand `states()` a name that
+    breaks the loop. `DeviceState` has no such field today, which is why this
+    asks `_landing_fields()` about a dataclass written for the question
+    instead: the module constant cannot show the difference until someone
+    declares one, and by then it is a released bug.
+
+    `updated` and `clients` are here too, because they are dropped by name
+    rather than by what `replace()` will take — it takes both.
+    """
+
+    @dataclasses.dataclass(frozen=True, slots=True)
+    class Fake:
+        updated: str = ""
+        clients: int | None = None
+        atx: ATXState | None = None
+        ocr: OCRInfo | None = dataclasses.field(default=None, init=False)
+
+    assert _landing_fields(dataclasses.fields(Fake)) == {"atx"}
+
+    with pytest.raises(TypeError):
+        dataclasses.replace(Fake(), ocr=None)
+    assert dataclasses.replace(Fake(), updated="atx", clients=2).clients == 2
+
+
+@pytest.mark.parametrize("event_type", ["quantum", "updated", "__class__"])
+async def test_states_ignore_a_table_entry_with_nowhere_to_land(
+    monkeypatch: pytest.MonkeyPatch, event_type: str
+) -> None:
+    """A table that outgrew the dataclass must not break the loop (#143).
+
+    `dataclasses.replace()` answers a keyword the dataclass has no field for
+    with a bare `TypeError`, which is not a `PiKVMError`, on a socket that is
+    otherwise healthy — and it answers a second `updated=` the same way. The
+    test above and its counterpart in the contract suite keep the table and
+    the fields together, so this is about the build that shipped without
+    them: the event is skipped like any other this release cannot place.
+
+    `__class__` is there because `DeviceState` has plenty of attributes that
+    are not fields, and only a field is somewhere a subsystem can land.
+
+    Args:
+        event_type: Name to give the table entry that has nowhere to land.
+    """
+    monkeypatch.setitem(_STATE_MODELS, event_type, _STATE_MODELS["atx"])
+    ws = socket()
+    ws._connection = iterating(
+        json.dumps({**recorded("atx"), "event_type": event_type}),
         json.dumps(recorded("atx")),
     )
     assert [state.updated async for state in ws.states()] == ["atx"]

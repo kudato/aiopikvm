@@ -29,9 +29,9 @@ uv run mkdocs build                    # build static docs
   everywhere
 - Use `X | Y` unions and `type` aliases, never `Union[X, Y]` or `Optional[X]`
 - Break circular imports with `TYPE_CHECKING` guards, and import resource
-  classes lazily inside the `@cached_property` getter of `PiKVM`
-- A new resource also goes into `_RESOURCE_NAMES`, or `aclose()` leaves it
-  cached on the client
+  classes lazily inside the `@cached_property` getter of `PiKVM`, which is
+  what `_RESOURCE_NAMES` is derived from — the getter's name has to match its
+  module's, and it is the only `cached_property` kind the class allows
 - Response models inherit `_Base` (`extra="allow"`), one file per subsystem
 - Validate payloads through `BaseResource._get_model()` / `_validate()`, never
   `Model.model_validate()` in a resource — a bare pydantic `ValidationError`

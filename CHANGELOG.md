@@ -591,6 +591,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `PiKVMWebSocket.states()` skips a subsystem this release knows a model for
+  but cannot place on `DeviceState`, instead of ending the iteration with a
+  bare `TypeError` — an exception outside `PiKVMError`, raised on a socket
+  that is otherwise healthy, so `except PiKVMError` around the loop does not
+  catch it. The models and the fields are two hand-written lists; tests now
+  hold them together, and the guard is for the build that ships without them
+  (#143).
 - `PiKVM.webrtc()`'s `ping_interval` and `ping_timeout` reach the signalling
   socket. `WebRTCSession` stored both and never passed them to the handshake,
   so the socket kept *websockets*' 20 s/20 s whatever was asked for, while the

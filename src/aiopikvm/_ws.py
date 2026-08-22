@@ -171,6 +171,57 @@ other way round — the REST endpoint wraps it in ``ocr`` and the event does not
 """
 
 
+def _landing_fields(
+    state_fields: Iterable[dataclasses.Field[Any]],
+) -> frozenset[str]:
+    """Names a subsystem event may be merged into, out of a dataclass's fields.
+
+    A field is in only if ``dataclasses.replace()`` takes it as a keyword,
+    which rules out one declared ``init=False`` — ``replace()`` refuses that
+    before ``__init__`` runs. ``updated`` and ``clients`` are dropped on top:
+    ``states()`` passes both itself.
+
+    Args:
+        state_fields: The fields of the dataclass events are merged into,
+            as ``dataclasses.fields()`` returns them.
+
+    Returns:
+        The subset of their names an event type is allowed to be.
+    """
+    return frozenset(field.name for field in state_fields if field.init) - {
+        "updated",
+        "clients",
+    }
+
+
+_STATE_FIELDS = _landing_fields(dataclasses.fields(DeviceState))
+"""Where a subsystem event can land on [`DeviceState`][aiopikvm.DeviceState].
+
+Every key of ``_STATE_MODELS`` has to be one of these, and two tests hold
+that: ``test_the_table_lands_in_the_fields_and_nowhere_else`` over this set,
+and ``test_every_typed_subsystem_has_a_field_to_land_in`` in the contract
+suite, which checks the table against the dataclass without going through
+this set at all.
+
+``states()`` checks against it anyway, because both the table and the
+dataclass are written out by hand and a build can ship with them apart.
+Handing ``replace()`` a keyword the dataclass has no field for raises a bare
+``TypeError``, outside the hierarchy this package promises; so does handing
+it ``updated`` a second time, and so does naming a field declared
+``init=False``. kvmd does broadcast names ``DeviceState`` has no field for —
+``loop`` and ``pong`` are in every capture — but none of them is in
+``_STATE_MODELS``, so no live event reaches this check as any of the three.
+It is here for the build whose two lists have come apart, and it is derived
+rather than asked of the class so that it answers for what ``replace()``
+takes rather than for what ``DeviceState`` has (#143).
+
+``updated`` is out of it because ``states()`` passes that itself, and
+``clients`` because it is not a subsystem: kvmd sends a bare count, and
+``states()`` merges it in a branch of its own, which does not come through
+here.
+"""
+
+
 class _Finished(Exception):
     """Internal signal: the server closed the connection cleanly."""
 
@@ -816,8 +867,12 @@ class PiKVMWebSocket:
 
         Only the events that say something about the device produce a
         snapshot; ``loop`` and ``pong`` do not, and neither does an event type
-        this release does not know. The kvmd version the ``loop`` event
-        carries is on [`version`][aiopikvm.PiKVMWebSocket.version].
+        this release does not know. Nor does one it *does* know but cannot
+        place on [`DeviceState`][aiopikvm.DeviceState] — the models and the
+        fields are meant to agree and tests say they do, so that shows up as a
+        subsystem which never arrives rather than as an exception. The kvmd
+        version the ``loop`` event carries is on
+        [`version`][aiopikvm.PiKVMWebSocket.version].
 
         Everything [`events()`][aiopikvm.PiKVMWebSocket.events] does about the
         connection applies here, and the two cannot be iterated over the same
@@ -853,7 +908,13 @@ class PiKVMWebSocket:
                 self._state = dataclasses.replace(
                     self._state, updated=event_type, clients=count
                 )
-            elif event_type in _STATE_MODELS:
+            elif event_type in _STATE_MODELS and event_type in _STATE_FIELDS:
+                # The second test is for a table entry with nowhere to land,
+                # which `replace()` answers with a bare `TypeError` at the
+                # caller. Two tests keep the table and the fields together, so
+                # this is for the build that shipped without them — skipped
+                # like any other event this release cannot place (#143).
+                #
                 # Merged as the event came off the buffer, so this is that
                 # subsystem's whole state and not only what just changed.
                 self._state = dataclasses.replace(
