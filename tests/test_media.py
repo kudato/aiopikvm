@@ -479,8 +479,10 @@ async def test_media_ws_after_close(client: PiKVM) -> None:
 
 
 async def test_media_ws_with_cookie_auth_and_no_session() -> None:
+    """The socket is built without complaint; the handshake is what needs one."""
     async with PiKVM(
         "https://pikvm.local", user="admin", passwd="x", auth="cookie"
     ) as kvm:
+        socket = kvm.media_ws()
         with pytest.raises(ConfigurationError, match="media_ws\\(\\) cannot log in"):
-            kvm.media_ws()
+            socket._credential_headers()
