@@ -1054,14 +1054,25 @@ class WebRTCSession:
         a failure where it is *raised* would mark it for them too, and the
         teardown would then have nothing to report at all.
 
+        What is marked is the *recorded* failure, so a request Janus refuses
+        on a link that is perfectly healthy marks nothing: the session goes
+        on, and a break that comes later still has to be reported. A socket
+        that broke under the call is recorded here when the reader has not
+        caught up yet, which is what stops the reader recording its own copy
+        a moment later and the teardown raising that over a block the caller
+        chose to leave.
+
         Yields:
             Nothing. The block runs, and a signalling failure out of it is
             noted as reported on its way to the caller.
         """
         try:
             yield
-        except (WebRTCError, WebSocketError):
-            self._reported = True
+        except (WebRTCError, WebSocketError) as exc:
+            if isinstance(exc, WebSocketError) and self._failure is None:
+                self._failure = exc
+            if self._failure is not None:
+                self._reported = True
             raise
 
     def _raise_failure(self) -> None:

@@ -477,6 +477,33 @@ async def test_a_negotiation_that_never_comes_up_times_out() -> None:
                 pass
 
 
+def _cut_on_a_keepalive(armed: asyncio.Event) -> tuple[Rewrite, Aftermath]:
+    """Make a gateway drop the socket on the next unanswered keepalive.
+
+    The gateway and the client share this test's event loop, so *armed* is how
+    a test says when: the background keepalive fires on its own schedule, and
+    a cut that could land during `__aenter__` would prove something else.
+
+    Args:
+        armed: Set by the test once the cut is allowed to happen.
+
+    Returns:
+        The rewrite that withholds the answer and the hook that closes.
+    """
+
+    def unanswered(message: dict[str, Any], out: list[dict[str, Any]]) -> Any:
+        return [] if armed.is_set() and message["janus"] == "keepalive" else out
+
+    async def cut(
+        connection: websockets.asyncio.server.ServerConnection,
+        message: dict[str, Any],
+    ) -> None:
+        if armed.is_set() and message["janus"] == "keepalive":
+            await connection.close(1011, "the gateway went away")
+
+    return unanswered, cut
+
+
 async def test_a_link_that_died_unwatched_is_reported_when_the_block_ends() -> None:
     """`__aexit__` is the only place left to say it, so it has to.
 
@@ -485,20 +512,58 @@ async def test_a_link_that_died_unwatched_is_reported_when_the_block_ends() -> N
     the caller had been told about — which nothing had — and the block ended
     as if the video had simply finished.
     """
-
-    def unanswered(message: dict[str, Any], out: list[dict[str, Any]]) -> Any:
-        return [] if message["janus"] == "keepalive" else out
-
-    async def cut(
-        connection: websockets.asyncio.server.ServerConnection,
-        message: dict[str, Any],
-    ) -> None:
-        if message["janus"] == "keepalive":
-            await connection.close(1011, "the gateway went away")
+    armed = asyncio.Event()
+    unanswered, cut = _cut_on_a_keepalive(armed)
 
     async with gateway(rewrite=unanswered, after=cut) as (url, _, _requests):
         with pytest.raises(WebSocketError, match="signalling connection broke"):
             async with session(url, keepalive_interval=0.01) as rtc:
+                armed.set()
+                assert rtc._reader is not None
+                await asyncio.wait_for(asyncio.shield(rtc._reader), timeout=5.0)
+
+
+async def test_a_break_the_caller_already_saw_is_not_raised_again() -> None:
+    """The other half of the same bookkeeping, and the reason it exists.
+
+    A caller who caught the failure and left the block deliberately does not
+    need it a second time out of the `async with` they were on their way out
+    of — so the exit stays quiet, and an exception escaping this block is the
+    failure.
+    """
+    armed = asyncio.Event()
+    unanswered, cut = _cut_on_a_keepalive(armed)
+
+    async with gateway(rewrite=unanswered, after=cut) as (url, _, _requests):
+        async with session(url) as rtc:
+            armed.set()
+            with pytest.raises(WebSocketError):
+                await rtc.keepalive()
+
+
+async def test_a_refusal_the_caller_tolerated_does_not_mute_a_later_break() -> None:
+    """A request Janus refuses says nothing about the link it arrived on.
+
+    The session goes on afterwards, so a break that comes later is still news
+    — and marking every failure the caller sees would have hidden exactly the
+    case `__aexit__` is there for.
+    """
+    recorded = answer_of("message_to_a_dead_handle")
+    armed = asyncio.Event()
+    unanswered, cut = _cut_on_a_keepalive(armed)
+
+    def refuse_keyframes(message: dict[str, Any], out: list[dict[str, Any]]) -> Any:
+        if message.get("body", {}).get("request") == "key_required":
+            return [{**recorded, "transaction": message["transaction"]}]
+        return unanswered(message, out)
+
+    async with gateway(rewrite=refuse_keyframes, after=cut) as (url, _, _requests):
+        with pytest.raises(WebSocketError, match="signalling connection broke"):
+            async with session(url, keepalive_interval=0.01) as rtc:
+                with pytest.raises(WebRTCError) as caught:
+                    await rtc.request_keyframe()
+                assert caught.value.code == recorded["error"]["code"] == 459
+                armed.set()
                 assert rtc._reader is not None
                 await asyncio.wait_for(asyncio.shield(rtc._reader), timeout=5.0)
 
