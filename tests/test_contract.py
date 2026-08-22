@@ -130,6 +130,34 @@ def test_manifest_matches_the_data_directory() -> None:
     assert listed == present
 
 
+def test_nothing_the_loader_cannot_reach_sits_beside_the_data_directory() -> None:
+    """Every fixture lives under `data/`, because that is all that is read.
+
+    One recorder wrote a level above it. Running it printed a path and
+    changed nothing the suite loads, and the file it left there was committed
+    and went stale — a second `janus_session.json`, a different session, read
+    by nobody (#142).
+    """
+    stray = sorted(path.name for path in DATA_DIR.parent.glob("*.json"))
+    assert stray == []
+
+
+@pytest.mark.parametrize("recorder", ["record_janus", "record_media"])
+def test_the_recorders_write_where_the_loader_reads(recorder: str) -> None:
+    """Both resolve their output the way the loader resolves it (#142).
+
+    Read off the source rather than by running them: recording needs a real
+    device, and a recorder that silently writes nowhere spends the owner's
+    permission for nothing.
+
+    Args:
+        recorder: Module name of the recorder, beside `data/`.
+    """
+    source = (DATA_DIR.parent / f"{recorder}.py").read_text(encoding="utf-8")
+    assert "DATA_DIR /" in source
+    assert "os.path.dirname(__file__)" not in source
+
+
 def test_manifest_device_matches_the_info_capture() -> None:
     """The recorded device metadata comes from the captured ``/api/info``."""
     info = load_result("info")

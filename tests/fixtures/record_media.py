@@ -17,6 +17,7 @@ import httpx
 import websockets
 
 from aiopikvm import PiKVM
+from tests.fixtures import DATA_DIR
 
 URL = os.environ["PIKVM_URL"].rstrip("/")
 USER = os.environ.get("PIKVM_USER", "admin")
@@ -515,11 +516,15 @@ async def main() -> int:
         "recorded_with": "tests/fixtures/record_media.py (see the README)",
         "steps": steps,
     }
-    path = os.path.join(os.path.dirname(__file__), "media_stream.json")
-    with open(path, "w") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
-    print(f"wrote {path}")
+    # DATA_DIR, not this file's own directory: the loader resolves every
+    # fixture under `data/`, so a recording written beside it is one the
+    # suite never reads.
+    path = DATA_DIR / "media_stream.json"
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {path.resolve()}")
+    print("the manifest is not updated; see tests/fixtures/README.md")
     return 0
 
 

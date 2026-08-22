@@ -149,7 +149,7 @@ same way the capture tool is:
 
 ```bash
 PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \
-    uv run python tests/fixtures/record_media.py
+    uv run python -m tests.fixtures.record_media
 ```
 
 It is read-only, but it is not something the capture tool could ever produce:
@@ -175,7 +175,7 @@ real peer connection:
 
 ```bash
 PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \
-    uv run python tests/fixtures/record_janus.py
+    uv run python -m tests.fixtures.record_janus
 ```
 
 It walks one whole session against `/janus/ws` — create, attach, features,
@@ -210,6 +210,13 @@ that is not `0.0.0.0` survived anywhere in it. Re-recording it opens a real
 video session for about half a minute and holds a viewer socket open while it
 does; nothing needs undoing afterwards, but it is somebody's device, so ask
 first.
+
+Both recorders write into `data/`, resolved through `DATA_DIR` the way the
+loader resolves it, and print the path they wrote. Neither touches
+[`data/_manifest.json`](data/_manifest.json): only the capture tool writes
+that, and only its `captures` and `device` sections. A scenario that grows a
+step — or a new scenario altogether — needs its `scenarios` entry edited by
+hand, or the file is one the loader can read and nothing describes.
 
 `redfish_actions.json` is hand-recorded for the same reason: the capture tool
 only records GETs that succeed, and everything interesting about the Redfish
