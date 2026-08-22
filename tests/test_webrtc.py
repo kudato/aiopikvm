@@ -158,7 +158,7 @@ def response(
 def refusal(name: str) -> websockets.http11.Response:
     """Build the refusal the device answered a recorded upgrade with."""
     recorded = step(name)
-    body = json.dumps(recorded["response"]).encode()
+    body = str(recorded["response"]["text"]).encode()
     return response(
         recorded["status"],
         "Unauthorized",
@@ -318,13 +318,22 @@ async def test_the_missing_extra_is_reported_before_anything_is_dialled() -> Non
 # --- The handshake --------------------------------------------------------
 
 
-async def test_the_handshake_asks_for_the_janus_subprotocol() -> None:
-    """Janus serves its transport under that name and no other."""
+async def test_the_handshake_asks_for_what_the_device_answered() -> None:
+    """Janus serves its transport under that name and no other.
+
+    The name and the path are read off the recorded upgrade rather than
+    repeated here, because the recording is the only evidence of what the
+    device accepts — and it had been sitting in the fixture with nothing
+    loading it (#144).
+    """
+    recorded = step("upgrade")
     async with gateway() as (url, _, requests):
         async with session(url):
             pass
+    assert requests[0].path == recorded["request"]["path"]
     assert requests[0].headers["Sec-WebSocket-Protocol"] == _SUBPROTOCOL
-    assert requests[0].path == "/janus/ws"
+    assert recorded["request"]["subprotocols"] == [_SUBPROTOCOL]
+    assert recorded["subprotocol"] == _SUBPROTOCOL
 
 
 async def test_the_handshake_carries_the_credentials() -> None:
@@ -345,6 +354,23 @@ async def test_an_unauthenticated_upgrade_is_an_auth_error() -> None:
                 pass
     assert caught.value.status_code == recorded["status"] == 401
     assert caught.value.error == ""
+
+
+def test_the_refusal_serves_the_page_the_device_sent() -> None:
+    """The fake answers with nginx's page, not a JSON object holding it (#144).
+
+    The client never reads the body of a refusal — the recording is HTML and
+    carries no kvmd envelope — so nothing above notices which of the two the
+    fake serves. That is exactly why it drifted: a mock that dresses a
+    captured response up as something the device never sent is no longer a
+    recording of anything.
+    """
+    recorded = step("upgrade_unauthenticated")
+    built = refusal("upgrade_unauthenticated")
+    assert built.body == str(recorded["response"]["text"]).encode()
+    assert built.body.startswith(b"<html>")
+    assert built.headers["Content-Length"] == str(len(built.body))
+    assert built.headers["Content-Type"] == recorded["content_type"]
 
 
 async def test_a_gateway_that_is_not_there_is_a_plain_api_error() -> None:

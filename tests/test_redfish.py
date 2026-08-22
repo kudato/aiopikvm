@@ -400,7 +400,7 @@ async def test_insert_media_does_not_take_the_url_the_document_advertises(
 
     This pins the recorded 500, not a refusal: the name validator splits on
     `/` and checks each part as a filename, so the URL passed it and died in
-    the offline-MSD crash below, exactly as `no-such-image.iso` does. What an
+    the offline-MSD crash above, exactly as `no-such-image.iso` does. What an
     online MSD answers a URL is not in the corpus.
     """
     mock_api.post(INSERT_PATH).mock(return_value=replay("insert_a_url"))
@@ -408,6 +408,13 @@ async def test_insert_media_does_not_take_the_url_the_document_advertises(
         await client.redfish.insert_media("https://example.org/ubuntu.iso")
     assert info.value.status_code == 500
     assert info.value.error == ""
+    assert info.value.error_msg == ""
+    # "Exactly as" is the claim, so it is asserted rather than described: the
+    # device answered both the URL and an unknown name with the same thing,
+    # which is what "not refused" means here. A 500 on its own is satisfied by
+    # any failure at all, and that is all this test used to check (#144).
+    for key in ("status", "content_type", "body"):
+        assert step("insert_a_url")[key] == step("insert_unknown_image")[key]
 
 
 async def test_insert_media_without_an_image_is_a_validator_error(

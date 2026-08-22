@@ -348,7 +348,11 @@ async def record_refusals() -> None:
                 "Authenticated, but the handshake does not ask for "
                 f"`{SUBPROTOCOL}`. Janus serves its WebSocket transport only "
                 "under that subprotocol, so a client that does not name it "
-                "gets no usable socket."
+                "gets no usable socket. Kept as documentation, not as a mock: "
+                "this records the exception the handshake raised rather than "
+                "a response to replay, and the session always names the "
+                "subprotocol, so there is no way through this client to "
+                "reach it."
             ),
             request={"method": "GET", "path": "/janus/ws", "subprotocols": []},
             error=type(exc).__name__,
@@ -683,7 +687,9 @@ async def record_media(sig: Signalling, session: int, handle: int, offer: str) -
                 "the picture existed, and Janus events `media` for what it "
                 "*receives*: this session only receives, so no `media` ever "
                 "arrives and the frames below are the only evidence that "
-                "anything started flowing."
+                "anything started flowing. Kept as documentation, not as a "
+                "mock: an empty recording is a claim about the device, and "
+                "there is nothing in it for a test to replay."
             ),
             events=[scrub(item) for item in await sig.settle(3.0)],
         )
@@ -723,7 +729,12 @@ async def record_media(sig: Signalling, session: int, handle: int, offer: str) -
     )
     step(
         "after_stop",
-        description="What Janus sends once the peer connection is gone.",
+        description=(
+            "What Janus sends once the peer connection is gone. Kept as "
+            "documentation, not as a mock: an empty recording is a claim "
+            "about the device, and there is nothing in it for a test to "
+            "replay."
+        ),
         events=[scrub(item) for item in await sig.settle(3.0)],
     )
     for puller in pullers:
