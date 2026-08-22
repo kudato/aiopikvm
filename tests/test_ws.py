@@ -682,9 +682,32 @@ async def test_states_merge_the_info_subsystems() -> None:
     ws = socket()
     ws._connection = replaying()
     info = [state.info async for state in ws.states() if state.updated == "info"]
-    assert {"auth", "fan", "node", "meta", "uptime", "health", "system", "extras"} <= (
-        info[-1].keys()
-    )
+    last = info[-1]
+    assert last is not None
+    # Every submanager arrived in its own event and none overwrote another.
+    assert last.auth is not None
+    assert last.fan is not None
+    assert last.node is not None
+    assert last.meta is not None
+    assert last.uptime is not None
+    assert last.health is not None
+    assert last.system is not None
+    assert last.extras is not None
+
+
+async def test_states_type_the_info_subsystems() -> None:
+    """The merged /api/info is a model, not a dictionary (#71)."""
+    ws = socket()
+    ws._connection = replaying()
+    info = [state.info async for state in ws.states() if state.updated == "info"]
+    last = info[-1]
+    assert last is not None
+    assert last.system is not None
+    assert last.system.kvmd.version == "4.206"
+    assert last.health is not None
+    assert isinstance(last.health.temp.cpu, float)
+    assert last.auth is not None
+    assert last.auth.enabled is True
 
 
 async def test_states_do_not_change_a_snapshot_already_handed_out() -> None:
@@ -693,9 +716,11 @@ async def test_states_do_not_change_a_snapshot_already_handed_out() -> None:
     ws._connection = replaying()
     snapshots = [state async for state in ws.states()]
     uptimes = [
-        state.info["uptime"]["total"]
+        state.info.uptime.total
         for state in snapshots
-        if state.updated == "info" and "uptime" in state.info
+        if state.updated == "info"
+        and state.info is not None
+        and state.info.uptime is not None
     ]
     assert len(set(uptimes)) > 1, "the capture must contain two different uptimes"
 

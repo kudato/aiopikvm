@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   event that changed something. The merge is what makes it work at all — kvmd
   sends a subsystem in full once and then only the parts that change, so a
   later event validated on its own fails for want of the rest of the model.
-  `info` is merged the same way and stays a raw dictionary until #71 (#61).
+  `info` is merged the same way and is an `InfoState` (#61).
 - `PiKVMWebSocket.send_mouse_relative()`, the WebSocket half of relative mouse
   motion — the client had only the HTTP fallback. kvmd drops a relative event
   while the mouse is in its absolute mode and drops an absolute one while it is
@@ -164,6 +164,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   calls it, and without `remove_incomplete` a failed download leaves an
   incomplete image occupying the name, which is then refused on the retry
   (#40).
+- `SystemResource.get_state()` and the `Info*` models behind it. `/api/info`
+  was the one subsystem with no types at all, and it carries what a dashboard
+  polls: CPU load and temperature, throttling flags, memory, fan state, the
+  kvmd and streamer versions. The models follow the per-submanager shape —
+  the one `legacy=False` returns and the one the WebSocket `info` events
+  carry — because the legacy shape has no submanager behind its `hw` and no
+  single model could describe both. Every attribute is optional, since the
+  same model is what `PiKVMWebSocket.states()` fills in one event at a time.
+  `meta` and `fan.state` stay dictionaries: the first is a YAML file the
+  device's owner writes and kvmd reads one key out of, the second belongs to
+  the `kvmd-fan` daemon and arrives over its own socket, so neither shape is
+  kvmd's to promise (#71).
 - `legacy` on `SystemResource.get_info()`, and `InfoField` for the categories
   it takes. kvmd assembles `/api/info` from eight submanagers and, unless
   `legacy=0` is asked for, rearranges them into the shape its older API had:
@@ -177,6 +189,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** `DeviceState.info` is an `InfoState | None` instead of a
+  `dict[str, Any]`. It defaulted to an empty dictionary and now defaults to
+  `None`, so a snapshot taken before the first `info` event says so rather
+  than looking like a device with nothing to report (#71).
 - **Breaking:** kvmd 4.206 is now the declared minimum. The client had never
   said which versions it supports, so every method was implicitly promised
   against every kvmd ever shipped, and several were not: an event carrying a

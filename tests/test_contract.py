@@ -20,6 +20,7 @@ from aiopikvm import (
     GPIOState,
     HIDKeymaps,
     HIDState,
+    InfoState,
     MSDState,
     MSDUpload,
     OCRInfo,
@@ -66,6 +67,7 @@ CASES = (
     Case("streamer", StreamerState),
     Case("switch", SwitchState),
     Case("streamer_ocr", OCRInfo, key="ocr"),
+    Case("info_legacy0", InfoState),
 )
 
 
