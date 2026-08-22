@@ -149,7 +149,7 @@ same way the capture tool is:
 
 ```bash
 PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \
-    uv run python tests/fixtures/record_media.py
+    uv run python -m tests.fixtures.record_media
 ```
 
 It is read-only, but it is not something the capture tool could ever produce:
@@ -175,7 +175,7 @@ real peer connection:
 
 ```bash
 PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \
-    uv run python tests/fixtures/record_janus.py
+    uv run python -m tests.fixtures.record_janus
 ```
 
 It walks one whole session against `/janus/ws` — create, attach, features,
@@ -228,6 +228,15 @@ online across it. On a device with a working ATX that same step —
 `{"ResetType": "On"}` — powers an off host up, and a switch port is not
 covered by the `enabled` check at all, so do not re-record any of this without
 asking.
+
+Both recorders write into `data/`, resolved through `DATA_DIR` exactly as the
+loader resolves it, and print the path they wrote — anywhere else is a file
+the loader will not look at. Neither touches
+[`data/_manifest.json`](data/_manifest.json); only the capture tool writes it,
+and only its `captures` and `device` sections. So a brand-new scenario needs
+its `scenarios` entry added by hand before anything can load it, and a
+scenario that grows a step loads fine but leaves that entry's `description`
+saying less than the file holds.
 
 ## What these fixtures do and do not prove
 

@@ -130,6 +130,55 @@ def test_manifest_matches_the_data_directory() -> None:
     assert listed == present
 
 
+def test_no_recording_sits_beside_the_data_directory() -> None:
+    """A recorded payload belongs under `data/`, which is where they load from.
+
+    One recorder wrote a level above it. Running it printed a path and
+    changed nothing the suite loads, and the file it left there was committed
+    and went stale — a second `janus_session.json`, a different session, read
+    by nobody (#142).
+
+    The tools themselves live at that level, and so does the TLS material
+    `test_tls.py` reads from `tls/`, so this is not "nothing but `data/`": it
+    is that nothing which looks like a recording may sit outside it. Any file
+    that is not one of the tools and not this README is one.
+    """
+    root = DATA_DIR.parent
+    stray = sorted(
+        path.name
+        for path in root.iterdir()
+        if path.is_file() and path.suffix != ".py" and path.name != "README.md"
+    )
+    assert stray == []
+
+
+@pytest.mark.parametrize(
+    ("recorder", "scenario"),
+    [("record_janus", "janus_session"), ("record_media", "media_stream")],
+)
+def test_the_recorders_write_where_the_loader_reads(
+    recorder: str, scenario: str
+) -> None:
+    """Both write the name the manifest gives, under `data/` (#142).
+
+    Read off the source rather than by running them: recording needs a real
+    device, and a recorder that silently writes nowhere spends the owner's
+    permission for nothing. What that cannot see is everything between the
+    path and the write — this pins the expression, not the file appearing.
+
+    Args:
+        recorder: Module name of the recorder, beside `data/`.
+        scenario: Manifest key of the scenario it records.
+    """
+    source = (DATA_DIR.parent / f"{recorder}.py").read_text(encoding="utf-8")
+    listed = manifest()["scenarios"][scenario]["file"]
+    assert f'DATA_DIR / "{listed}"' in source
+    # Not a spelling of the old bug: every way of reaching for this file's own
+    # directory goes through __file__, and neither recorder needs it for
+    # anything else.
+    assert "__file__" not in source
+
+
 def test_manifest_device_matches_the_info_capture() -> None:
     """The recorded device metadata comes from the captured ``/api/info``."""
     info = load_result("info")
