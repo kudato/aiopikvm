@@ -6,7 +6,9 @@ what is sent: a client meaning to authenticate by session that still carries
 `X-KVMD-User` never reaches the session check at all.
 """
 
+import asyncio
 import base64
+import itertools
 
 import httpx
 import pytest
@@ -125,6 +127,50 @@ async def test_cookie_mode_opens_a_new_session_when_the_token_is_refused(
     assert login.call_count == 2
     assert atx.call_count == 2
     assert f"auth_token={OTHER_TOKEN}" in atx.calls[-1].request.headers["Cookie"]
+
+
+async def test_cookie_mode_opens_one_session_for_a_burst_of_refusals(
+    mock_api: respx.MockRouter,
+) -> None:
+    # Five calls in flight when the session lapses, each refused once, all
+    # five queueing for the same refresh. Only the first has a token to
+    # replace; the rest have to notice that the jar already holds one they
+    # have not tried, or every one of them mints a session and leaves it open
+    # on the device.
+    tokens = itertools.chain([TOKEN], itertools.repeat(OTHER_TOKEN))
+    login = mock_api.post("/api/auth/login").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=OK,
+            headers={"Set-Cookie": f"auth_token={next(tokens)}; Path=/"},
+        )
+    )
+
+    # Hold every refused call open until all five have arrived, so they really
+    # are in flight together rather than one after another.
+    in_flight = asyncio.Event()
+    arrived = 0
+
+    async def answer(request: httpx.Request) -> httpx.Response:
+        nonlocal arrived
+        if f"auth_token={TOKEN}" not in request.headers.get("Cookie", ""):
+            return httpx.Response(200, json=OK)
+        arrived += 1
+        if arrived == 5:
+            in_flight.set()
+        await in_flight.wait()
+        return httpx.Response(403, json=OK)
+
+    atx = mock_api.get("/api/atx").mock(side_effect=answer)
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        await asyncio.gather(*(kvm.request("GET", "/api/atx") for _ in range(5)))
+    assert login.call_count == 2
+    assert atx.call_count == 10
+    # Five refused, five retried — and the retries all carry the one token the
+    # single refresh produced. Order is not asserted: the five wake together.
+    carried = [call.request.headers["Cookie"] for call in atx.calls]
+    assert sum(f"auth_token={TOKEN}" in cookie for cookie in carried) == 5
+    assert sum(f"auth_token={OTHER_TOKEN}" in cookie for cookie in carried) == 5
 
 
 async def test_cookie_mode_gives_up_after_one_retry(

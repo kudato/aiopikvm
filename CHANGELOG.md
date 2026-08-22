@@ -554,6 +554,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A burst of requests that lose the session together no longer opens a session
+  each. Under `auth="cookie"` a refused token is replaced under a lock, and the
+  guard meant to spot that another task had already replaced it deleted the
+  cookie before looking for it — `httpx.Cookies.delete()` takes every cookie of
+  that name, so the check that followed could never be true. Five calls refused
+  at once opened six sessions, and since kvmd's `session_expire` defaults to an
+  unlimited session that cannot be ended individually, every orphan stayed on
+  the device. The refresh now compares the jar with the token that was actually
+  refused, and does nothing when it finds a newer one (#131).
 - A WebSocket nobody reads no longer dies about forty seconds in, taking
   kvmd's streamer with it. *websockets* parses frames in the transport
   callback and acknowledges a keepalive pong there, and pauses reading the

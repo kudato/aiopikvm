@@ -370,6 +370,7 @@ class PiKVM:
         """
         if self._needs_session(path):
             await self._ensure_session()
+            carried = self._session_token()
             try:
                 return await self._send(
                     method, path, params, json, data, content, headers, timeout
@@ -379,7 +380,7 @@ class PiKVM:
                 # somewhere else. Open a session and try the call once more.
                 # Anything wrong with the password itself fails again below,
                 # this time for good.
-                await self._ensure_session(force=True)
+                await self._ensure_session(refused=carried)
         return await self._send(
             method, path, params, json, data, content, headers, timeout
         )
@@ -397,25 +398,32 @@ class PiKVM:
         """
         return self._auth == "cookie" and not path.rstrip("/").endswith("/auth/login")
 
-    async def _ensure_session(self, *, force: bool = False) -> None:
+    async def _ensure_session(self, *, refused: str | None = None) -> None:
         """Make sure the cookie jar holds a session token.
 
         Args:
-            force: Log in even if a token is already stored, replacing it.
-                Used after kvmd refused the one being carried.
+            refused: The token kvmd has just refused, when this call is a
+                refresh rather than a first login. It is compared with the jar
+                under the lock: a token that is no longer the one in the jar
+                has already been replaced by another task, and the replacement
+                has not been tried yet, so this call has nothing to do.
 
         Raises:
             AuthError: The credentials were refused.
         """
         async with self._login_lock:
-            if not force and self._session_token():
-                return
-            if force:
-                self._ensure_client().cookies.delete(_COOKIE)
-                if self._session_token():
-                    # Another task logged in while this one waited for the
-                    # lock; that token has not been tried yet.
+            stored = self._session_token()
+            if refused is None:
+                if stored:
                     return
+            elif stored != refused:
+                # Another task logged in while this one waited for the lock;
+                # that token has not been tried yet.
+                return
+            else:
+                # Drop the refused token before asking for a new one, so the
+                # login itself does not carry it.
+                self._ensure_client().cookies.delete(_COOKIE)
             await self.auth.login(
                 self._user,
                 self._passwd,
