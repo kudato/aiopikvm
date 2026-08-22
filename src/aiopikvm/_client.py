@@ -28,6 +28,7 @@ from aiopikvm._exceptions import (
     _error_fields,
     _status_error,
 )
+from aiopikvm._tls import CertTypes, VerifyTypes, build_ssl_context
 from aiopikvm._ws import PiKVMWebSocket
 
 if TYPE_CHECKING:
@@ -94,7 +95,10 @@ class PiKVM:
         totp: str | Callable[[], str] | None = None,
         auth: AuthMode = DEFAULT_AUTH,
         session_expire: int = 0,
-        verify_ssl: bool = DEFAULT_VERIFY_SSL,
+        verify_ssl: VerifyTypes = DEFAULT_VERIFY_SSL,
+        cert: CertTypes | None = None,
+        proxy: str | None = None,
+        trust_env: bool = True,
         timeout: float = DEFAULT_TIMEOUT,
         follow_redirects: bool = DEFAULT_FOLLOW_REDIRECTS,
         http_client: httpx.AsyncClient | None = None,
@@ -119,8 +123,20 @@ class PiKVM:
                 that session outlives the client: kvmd has no way to end one
                 session, only every session a user has. Give this a value if
                 the client is short-lived, so an abandoned session lapses.
-            verify_ssl: Verify the TLS certificate. Off by default because
-                PiKVM ships a self-signed one.
+            verify_ssl: What to trust; see
+                [`VerifyTypes`][aiopikvm.VerifyTypes]. Off by default
+                because PiKVM ships a self-signed certificate. Pass the path
+                of a CA bundle for a device re-issued one from a private CA,
+                or a ready-made `ssl.SSLContext` for anything else.
+            cert: Client certificate to present: a combined PEM path, or
+                ``(cert, key)``, or ``(cert, key, password)``. Cannot be
+                combined with an `ssl.SSLContext` — load it into that
+                context instead.
+            proxy: Proxy URL to reach the device through. ``None`` leaves it
+                to the environment, unless *trust_env* says otherwise.
+            trust_env: Read proxy settings and the certificate bundle from
+                the environment. ``False`` ignores ``HTTPS_PROXY`` and the
+                rest, for a client that must reach the device directly.
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default: a
@@ -138,6 +154,9 @@ class PiKVM:
         self._auth = auth
         self._session_expire = session_expire
         self._verify_ssl = verify_ssl
+        self._cert = cert
+        self._proxy = proxy
+        self._trust_env = trust_env
         self._timeout = timeout
         self._follow_redirects = follow_redirects
         self._external_client = http_client is not None
@@ -719,7 +738,12 @@ class PiKVM:
             try:
                 self._client = httpx.AsyncClient(
                     base_url=self._url,
-                    verify=self._verify_ssl,
+                    # One context for both halves of the client, and the
+                    # only spelling httpx 0.28 does not deprecate: `cert=`
+                    # and `verify=<path>` both tell you to build this.
+                    verify=build_ssl_context(self._verify_ssl, self._cert),
+                    proxy=self._proxy,
+                    trust_env=self._trust_env,
                     timeout=self._timeout,
                     follow_redirects=self._follow_redirects,
                 )
@@ -828,6 +852,9 @@ class PiKVM:
             auth=self._auth,
             token=token,
             verify_ssl=self._verify_ssl,
+            cert=self._cert,
+            proxy=self._proxy,
+            trust_env=self._trust_env,
             stream=stream,
             binary=binary,
             follow_redirects=self._follow_redirects,

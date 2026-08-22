@@ -23,6 +23,10 @@
 
 ::: aiopikvm.AuthMode
 
+::: aiopikvm.VerifyTypes
+
+::: aiopikvm.CertTypes
+
 ::: aiopikvm.TOTP
     options:
       show_bases: false

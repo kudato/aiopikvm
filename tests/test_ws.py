@@ -263,7 +263,9 @@ async def test_aenter_wss_verify() -> None:
     mock_connect = AsyncMock(return_value=AsyncMock())
     with patch("aiopikvm._ws._Connector", mock_connect):
         await ws.__aenter__()
-        assert mock_connect.call_args[1]["ssl_context"] is True
+        ctx = mock_connect.call_args[1]["ssl_context"]
+        assert ctx.verify_mode is ssl.CERT_REQUIRED
+        assert ctx.check_hostname is True
     ws._connection = None
 
 
@@ -283,6 +285,7 @@ async def test_connector_forwards_what_it_was_given() -> None:
         "wss://pikvm.local/api/ws?stream=1",
         additional_headers={"X-KVMD-User": "admin"},
         ssl_context=context,
+        proxy=None,
         open_timeout=7.0,
         close_timeout=3.0,
     )

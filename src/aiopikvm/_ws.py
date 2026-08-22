@@ -25,7 +25,7 @@ import struct
 from collections import deque
 from collections.abc import AsyncIterator, Callable, Iterable
 from types import TracebackType
-from typing import Any, NamedTuple, Self
+from typing import Any, Literal, NamedTuple, Self
 from urllib.parse import urlparse, urlunparse
 
 import websockets
@@ -42,6 +42,7 @@ from aiopikvm._exceptions import (
     _error_fields_from_bytes,
     _status_error,
 )
+from aiopikvm._tls import CertTypes, VerifyTypes, build_ssl_context
 from aiopikvm.models.atx import ATXState
 from aiopikvm.models.gpio import GPIOState
 from aiopikvm.models.hid import HIDKeymaps, HIDState
@@ -179,7 +180,8 @@ class _Connector(websockets.asyncio.client.connect):
         *,
         follow_redirects: bool = False,
         additional_headers: dict[str, str],
-        ssl_context: ssl.SSLContext | bool | None,
+        ssl_context: ssl.SSLContext | None,
+        proxy: str | Literal[True] | None,
         open_timeout: float,
         close_timeout: float,
     ) -> None:
@@ -194,6 +196,9 @@ class _Connector(websockets.asyncio.client.connect):
             follow_redirects: Follow a redirect instead of reporting it.
             additional_headers: Headers to add to the upgrade request.
             ssl_context: TLS configuration, or ``None`` for a plain socket.
+            proxy: A proxy URL, ``True`` to take one from the environment —
+                which is *websockets*' own default — or ``None`` to connect
+                directly.
             open_timeout: Seconds to wait for the handshake.
             close_timeout: Seconds to wait for the closing handshake.
         """
@@ -202,6 +207,7 @@ class _Connector(websockets.asyncio.client.connect):
             uri,
             additional_headers=additional_headers,
             ssl=ssl_context,
+            proxy=proxy,
             open_timeout=open_timeout,
             close_timeout=close_timeout,
         )
@@ -249,7 +255,10 @@ class PiKVMWebSocket:
         passwd: str | Callable[[], str],
         auth: AuthMode = "headers",
         token: str = "",
-        verify_ssl: bool = True,
+        verify_ssl: VerifyTypes = True,
+        cert: CertTypes | None = None,
+        proxy: str | None = None,
+        trust_env: bool = True,
         stream: bool = True,
         binary: bool = False,
         follow_redirects: bool = False,
@@ -270,7 +279,14 @@ class PiKVMWebSocket:
                 work; ``"cookie"`` needs *token* and ignores *user* and
                 *passwd*.
             token: Session token for ``auth="cookie"``.
-            verify_ssl: Verify the TLS certificate.
+            verify_ssl: What to trust; see
+                [`VerifyTypes`][aiopikvm.VerifyTypes].
+            cert: Client certificate to present.
+            proxy: Proxy URL to reach the device through. ``None``
+                leaves it to the environment, unless *trust_env* says
+                otherwise.
+            trust_env: Read the proxy configuration from the
+                environment. ``False`` connects directly.
             stream: Ask kvmd to treat this client as a video viewer. kvmd
                 counts the sessions that did and runs the streamer while that
                 count is above zero, so a client connected with ``False``
@@ -313,6 +329,9 @@ class PiKVMWebSocket:
         self._auth = auth
         self._token = token
         self._verify_ssl = verify_ssl
+        self._cert = cert
+        self._proxy = proxy
+        self._trust_env = trust_env
         self._binary = binary
         self._follow_redirects = follow_redirects
         self._open_timeout = open_timeout
@@ -345,14 +364,11 @@ class PiKVMWebSocket:
             WebSocketError: The connection could not be established: DNS,
                 TLS, timeout, or a server that does not speak WebSocket.
         """
-        ssl_context: ssl.SSLContext | bool | None = None
+        # `ws://` carries no TLS, so there is nothing to configure there;
+        # anything the caller asked for would be silently unused.
+        ssl_context: ssl.SSLContext | None = None
         if self._url.startswith("wss://"):
-            if not self._verify_ssl:
-                ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-            else:
-                ssl_context = True
+            ssl_context = build_ssl_context(self._verify_ssl, self._cert)
 
         headers = self._credential_headers()
 
@@ -361,6 +377,7 @@ class PiKVMWebSocket:
                 self._url,
                 additional_headers=headers,
                 ssl_context=ssl_context,
+                proxy=(self._proxy or (True if self._trust_env else None)),
                 open_timeout=self._open_timeout,
                 close_timeout=self._close_timeout,
                 follow_redirects=self._follow_redirects,

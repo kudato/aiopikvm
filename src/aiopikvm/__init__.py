@@ -15,6 +15,7 @@ from aiopikvm._exceptions import (
     UnavailableError,
     WebSocketError,
 )
+from aiopikvm._tls import CertTypes, VerifyTypes
 from aiopikvm._totp import TOTP
 from aiopikvm._ws import DeviceState, KvmdVersion, PiKVMWebSocket
 from aiopikvm.models.atx import ATXActs, ATXLeds, ATXState
@@ -130,6 +131,7 @@ __all__ = [
     "AuthError",
     "AuthMode",
     "BusyError",
+    "CertTypes",
     "ConfigurationError",
     "ConnectError",
     "ConnectionTimeoutError",
@@ -227,6 +229,7 @@ __all__ = [
     "SwitchUnit",
     "SwitchUnitFirmware",
     "UnavailableError",
+    "VerifyTypes",
     "WebSocketError",
     "__version__",
 ]
