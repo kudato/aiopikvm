@@ -142,7 +142,7 @@ DMTF schema is a type error rather than an HTTP 400, and `RESET_TYPES` is the
 same list to check against at runtime:
 
 ```python
-from aiopikvm.resources.redfish import RESET_TYPES
+from aiopikvm import RESET_TYPES
 
 RESET_TYPES
 # ("On", "ForceOn", "ForceOff", "GracefulShutdown",

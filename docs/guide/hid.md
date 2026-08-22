@@ -118,7 +118,7 @@ will eventually hand it something it has no entry for — `NumpadEqual` and
 `KEY_NAMES` holds every one kvmd does know:
 
 ```python
-from aiopikvm.resources.hid import KEY_NAMES
+from aiopikvm import KEY_NAMES
 
 if key not in KEY_NAMES:
     raise ValueError(f"kvmd has no key named {key!r}")
