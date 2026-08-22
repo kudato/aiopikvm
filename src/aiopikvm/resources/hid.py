@@ -24,18 +24,20 @@ KEY_NAMES = frozenset({
     "CapsLock", "Comma", "ContextMenu", "ControlLeft", "ControlRight",
     "Convert", "Delete", "Digit0", "Digit1", "Digit2", "Digit3", "Digit4",
     "Digit5", "Digit6", "Digit7", "Digit8", "Digit9", "End", "Enter",
-    "Equal", "Escape", "F1", "F10", "F11", "F12", "F2", "F20", "F3", "F4",
-    "F5", "F6", "F7", "F8", "F9", "Home", "Insert", "IntlBackslash",
-    "IntlRo", "IntlYen", "KanaMode", "KeyA", "KeyB", "KeyC", "KeyD", "KeyE",
-    "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL", "KeyM", "KeyN",
-    "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW",
-    "KeyX", "KeyY", "KeyZ", "MetaLeft", "MetaRight", "Minus", "NonConvert",
-    "NumLock", "Numpad0", "Numpad1", "Numpad2", "Numpad3", "Numpad4",
-    "Numpad5", "Numpad6", "Numpad7", "Numpad8", "Numpad9", "NumpadAdd",
-    "NumpadDecimal", "NumpadDivide", "NumpadEnter", "NumpadMultiply",
-    "NumpadSubtract", "PageDown", "PageUp", "Pause", "Period", "Power",
-    "PrintScreen", "Quote", "ScrollLock", "Semicolon", "ShiftLeft",
-    "ShiftRight", "Slash", "Space", "Tab",
+    "Equal", "Escape", "F1", "F10", "F11", "F12", "F13", "F14", "F15",
+    "F16", "F17", "F18", "F19", "F2", "F20", "F21", "F22", "F23", "F24",
+    "F3", "F4", "F5", "F6", "F7", "F8", "F9", "Home", "Insert",
+    "IntlBackslash", "IntlRo", "IntlYen", "KanaMode", "KeyA", "KeyB",
+    "KeyC", "KeyD", "KeyE", "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ",
+    "KeyK", "KeyL", "KeyM", "KeyN", "KeyO", "KeyP", "KeyQ", "KeyR",
+    "KeyS", "KeyT", "KeyU", "KeyV", "KeyW", "KeyX", "KeyY", "KeyZ",
+    "MetaLeft", "MetaRight", "Minus", "NonConvert", "NumLock", "Numpad0",
+    "Numpad1", "Numpad2", "Numpad3", "Numpad4", "Numpad5", "Numpad6",
+    "Numpad7", "Numpad8", "Numpad9", "NumpadAdd", "NumpadDecimal",
+    "NumpadDivide", "NumpadEnter", "NumpadMultiply", "NumpadSubtract",
+    "PageDown", "PageUp", "Pause", "Period", "Power", "PrintScreen",
+    "Quote", "ScrollLock", "Semicolon", "ShiftLeft", "ShiftRight",
+    "Slash", "Space", "Tab",
 })  # fmt: skip
 """Every key name kvmd accepts, matched case-sensitively.
 
@@ -58,7 +60,7 @@ in for the answer the socket does not give:
         raise ValueError(f"kvmd has no key named {key!r}")
     await ws.send_key(key, state=True)
 
-The set is kvmd 4.186's, recorded from the device behind this project's
+The set is kvmd 4.206's, recorded from the device behind this project's
 fixtures; no endpoint exposes the table, so this cannot be read from a
 device at runtime. Another version may know more names — nothing in the
 client enforces the set, and a name outside it is sent as given.
@@ -79,7 +81,7 @@ HTTP 400. It lowercases the value first, so a device would also take
 
 Being accepted is not being applied. kvmd validates against this list
 whatever HID backend is running, and *then* hands the value to a backend
-that may have no use for it. In kvmd 4.186 only the MCU backends act on
+that may have no use for it. In kvmd 4.206 only the MCU backends act on
 it at all; ``otg``, ``ch9329`` and ``bt`` discard the argument and still
 answer 200. ``HIDState.keyboard.outputs.available`` is what the running
 backend offers, and it is empty when there is no choice to make.
@@ -191,7 +193,7 @@ class HIDResource(BaseResource):
     async def set_connected(self, connected: bool) -> None:
         """Unplug the emulated HID from the target host, or plug it back in.
 
-        Only the MCU-based backends do this: kvmd 4.186 implements it in the
+        Only the MCU-based backends do this: kvmd 4.206 implements it in the
         ones that drive a separate microcontroller, ``hid.type`` set to
         ``serial`` or ``spi``, and nowhere else. Under ``otg``, ``ch9329`` or
         ``bt`` the call reaches a base implementation that discards its
@@ -235,7 +237,7 @@ class HIDResource(BaseResource):
         microcontroller itself, through its reset pin where one is configured,
         and keeps the queued input to deliver afterwards. Under ``ch9329``
         nothing happens that anything can observe: the reset request its loop
-        would send is commented out in kvmd 4.186, and all it does instead is
+        would send is commented out in kvmd 4.206, and all it does instead is
         set an internal busy flag that ``get_state()`` never reports.
         """
         await self._post("/api/hid/reset")
@@ -306,9 +308,9 @@ class HIDResource(BaseResource):
                 [`KEY_NAMES`][aiopikvm.resources.hid.KEY_NAMES] and matched
                 case-sensitively.
             state: Key state (``True`` = press, ``False`` = release,
-                ``None`` = press carrying *finish*, which is what kvmd 4.33
-                and after do for an event that names no state of its own —
-                so a modifier passed this way is pressed and stays down).
+                ``None`` = press carrying *finish*, which is what kvmd does
+                for an event that names no state of its own — so a modifier
+                passed this way is pressed and stays down).
             finish: Ask kvmd to release the key in the same event that
                 pressed it, so a script that dies mid-keystroke leaves
                 nothing held. It goes out only on a press: kvmd reads it
@@ -317,15 +319,13 @@ class HIDResource(BaseResource):
                 released — kvmd exempts the eight modifiers, ``Shift``,
                 ``Control``, ``Alt`` and ``Meta``, left and right, along
                 with ``PrintScreen``, and presses those and leaves them held
-                with no error to say so. A kvmd older than 4.33 has no such
-                parameter and does that to every key. The HID guide has the
-                exact names and the versions behind them.
+                with no error to say so. The HID guide has the exact names.
 
                 ``None`` asks for nothing and is not the same as ``False``
-                everywhere: a *state* of ``None`` is finished by kvmd 4.33
-                and after whatever this says, so ``False`` there names a
-                behaviour no request can bring about. Pass ``state=True`` to
-                press a key and leave it down.
+                everywhere: a *state* of ``None`` is finished by kvmd
+                whatever this says, so ``False`` there names a behaviour no
+                request can bring about. Pass ``state=True`` to press a key
+                and leave it down.
 
         Raises:
             APIError: If kvmd has no key by that name (HTTP 400).

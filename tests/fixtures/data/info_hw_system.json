@@ -4,15 +4,15 @@
     "hw": {
       "health": {
         "cpu": {
-          "percent": 53
+          "percent": 31
         },
         "mem": {
-          "available": 3367862272,
-          "percent": 11.1,
+          "available": 3410055168,
+          "percent": 10.0,
           "total": 3788144640
         },
         "temp": {
-          "cpu": 37.972
+          "cpu": 34.076
         },
         "throttling": {
           "ignore_past": false,
@@ -45,12 +45,12 @@
     "system": {
       "kernel": {
         "machine": "aarch64",
-        "release": "6.12.93-1-rpi",
+        "release": "6.12.100-1-rpi",
         "system": "Linux",
-        "version": "#1 SMP PREEMPT Tue Jun 16 23:05:35 UTC 2026"
+        "version": "#1 SMP PREEMPT Mon Aug  3 03:36:39 UTC 2026"
       },
       "kvmd": {
-        "version": "4.186"
+        "version": "4.206"
       },
       "streamer": {
         "app": "ustreamer",
@@ -64,7 +64,7 @@
           "WITH_SYSTEMD": true,
           "WITH_V4P": true
         },
-        "version": "6.61"
+        "version": "6.62"
       }
     }
   }

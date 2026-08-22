@@ -5,19 +5,19 @@ pikvm_atx_enabled 0
 pikvm_atx_power 0
 
 # TYPE pikvm_hw_cpu_percent gauge
-pikvm_hw_cpu_percent 47
+pikvm_hw_cpu_percent 18
 
 # TYPE pikvm_hw_mem_available gauge
-pikvm_hw_mem_available 3368333312
+pikvm_hw_mem_available 3409182720
 
 # TYPE pikvm_hw_mem_percent gauge
-pikvm_hw_mem_percent 11.1
+pikvm_hw_mem_percent 10.0
 
 # TYPE pikvm_hw_mem_total gauge
 pikvm_hw_mem_total 3788144640
 
 # TYPE pikvm_hw_temp_cpu gauge
-pikvm_hw_temp_cpu 38.459
+pikvm_hw_temp_cpu 34.076
 
 # TYPE pikvm_hw_throttling_ignore_past gauge
 pikvm_hw_throttling_ignore_past 0

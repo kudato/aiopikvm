@@ -20,6 +20,16 @@ or with [uv](https://docs.astral.sh/uv/):
 uv add aiopikvm
 ```
 
+## Requirements
+
+- Python 3.13 or later
+- PiKVM running kvmd 4.206 or later
+
+kvmd 4.206 is the version behind every capture in the test suite and the only
+one this client is checked against. Nothing here inspects the device's version
+or refuses an older one — but nothing verifies one either, and some of the ways
+an older kvmd fails are silent.
+
 ## Quick start
 
 ```python

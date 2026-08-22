@@ -42,14 +42,14 @@
       },
       "h264": {
         "bitrate": 15000,
-        "fps": 20,
+        "fps": 0,
         "gop": 0,
-        "online": true
+        "online": false
       },
       "instance_id": "",
       "sinks": {
         "h264": {
-          "has_clients": true
+          "has_clients": false
         },
         "jpeg": {
           "has_clients": false

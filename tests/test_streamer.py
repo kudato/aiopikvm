@@ -30,13 +30,33 @@ async def test_get_state_running(mock_api: respx.MockRouter, client: PiKVM) -> N
     assert state.streamer.source.resolution.width == 1920
     assert state.streamer.source.resolution.height == 1080
     assert state.streamer.h264 is not None
-    assert state.streamer.h264.online is True
-    assert state.streamer.sinks.h264.has_clients is True
+    # The capture asks kvmd for video, which is what starts the streamer,
+    # but it never reads the H.264 sink: the encoder is configured and idle.
+    assert state.streamer.h264.online is False
+    assert state.streamer.sinks.h264.has_clients is False
     assert state.params.quality == 80
     assert state.limits.desired_fps.max == 70
     # The capture device cannot switch resolution, so kvmd omits both.
     assert state.params.resolution is None
     assert state.limits.available_resolutions is None
+
+
+async def test_get_state_with_an_h264_client(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # The one thing the capture cannot show, since it asks for video without
+    # consuming it: a viewer on the H.264 sink brings the encoder online.
+    body = _state()
+    streamer = body["result"]["streamer"]
+    streamer["h264"] |= {"online": True, "fps": 20}
+    streamer["sinks"]["h264"]["has_clients"] = True
+    mock_api.get("/api/streamer").mock(return_value=httpx.Response(200, json=body))
+    state = await client.streamer.get_state()
+    assert state.streamer is not None
+    assert state.streamer.h264 is not None
+    assert state.streamer.h264.online is True
+    assert state.streamer.h264.fps == 20
+    assert state.streamer.sinks.h264.has_clients is True
 
 
 async def test_get_state_applied(mock_api: respx.MockRouter, client: PiKVM) -> None:

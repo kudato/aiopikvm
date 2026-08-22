@@ -1,7 +1,7 @@
 """AuthResource tests.
 
 Every mocked response is a step of the ``auth_roundtrip`` scenario, recorded
-against kvmd 4.186. The request side matters as much as the response here:
+against kvmd 4.206. The request side matters as much as the response here:
 kvmd reads ``/auth/login`` with a form parser and identifies the session to
 drop by cookie, and getting either wrong fails on a real device while a
 mock happily accepts it.

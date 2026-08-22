@@ -1,6 +1,6 @@
 """PrometheusResource tests.
 
-The fixture is the exporter's real output, captured from kvmd 4.186.
+The fixture is the exporter's real output, captured from kvmd 4.206.
 """
 
 import httpx

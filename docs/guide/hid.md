@@ -94,22 +94,13 @@ kvmd exempts the modifiers, because holding those is what they are for —
 `ShiftLeft`, `ShiftRight`, `ControlLeft`, `ControlRight`, `AltLeft`,
 `AltRight`, `MetaLeft`, `MetaRight`, and `PrintScreen`, which it counts as
 one for the sake of `Alt+SysRq`. Asking for `finish` on one of those nine
-presses the key and leaves it held, with nothing said either way. So does
-asking for it on a device running kvmd older than 4.33, which does not read
-the parameter at all.
-
-Those nine are kvmd 4.34 and after. 4.33, the release that introduced the
-flag, exempted six of them: a mapping bug spelled the control pair
-`{ControlRight, ControlRight}` and left the `Meta` keys out of the modifier
-set, so on that one version `finish` releases `ControlLeft`, `MetaLeft` and
-`MetaRight` like any ordinary key.
+presses the key and leaves it held, with nothing said either way.
 
 !!! note
-    `send_key("KeyA")` with no `state` **is** the press-and-release above:
-    kvmd 4.33 replaced the two events it used to send with a single press
-    carrying `finish`. The exempt keys are exempt there too, so
-    `send_key("ShiftLeft")` presses Shift and leaves it down — where kvmd
-    4.32 and earlier released it. Pass `state=False` to let it up.
+    `send_key("KeyA")` with no `state` **is** the press-and-release above: one
+    press carrying `finish`, not two events. The exempt keys are exempt there
+    too, so `send_key("ShiftLeft")` presses Shift and leaves it down. Pass
+    `state=False` to let it up.
 
 The [WebSocket](websocket.md#keyboard-input) takes the same flag, with one
 wrinkle of its own on [the binary channel](websocket.md#the-binary-channel).
@@ -119,10 +110,10 @@ wrinkle of its own on [the binary channel](websocket.md#the-binary-channel).
 The names are kvmd's, and they are written the way a browser reports them in
 `KeyboardEvent.code` — `"KeyA"`, not `"a"`; `"Digit1"`, not `"1"`. Matching
 is case-sensitive, so `"keya"` is refused like any other name kvmd does not
-know. The two sets are not the same, though: kvmd knows 115 names and the
+know. The two sets are not the same, though: kvmd knows 126 names and the
 DOM defines around 200, so forwarding a browser's `code` straight through
-will eventually hand it something it has no entry for — `F13` and
-`NumpadEqual` are real `code` values with no key behind them here.
+will eventually hand it something it has no entry for — `NumpadEqual` and
+`BrowserBack` are real `code` values with no key behind them here.
 
 `KEY_NAMES` holds every one kvmd does know:
 
@@ -142,7 +133,7 @@ frame inside its handler and answers nothing, so a typo and a keystroke that
 landed look exactly alike.
 
 kvmd exposes the table through no endpoint, so `KEY_NAMES` is a copy: it was
-read off a device running kvmd 4.186 and is checked against that capture by
+read off a device running kvmd 4.206 and is checked against that capture by
 the test suite. A device on another version may know names it does not list,
 which is why nothing in the client enforces it — a name outside the set is
 sent as given.
@@ -308,7 +299,7 @@ await kvm.hid.reset()
 | `otg` | Drops the queued input and releases every held key and button |
 | `bt` | The same, then drops the Bluetooth clients — unpaired, unless `unpair_on_close` is off, so the host has to pair again |
 | `serial`, `spi` | Resets the microcontroller; queued input survives |
-| `ch9329` | Nothing observable: the reset request is commented out in kvmd 4.186, leaving an internal busy flag `get_state()` never reports |
+| `ch9329` | Nothing observable: the reset request is commented out in kvmd 4.206, leaving an internal busy flag `get_state()` never reports |
 
 Under `otg` that makes it the way out of a modifier left stuck by a script
 that died mid-shortcut.

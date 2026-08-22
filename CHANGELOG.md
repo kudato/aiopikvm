@@ -40,19 +40,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   no second request is owed — on the CH9329 backend the two are separate
   commands in one queue, which narrows the window rather than closing it. It
   rides a press and nothing else, and kvmd exempts the modifiers and
-  `PrintScreen`: those are pressed and stay down with no error to say so, and
-  4.33 built its own modifier set wrong, releasing `ControlLeft` and both Meta
-  keys like any other key. It needs kvmd 4.33 at the very least; over the
-  binary WebSocket channel an older one reads the whole flags byte as a
-  boolean and throws away any frame whose byte is neither 0 nor 1, so the
-  press never happens and nothing comes back to say it did not (#74).
-- `aiopikvm.resources.hid.KEY_NAMES`, the 115 key names kvmd accepts — the
+  `PrintScreen`: those are pressed and stay down with no error to say so
+  (#74).
+- `aiopikvm.resources.hid.KEY_NAMES`, the 126 key names kvmd accepts — the
   keys of its `WEB_TO_EVDEV` table, matched case-sensitively. Only one of the
   two transports says when a name is wrong: `send_key()` and
   `send_shortcut()` raise `APIError` with HTTP 400, while the WebSocket drops
   the frame inside kvmd's handler and answers nothing at all. No endpoint
   exposes the table, so the catalogue is a copy read off a device running
-  kvmd 4.186 and pinned to that capture by a contract test; nothing in the
+  kvmd 4.206 and pinned to that capture by a contract test; nothing in the
   client enforces it, since a later kvmd may know more names (#77).
 - `aiopikvm.resources.redfish.RESET_TYPES`, the six `ResetType` values kvmd
   accepts. The DMTF schema defines more, and kvmd refuses every one of them
@@ -171,6 +167,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Breaking:** kvmd 4.206 is now the declared minimum. The client had never
+  said which versions it supports, so every method was implicitly promised
+  against every kvmd ever shipped, and several were not: an event carrying a
+  flag an older kvmd does not read is dropped inside its handler with no
+  answer of any kind, which looks exactly like a call that landed. Nothing
+  inspects the device's version or refuses an older one — the socket has no
+  version to check until kvmd's first `loop` event arrives, and refusing on
+  that basis would reject calls that work. The floor is stated in the README,
+  the installation guide and `pyproject.toml`, and the documentation no longer
+  describes the behaviour of versions below it (#114).
+- Every fixture is re-captured from kvmd 4.206 (was 4.186), and the capture
+  tool now reproduces the corpus rather than whatever the device happened to
+  be doing: it asks for video so the streamer is running, pings so a `pong` is
+  recorded, listens long enough for a partial event, and refuses to write a
+  capture missing any of the three. The previous corpus had all three by
+  luck, and a re-run silently dropped them — six tests kept passing against a
+  corpus that no longer proved what they read (#114).
 - **Breaking:** the parameters those literal types cover are no longer `str`:
   `hid.set_params()`, `hid.send_mouse_button()`, `ws.send_mouse_button()`,
   `switch.atx_power()`, `switch.atx_click()` and `redfish.reset()`.
@@ -181,7 +194,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   build that used to pass. The types stay out of the response models, where
   one would turn a value from a kvmd this release has not seen into a
   `ResponseError`. Key names are left as `str` for the same reason they are a
-  runtime set: there are 115 of them, and a key is usually computed rather
+  runtime set: there are 126 of them, and a key is usually computed rather
   than written down (#68).
 - **Breaking:** `HIDResource.send_shortcut()` raises `ConfigurationError`
   instead of `ValueError` when called with no keys, and now refuses a key
@@ -191,7 +204,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   one key, answer 200 and say nothing about the other, which is the kind of
   silent miss `KEY_NAMES` exists to prevent. `ConfigurationError` is what the
   other resources already raise for unusable arguments (#77).
-- `HIDResource.set_connected()` now says where it does anything. kvmd 4.186
+- `HIDResource.set_connected()` now says where it does anything. kvmd 4.206
   implements it only in the MCU-based backends (`hid.type` of `serial` or
   `spi`); under `otg`, `ch9329` and `bt` the call reaches a base
   implementation that discards its argument, so it answers 200 and nothing
@@ -369,6 +382,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A link to an anchor that does not exist now fails the docs build. mkdocs
+  checks the file half of a Markdown link by default and says nothing about
+  the fragment, so a link into a heading that had been renamed reached the
+  published page and went nowhere. `validation.anchors` is what checks it,
+  and under `mkdocs build --strict` — which CI runs — the warning is a
+  failure (#114).
 - The API reference printed its cross-references as their own source text.
   The docstrings used reStructuredText roles — ``:meth:`PiKVM.request` `` and
   the like — and nothing renders reST here: mkdocstrings is configured for
@@ -488,12 +507,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   JSON body the client sent, so it validated an empty user name and refused
   the request. `logout()` was broken the same way: kvmd identifies the session
   to drop by the `auth_token` cookie, which the client never sent, and answered
-  HTTP 400 for every call. Both are verified against kvmd 4.186 (#34).
+  HTTP 400 for every call. Both are verified against kvmd 4.206 (#34).
 - `HIDResource.get_state()` raised `ResponseError` against every real device:
   `HIDKeyboard.connected` and `HIDMouse.connected` were required, but no kvmd
   HID backend nests `connected` under `keyboard` or `mouse` — it exists only
   at the top level. The mocked test passed because its payload was
-  hand-written; the models now follow a capture from kvmd 4.186 (#36).
+  hand-written; the models now follow a capture from kvmd 4.206 (#36).
 - `StreamerResource.get_state()` raised on a device without H.264 or without
   an adjustable encoder, and hid the resolution data on capture hardware that
   has it. The captured fixture covers one flavour only, so the conditional

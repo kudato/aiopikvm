@@ -16,15 +16,21 @@ Environment variables:
     a value that only appears hex-encoded, as inside an EDID blob, will not
     be found by it — EDIDs are rewritten by :func:`scrub_edid` instead.
 
-Only read-only endpoints are requested — the script never changes device
-state. Responses are sanitized before they are written (device serial, host
-names, IP and MAC addresses) and a guard refuses to write a file that still
-contains the target host, the credentials or an address-shaped string.
+No endpoint is mutated: every capture is a GET. The event socket does ask
+for video, which starts the streamer when nothing else was watching — the
+corpus needs it running, and kvmd stops it again when the socket closes.
+
+Responses are sanitized before they are written (device serial, host names,
+IP and MAC addresses) and a guard refuses to write a file that still
+contains the target host, the credentials or an address-shaped string. A
+second guard refuses a corpus that lost something the contract tests read,
+and nothing is written until both have passed.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -32,7 +38,7 @@ import sys
 from typing import Any, NamedTuple
 from urllib.parse import urlparse
 
-from aiopikvm import PiKVM, PiKVMError
+from aiopikvm import PiKVM, PiKVMError, PiKVMWebSocket
 from tests.fixtures import DATA_DIR, MANIFEST_PATH
 
 HOST_PLACEHOLDER = "pikvm"
@@ -43,8 +49,16 @@ IP_PLACEHOLDER = "192.0.2.10"  # RFC 5737 documentation range
 MAC_PLACEHOLDER = "00:00:00:00:00:00"
 REDACTED = "<redacted>"
 
-WS_SECONDS = 3.0
-"""How long to listen on the WebSocket before closing it."""
+STREAMER_WARMUP = 3.0
+"""How long to let the streamer come online before the REST captures run."""
+
+WS_TAIL_SECONDS = 5.0
+"""How long to keep listening after the REST captures and the ping.
+
+Long enough for the periodic per-subsystem updates that follow the initial
+burst — those are what carry a partial event, and without one the merge the
+contract tests exercise would be proven by nothing.
+"""
 
 _IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 _MAC = re.compile(r"\b(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}\b")
@@ -287,30 +301,51 @@ def render(payload: Any, kind: str, secrets: Redactions) -> str:
     return text + "\n"
 
 
-async def _capture_ws(kvm: PiKVM, secrets: Redactions) -> str:
-    """Listen on the event WebSocket and render the events as JSON Lines.
+async def _collect(ws: PiKVMWebSocket, lines: list[str]) -> None:
+    """Append every event the socket yields, as a JSON Lines entry.
+
+    Runs until cancelled, so that the REST captures below happen while the
+    socket is open and the streamer it asked for is running.
 
     Args:
-        kvm: Connected client.
-        secrets: Redaction pairs from :func:`redactions`.
-
-    Returns:
-        One JSON object per line, each ``{"index": ..., "msg": ...}``.
+        ws: Open event socket.
+        lines: List to append the rendered entries to, in arrival order.
     """
-    lines: list[str] = []
-    # stream=False keeps this tool read-only: a socket that asks for video
-    # starts the streamer on a device where nothing was watching.
-    async with kvm.ws(stream=False) as ws:
-        try:
-            async with asyncio.timeout(WS_SECONDS):
-                async for event in ws.events():
-                    entry = {"index": len(lines), "msg": scrub_json(event)}
-                    lines.append(json.dumps(entry, ensure_ascii=False))
-        except TimeoutError:
-            pass
-    text = scrub_text("\n".join(lines), secrets) + "\n"
-    assert_clean("ws_events", text, secrets)
-    return text
+    async for event in ws.events():
+        entry = {"index": len(lines), "msg": scrub_json(event)}
+        lines.append(json.dumps(entry, ensure_ascii=False))
+
+
+def assert_complete(events: list[dict[str, Any]], streamer: Any) -> None:
+    """Fail if the capture lost something the contract tests read.
+
+    A capture that quietly under-samples is worse than none: the suite goes
+    green against a corpus that no longer proves what it used to. Each check
+    here stands for a test that would otherwise start passing vacuously.
+
+    Args:
+        events: The captured events, in arrival order.
+        streamer: The parsed ``/api/streamer`` capture.
+
+    Raises:
+        ValueError: If no pong came back, if no event carries a subset of
+            the keys its first one did, or if the streamer was not running.
+    """
+    keys: dict[str, list[set[str]]] = {}
+    for event in events:
+        keys.setdefault(str(event["event_type"]), []).append(set(event["event"]))
+    if "pong" not in keys:
+        raise ValueError("ws_events: no pong came back; the ping was not answered")
+    if not any(later < sent[0] for sent in keys.values() for later in sent[1:]):
+        raise ValueError(
+            "ws_events: no event carries a subset of the keys the first one "
+            "did, so nothing proves the state merge; listen for longer"
+        )
+    if streamer.get("result", {}).get("streamer") is None:
+        raise ValueError(
+            "streamer: the streamer was not running, so its state block is "
+            "null and the running case goes uncaptured"
+        )
 
 
 async def main() -> int:
@@ -330,33 +365,59 @@ async def main() -> int:
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     captures: dict[str, Any] = {}
 
+    pending: dict[str, str] = {}
+    lines: list[str] = []
+
     async with PiKVM(
         url, user=user, passwd=passwd, totp=os.environ.get("PIKVM_TOTP")
     ) as kvm:
-        for endpoint in ENDPOINTS:
-            response = await kvm.request("GET", endpoint.path, params=endpoint.params)
-            payload = response.json() if endpoint.kind == "json" else response.text
-            text = render(payload, endpoint.kind, secrets)
-            assert_clean(endpoint.name, text, secrets)
-            file = f"{endpoint.name}.{'json' if endpoint.kind == 'json' else 'txt'}"
-            (DATA_DIR / file).write_text(text, encoding="utf-8")
-            captures[endpoint.name] = {
-                "method": "GET",
-                "path": endpoint.path,
-                "params": endpoint.params,
-                "status": response.status_code,
-                "content_type": response.headers.get("content-type", ""),
-                "file": file,
-            }
-            print(f"{endpoint.name}: {response.status_code} -> {file}")
+        # The socket asks for video on purpose. kvmd runs the streamer while
+        # a session wants it, and both the running block in /api/streamer and
+        # the partial updates that follow only exist while it does. It stops
+        # again when this socket closes.
+        async with kvm.ws(stream=True) as ws:
+            reader = asyncio.create_task(_collect(ws, lines))
+            await asyncio.sleep(STREAMER_WARMUP)
 
-        ws_file = str(manifest["scenarios"]["ws_events"]["file"])
-        ws_text = await _capture_ws(kvm, secrets)
-        (DATA_DIR / ws_file).write_text(ws_text, encoding="utf-8")
-        print(f"ws_events -> {ws_file}")
+            for endpoint in ENDPOINTS:
+                response = await kvm.request(
+                    "GET", endpoint.path, params=endpoint.params
+                )
+                payload = response.json() if endpoint.kind == "json" else response.text
+                text = render(payload, endpoint.kind, secrets)
+                assert_clean(endpoint.name, text, secrets)
+                file = f"{endpoint.name}.{'json' if endpoint.kind == 'json' else 'txt'}"
+                pending[file] = text
+                captures[endpoint.name] = {
+                    "method": "GET",
+                    "path": endpoint.path,
+                    "params": endpoint.params,
+                    "status": response.status_code,
+                    "content_type": response.headers.get("content-type", ""),
+                    "file": file,
+                }
+                print(f"{endpoint.name}: {response.status_code} -> {file}")
 
-        info_file = str(captures["info"]["file"])
-        info = json.loads((DATA_DIR / info_file).read_text(encoding="utf-8"))
+            await ws.ping()
+            await asyncio.sleep(WS_TAIL_SECONDS)
+            reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reader
+
+    ws_file = str(manifest["scenarios"]["ws_events"]["file"])
+    ws_text = scrub_text("\n".join(lines), secrets) + "\n"
+    assert_clean("ws_events", ws_text, secrets)
+    pending[ws_file] = ws_text
+
+    info = json.loads(pending[str(captures["info"]["file"])])
+    assert_complete(
+        [json.loads(line)["msg"] for line in lines],
+        json.loads(pending[str(captures["streamer"]["file"])]),
+    )
+
+    for file, text in pending.items():
+        (DATA_DIR / file).write_text(text, encoding="utf-8")
+    print(f"ws_events -> {ws_file}")
 
     system = info["result"]["system"]
     manifest["device"] = {

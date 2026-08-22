@@ -1,6 +1,6 @@
 """RedfishResource tests.
 
-Every payload here is a real kvmd 4.186 response: the documents come from the
+Every payload here is a real kvmd 4.206 response: the documents come from the
 capture tool, the empty 204s and the refusals from the hand-recorded
 ``redfish_actions`` scenario (see ``tests/fixtures/README.md``).
 """

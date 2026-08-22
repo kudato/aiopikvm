@@ -1,7 +1,7 @@
 """Contract tests — the models must handle what a real kvmd actually sends.
 
 Payloads come from ``tests/fixtures/data``, captured from a live PiKVM running
-kvmd 4.186. A case the library cannot handle today carries a strict ``xfail``
+kvmd 4.206. A case the library cannot handle today carries a strict ``xfail``
 naming the issue that tracks it: the suite stays green while the gap is known,
 and the moment a fix lands the stale marker fails instead of quietly hiding the
 fact that the contract is now satisfied.
@@ -98,7 +98,7 @@ def _payload(case: Case) -> Any:
 
 
 @pytest.mark.parametrize(
-    "case", _cases("parse_issue", "model cannot parse the kvmd 4.186 response")
+    "case", _cases("parse_issue", "model cannot parse the kvmd 4.206 response")
 )
 def test_model_parses_captured_response(case: Case) -> None:
     """The model accepts the exact payload the device returned."""
@@ -106,7 +106,7 @@ def test_model_parses_captured_response(case: Case) -> None:
 
 
 @pytest.mark.parametrize(
-    "case", _cases("coverage_issue", "model drops fields kvmd 4.186 sends")
+    "case", _cases("coverage_issue", "model drops fields kvmd 4.206 sends")
 )
 def test_model_declares_every_captured_field(case: Case) -> None:
     """Nothing the device sent lands in ``model_extra`` instead of a field."""
