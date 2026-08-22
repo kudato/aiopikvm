@@ -93,8 +93,7 @@ async def test_send_key(mock_api: respx.MockRouter, client: PiKVM) -> None:
         return_value=httpx.Response(200, json=OK)
     )
     await client.hid.send_key("KeyA", state=True)
-    request = mock_api.calls[-1].request
-    assert "key=KeyA" in str(request.url)
+    assert dict(mock_api.calls[-1].request.url.params) == {"key": "KeyA", "state": "1"}
 
 
 async def test_send_key_can_ask_kvmd_to_release_it(
@@ -117,32 +116,48 @@ async def test_send_key_can_ask_kvmd_to_release_it(
     }
 
 
+@pytest.mark.parametrize("finish", [None, False])
 async def test_send_key_says_nothing_about_finish_unless_asked(
-    mock_api: respx.MockRouter, client: PiKVM
+    finish: bool | None, mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    """The default event is the one a client that never heard of it sends."""
-    mock_api.post("/api/hid/events/send_key").mock(
-        return_value=httpx.Response(200, json=OK)
-    )
-    await client.hid.send_key("KeyA", state=True)
-    assert set(mock_api.calls[-1].request.url.params) == {"key", "state"}
+    """The default event is the one a client that never heard of it sends.
 
-
-async def test_send_key_leaves_finish_out_where_kvmd_would_not_read_it(
-    mock_api: respx.MockRouter, client: PiKVM
-) -> None:
-    """Without *state*, kvmd never looks at the flag (#74).
-
-    Its handler reads ``finish`` inside the branch that reads ``state``; the
-    other branch passes its own ``finish=True`` and never looks at the query
-    at all. Sending it anyway would put a parameter on the wire that names
-    something kvmd ignores.
+    ``None`` and ``False`` are the same event on a press: kvmd reads the
+    parameter as false when it is absent, so naming it would say what
+    leaving it out already says.
     """
     mock_api.post("/api/hid/events/send_key").mock(
         return_value=httpx.Response(200, json=OK)
     )
-    await client.hid.send_key("KeyA", finish=True)
-    assert set(mock_api.calls[-1].request.url.params) == {"key"}
+    await client.hid.send_key("KeyA", state=True, finish=finish)
+    assert dict(mock_api.calls[-1].request.url.params) == {"key": "KeyA", "state": "1"}
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [(None, {"key": "KeyA"}), (False, {"key": "KeyA", "state": "0"})],
+)
+async def test_send_key_leaves_finish_out_where_kvmd_would_not_act_on_it(
+    state: bool | None,
+    expected: dict[str, str],
+    mock_api: respx.MockRouter,
+    client: PiKVM,
+) -> None:
+    """Only a press carries the flag (#74).
+
+    kvmd's handler reads ``finish`` inside the branch that reads ``state``,
+    and its ``send_key_event`` acts on it only when that state is a press.
+    Without a state the other branch runs, which passes its own
+    ``finish=True`` and never looks at the query; on a release the flag is
+    parsed and dropped. Sending it either way would name something kvmd does
+    nothing with — and on the binary WebSocket channel the same bit on a
+    release is what kvmd 4.32 throws whole frames away for.
+    """
+    mock_api.post("/api/hid/events/send_key").mock(
+        return_value=httpx.Response(200, json=OK)
+    )
+    await client.hid.send_key("KeyA", state=state, finish=True)
+    assert dict(mock_api.calls[-1].request.url.params) == expected
 
 
 async def test_send_shortcut(mock_api: respx.MockRouter, client: PiKVM) -> None:

@@ -794,6 +794,18 @@ async def test_send_key_can_ask_kvmd_to_release_it() -> None:
     }
 
 
+async def test_send_key_leaves_finish_out_of_a_release() -> None:
+    """kvmd parses the flag on a release and acts on it only on a press (#74).
+
+    The event that goes out is the one a client that never heard of the flag
+    would send, which is what the binary channel needs it to be: there the
+    same bit on a release is a frame kvmd 4.32 throws away whole.
+    """
+    ws, conn = connected()
+    await ws.send_key("KeyA", state=False, finish=True)
+    assert sent(conn) == {"event_type": "key", "event": {"key": "KeyA", "state": False}}
+
+
 async def test_send_mouse_move() -> None:
     ws, conn = connected()
     await ws.send_mouse_move(100, 200)
@@ -922,17 +934,6 @@ def frame(name: str) -> bytes:
         f"the device disagreed about {name!r} when this was recorded"
     )
     return bytes.fromhex(recorded_step["frame"])
-
-
-@pytest.mark.parametrize(
-    ("state", "step_name"),
-    [(True, "key_press"), (False, "key_release")],
-)
-async def test_binary_key(state: bool, step_name: str) -> None:
-    """kvmd reads the state out of bit 0 and the name out of data[1:33]."""
-    ws, conn = connected(binary=True)
-    await ws.send_key("ControlLeft", state=state)
-    assert sent_bytes(conn) == frame(step_name)
 
 
 async def test_binary_mouse_button() -> None:
@@ -1082,32 +1083,50 @@ async def test_binary_key_name_of_the_full_length_is_sent() -> None:
 @pytest.mark.parametrize(
     ("state", "finish", "flags", "recorded"),
     [
-        (False, False, 0b00, "key_release"),
-        (True, False, 0b01, "key_press"),
-        (False, True, 0b10, None),
-        (True, True, 0b11, None),
+        pytest.param(False, False, 0b00, "key_release", id="release"),
+        pytest.param(True, False, 0b01, "key_press", id="press"),
+        pytest.param(False, True, 0b00, "key_release", id="release_asking_finish"),
+        pytest.param(True, True, 0b11, "key_press_finish", id="press_with_finish"),
     ],
 )
-async def test_binary_key_carries_finish_in_bit_1(
-    state: bool, finish: bool, flags: int, recorded: str | None
+async def test_binary_key_carries_finish_in_bit_1_of_a_press(
+    state: bool, finish: bool, flags: int, recorded: str
 ) -> None:
     """kvmd reads the state out of bit 0 and *finish* out of bit 1 (#74).
+
+    Bit 1 rides a press and nothing else. kvmd reads it on a release too and
+    does nothing with it there, while kvmd 4.32 and older read the whole byte
+    as a boolean and drop any frame whose byte is neither 0 nor 1 — so a
+    release carrying the bit would be thrown away entire and the key would
+    stay down, which is the failure the flag exists to prevent. A release
+    that asks for *finish* is therefore the plain release frame, byte for
+    byte.
 
     Bit 1 asks for a release rather than being one, and asking is all it is:
     ``ControlLeft`` is among the keys kvmd exempts, so the row that presses
     it and asks would be answered with a press and nothing else. What is
     under test here is the byte, not what kvmd then does with it.
 
-    Leaving *finish* off has to change nothing, so the two frames without it
-    are checked against the recording a real device accepted rather than
-    against this test's own idea of the layout. The two carrying the bit
-    have no recording: no device has been asked to accept them.
+    Every row is checked against a frame a real device accepted rather than
+    against this test's own idea of the layout.
     """
     ws, conn = connected(binary=True)
     await ws.send_key("ControlLeft", state=state, finish=finish)
     assert sent_bytes(conn) == bytes([1, flags]) + b"ControlLeft"
-    if recorded is not None:
-        assert sent_bytes(conn) == frame(recorded)
+    assert sent_bytes(conn) == frame(recorded)
+
+
+async def test_binary_key_asks_finish_the_same_way_for_a_key_kvmd_releases() -> None:
+    """Bit 1 is not what the exemption turns on (#74).
+
+    ``ControlLeft`` carries the flag as an exempt key, where kvmd takes the
+    frame and then declines to release. ``KeyA`` is an ordinary key it does
+    release, and the device accepted the identical layout for it — so the
+    byte says the same thing either way, and the exemption lives past it.
+    """
+    ws, conn = connected(binary=True)
+    await ws.send_key("KeyA", state=True, finish=True)
+    assert sent_bytes(conn) == frame("key_press_finish_ordinary")
 
 
 async def test_json_stays_the_default() -> None:
