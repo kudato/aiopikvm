@@ -3,17 +3,42 @@
 `undeclared_fields` is an assertion used by both the mocked suite and the
 live-device suite. `scrub_proxy_environment` is the opposite shape: every
 test uses it except the live ones, which need the environment it takes away.
+`defaults` is read by the tests that compare one signature against another.
 """
 
 from __future__ import annotations
 
+import inspect
 import os
 from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
-__all__ = ["scrub_proxy_environment", "undeclared_fields"]
+__all__ = ["defaults", "scrub_proxy_environment", "undeclared_fields"]
+
+
+def defaults(func: Any) -> dict[str, Any]:
+    """Collect the default values a callable's signature declares.
+
+    Several defaults in this package are spelled in two places — a factory
+    method and the class it builds, a helper and the connector under it — and
+    the tests that keep those in step compare signatures rather than
+    behaviour, since a default that is merely restated has no behaviour of
+    its own until it drifts.
+
+    Args:
+        func: Callable to read.
+
+    Returns:
+        Each parameter that has a default, mapped to it. Parameters without
+        one are left out rather than given a placeholder.
+    """
+    return {
+        name: parameter.default
+        for name, parameter in inspect.signature(func).parameters.items()
+        if parameter.default is not inspect.Parameter.empty
+    }
 
 
 def scrub_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:

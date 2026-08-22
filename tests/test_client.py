@@ -1,6 +1,5 @@
 """PiKVM client lifecycle tests."""
 
-import inspect
 import sys
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -20,6 +19,7 @@ from aiopikvm._media_ws import MediaWebSocket
 from aiopikvm._webrtc import WebRTCSession
 from aiopikvm._ws import PiKVMWebSocket
 from tests.fixtures import load_json
+from tests.helpers import defaults
 
 OK = {"ok": True, "result": {}}
 
@@ -488,22 +488,6 @@ _SOCKETS: dict[str, type] = {
 """Each socket factory on `PiKVM`, and the class it builds."""
 
 
-def _defaults(func: Any) -> dict[str, Any]:
-    """Return the default of every parameter that has one.
-
-    Args:
-        func: The callable to read.
-
-    Returns:
-        Parameter name to default value, skipping the ones with no default.
-    """
-    return {
-        name: parameter.default
-        for name, parameter in inspect.signature(func).parameters.items()
-        if parameter.default is not inspect.Parameter.empty
-    }
-
-
 @pytest.mark.parametrize("socket", list(_SOCKETS))
 def test_a_socket_built_directly_trusts_what_the_client_trusts(socket: str) -> None:
     """The three classes defaulted to verifying TLS and `PiKVM` did not (#136).
@@ -512,25 +496,41 @@ def test_a_socket_built_directly_trusts_what_the_client_trusts(socket: str) -> N
     one directly is supported — and it then failed against a stock device's
     self-signed certificate where `PiKVM(url)` succeeded, with nothing saying
     the defaults differed.
+
+    Both sides are read here rather than compared to the constant, so the
+    same disagreement cannot come back from the other end: a client that
+    starts verifying while the sockets do not is the same bug with the
+    polarity reversed.
     """
-    assert _defaults(_SOCKETS[socket].__init__)["verify_ssl"] is DEFAULT_VERIFY_SSL
+    assert (
+        defaults(_SOCKETS[socket].__init__)["verify_ssl"]
+        is defaults(PiKVM.__init__)["verify_ssl"]
+        is DEFAULT_VERIFY_SSL
+    )
 
 
 @pytest.mark.parametrize("socket", list(_SOCKETS))
 def test_the_factories_agree_with_the_sockets_they_build(socket: str) -> None:
     """A default spelled in two places is one that drifts (#136).
 
-    The factories restate the socket's own defaults in their signatures.
-    Where a factory says `None` it means "take this client's value" and the
-    socket's own default differs on purpose; everywhere else the two have to
-    say the same thing, and several had been retyped as literals beside the
-    named constants they came from.
+    The factories restate the socket's own defaults in their signatures, and
+    several had been retyped as literals beside the named constants they came
+    from. Only the two timeouts are exempt: a factory says `None` there and
+    fills them from the client's own `timeout`, so its signature cannot
+    repeat the socket's number.
+
+    `None` is a real setting everywhere else — no keepalive, no size limit —
+    so it is compared rather than skipped. Skipping it would let a factory
+    default drift to `None` while the socket it builds goes on pinging,
+    which is the drift this test is named for.
     """
-    on_socket = _defaults(_SOCKETS[socket].__init__)
+    on_socket = defaults(_SOCKETS[socket].__init__)
+    from_client = {"open_timeout", "close_timeout"}
+    assert from_client <= set(on_socket)
     restated = {
         name: value
-        for name, value in _defaults(getattr(PiKVM, socket)).items()
-        if value is not None and name in on_socket
+        for name, value in defaults(getattr(PiKVM, socket)).items()
+        if name in on_socket and name not in from_client
     }
     assert restated == {name: on_socket[name] for name in restated}
     # And the comparison is not vacuous: these are the ones it covers.

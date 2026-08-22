@@ -40,8 +40,9 @@ from aiopikvm import (
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import _PENDING_LIMIT, _Connector, _merge
+from aiopikvm._ws import _PENDING_LIMIT, _Connector, _merge, _open
 from tests.fixtures import load_json, load_jsonl
+from tests.helpers import defaults
 
 
 def socket(url: str = "https://pikvm.local", **kwargs: Any) -> PiKVMWebSocket:
@@ -1631,7 +1632,39 @@ def test_only_one_place_in_the_package_makes_a_handshake() -> None:
     over.
     """
     package = Path(cast(str, aiopikvm.__file__)).parent
+    # The bare name catches an aliased import too, and the two `connect(`
+    # spellings catch a socket that skips the connector rather than reusing
+    # it. `class _Connector(websockets.asyncio.client.connect)` matches
+    # neither of those, so `_ws.py` is here for the calls it really makes.
+    needles = (
+        "_Connector",
+        "websockets.connect(",
+        "websockets.asyncio.client.connect(",
+    )
     callers = sorted(
-        path.name for path in package.glob("*.py") if "_Connector(" in path.read_text()
+        path.name
+        for path in package.rglob("*.py")
+        if any(needle in path.read_text() for needle in needles)
     )
     assert callers == ["_ws.py"]
+
+
+def test_the_helper_hands_the_connector_what_it_would_have_chosen() -> None:
+    """`_open()` sits between the sockets and the connector's own defaults.
+
+    `WebRTCSession` names neither `max_size` nor `max_queue`, so its
+    signalling socket takes whatever the layer below chooses. That used to be
+    the connector; it is `_open()` now, and the two have to keep saying the
+    same thing or the Janus socket starts closing on a message it used to
+    accept.
+    """
+    below = defaults(_Connector.__init__)
+    shared = {name: value for name, value in defaults(_open).items() if name in below}
+    assert shared == {name: below[name] for name in shared}
+    assert set(shared) == {
+        "max_size",
+        "max_queue",
+        "ping_interval",
+        "ping_timeout",
+        "subprotocols",
+    }

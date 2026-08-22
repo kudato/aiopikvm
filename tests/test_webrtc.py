@@ -18,7 +18,7 @@ import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import websockets.asyncio.server
@@ -39,7 +39,6 @@ from aiopikvm import (
     WebSocketError,
 )
 from aiopikvm._webrtc import _PLUGIN, _SUBPROTOCOL, _peer_connection
-from aiopikvm._ws import _WS_PING_INTERVAL, _WS_PING_TIMEOUT
 from tests.fixtures import load_json
 from tests.helpers import undeclared_fields
 
@@ -258,7 +257,13 @@ def test_nothing_is_known_before_the_session_opens() -> None:
 def test_the_client_hands_its_own_settings_over() -> None:
     """`webrtc()` is a constructor call, and these are the values it passes."""
     kvm = PiKVM("https://pikvm.local", passwd="secret", verify_ssl=False, timeout=7.0)
-    rtc = kvm.webrtc(audio=True, orientation=90, frame_buffer=64)
+    rtc = kvm.webrtc(
+        audio=True,
+        orientation=90,
+        frame_buffer=64,
+        ping_interval=3.0,
+        ping_timeout=4.0,
+    )
     assert rtc._url == "wss://pikvm.local/janus/ws"
     assert rtc._verify_ssl is False
     assert rtc._audio is True
@@ -266,8 +271,10 @@ def test_the_client_hands_its_own_settings_over() -> None:
     assert rtc._frame_buffer == 64
     assert rtc._open_timeout == 7.0
     assert rtc._close_timeout == 7.0
-    assert rtc._ping_interval == _WS_PING_INTERVAL
-    assert rtc._ping_timeout == _WS_PING_TIMEOUT
+    # Values of their own, not the constants both sides default to: those
+    # would agree whether or not the factory passed anything at all.
+    assert rtc._ping_interval == 3.0
+    assert rtc._ping_timeout == 4.0
 
 
 @pytest.mark.parametrize("setting", ["ping_interval", "ping_timeout"])
@@ -284,6 +291,19 @@ async def test_the_keepalive_settings_reach_the_handshake(setting: str) -> None:
         async with session(url, **{setting: None}) as rtc:
             assert rtc._connection is not None
             assert getattr(rtc._connection, setting) is None
+
+
+async def test_a_connection_that_cannot_be_made_names_the_gateway() -> None:
+    """A running session has two sockets, and they fail for different reasons.
+
+    The shared helper reports a failed handshake as a plain "Failed to
+    connect"; this is the one caller that overrides it, so a caller holding a
+    `ws()` open beside the session can tell which of the two went away.
+    """
+    rtc = session()
+    with patch("aiopikvm._ws._Connector", AsyncMock(side_effect=OSError("no route"))):
+        with pytest.raises(WebSocketError, match="connect to the Janus gateway"):
+            await rtc.__aenter__()
 
 
 async def test_the_missing_extra_is_reported_before_anything_is_dialled() -> None:

@@ -316,6 +316,10 @@ async def _open(
         The open connection.
 
     Raises:
+        ConfigurationError: The TLS settings cannot be turned into a context —
+            a CA bundle that is not there, a client certificate that will not
+            load, or a *cert* handed in beside a ready-made
+            [`ssl.SSLContext`][]. Nothing has been sent at that point.
         AuthError: The credentials were refused during the upgrade — 401 when
             none reached the server, 403 when the ones that did were rejected.
         RedirectError: The upgrade was redirected and *follow_redirects* is

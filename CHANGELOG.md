@@ -330,15 +330,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- `PiKVMWebSocket`, `MediaWebSocket` and `WebRTCSession` default to
-  `verify_ssl=False` when constructed directly, the same as
+- **Breaking:** `PiKVMWebSocket`, `MediaWebSocket` and `WebRTCSession`
+  default to `verify_ssl=False` when constructed directly, the same as
   [`PiKVM`][aiopikvm.PiKVM]. All three defaulted to `True`, so a socket built
   by hand — which is supported, they are exported and each has its own
   reference page — failed the TLS handshake against a stock device's
   self-signed certificate where `PiKVM(url)` connected, with nothing saying
-  the defaults disagreed. A socket built by `ws()`, `media_ws()` or
-  `webrtc()` is unaffected: it was always handed the client's own value
-  (#136).
+  the defaults disagreed. It cuts the other way too, which is why this is
+  called out: a hand-built socket against a device with a certificate that
+  does chain to a real CA used to verify it and now does not, silently. If
+  that is your device, pass `verify_ssl=True` — the sockets take everything
+  [`VerifyTypes`][aiopikvm.VerifyTypes] does, a CA bundle path included. A
+  socket built by `ws()`, `media_ws()` or `webrtc()` is unaffected either
+  way: it was always handed the client's own value (#136).
 - `insert_media()` no longer claims a URL is refused with HTTP 400, and
   `eject_media()` no longer claims that ejecting an empty drive is not an
   error. Neither had a capture behind it. kvmd's name validator splits the
@@ -591,11 +595,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   socket. `WebRTCSession` stored both and never passed them to the handshake,
   so the socket kept *websockets*' 20 s/20 s whatever was asked for, while the
   docstring promised `None` would send no pings and wait forever for a pong.
-  It went unnoticed because this library's defaults are the library's, so only
-  a caller who changed one — a link where twenty seconds is the wrong answer,
-  which is the reason to reach for either — was affected. The connect block
-  the three sockets each kept a copy of now lives in one place, which is what
-  let one copy quietly fall two parameters behind (#136).
+  It went unnoticed because this client's defaults for the pair are
+  *websockets*' own, so dropping them changed nothing until someone asked for
+  something else — a link where twenty seconds is the wrong answer, which is
+  the only reason to reach for either. The three sockets each kept their own
+  copy of the connect block, which is how one copy came to fall two
+  parameters behind; there is one copy now (#136).
 - The four streaming calls — `system.stream_log()`, `msd.download()`,
   `msd.upload_remote_progress()` and `streamer.mjpeg()` — no longer override an
   external `http_client`'s timeout. Each built its own from the `timeout`
