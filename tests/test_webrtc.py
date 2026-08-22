@@ -15,7 +15,7 @@ the whole `__aenter__` runs here without a single mock inside it.
 import asyncio
 import json
 import sys
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import patch
@@ -36,6 +36,7 @@ from aiopikvm import (
     WebRTCEvent,
     WebRTCPluginEvent,
     WebRTCSession,
+    WebSocketError,
 )
 from aiopikvm._webrtc import _PLUGIN, _SUBPROTOCOL, _peer_connection
 from tests.fixtures import load_json
@@ -140,6 +141,10 @@ def replies(message: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 Rewrite = Callable[[dict[str, Any], list[dict[str, Any]]], list[dict[str, Any]]]
+Aftermath = Callable[
+    [websockets.asyncio.server.ServerConnection, dict[str, Any]],
+    Awaitable[None],
+]
 
 
 def response(
@@ -166,6 +171,7 @@ def refusal(name: str) -> websockets.http11.Response:
 async def gateway(
     reject: websockets.http11.Response | None = None,
     rewrite: Rewrite | None = None,
+    after: Aftermath | None = None,
 ) -> AsyncIterator[tuple[str, list[dict[str, Any]], list[websockets.http11.Request]]]:
     """Run a fake Janus gateway on loopback.
 
@@ -173,6 +179,9 @@ async def gateway(
         reject: Response to refuse the upgrade with; accept it when ``None``.
         rewrite: Last say over what goes back for a given message, for the
             tests that need the device to answer something else.
+        after: Run once the answers to a message have gone out, holding the
+            connection itself — for the tests about a link that goes away
+            rather than one that answers wrongly.
 
     Yields:
         The gateway's URL, the list the client's messages accumulate in, and
@@ -199,6 +208,8 @@ async def gateway(
                 out = rewrite(message, out)
             for item in out:
                 await connection.send(json.dumps(item))
+            if after is not None:
+                await after(connection, message)
 
     async with websockets.asyncio.server.serve(
         handler,
@@ -464,6 +475,98 @@ async def test_a_negotiation_that_never_comes_up_times_out() -> None:
         with pytest.raises(WebRTCError, match="did not bring the peer connection up"):
             async with session(url, negotiate_timeout=0.5):
                 pass
+
+
+async def test_a_link_that_died_unwatched_is_reported_when_the_block_ends() -> None:
+    """`__aexit__` is the only place left to say it, so it has to.
+
+    The teardown sends `stop`, `detach` and `destroy` down the same dead
+    socket and swallows what comes back. That used to mark the failure as one
+    the caller had been told about — which nothing had — and the block ended
+    as if the video had simply finished.
+    """
+
+    def unanswered(message: dict[str, Any], out: list[dict[str, Any]]) -> Any:
+        return [] if message["janus"] == "keepalive" else out
+
+    async def cut(
+        connection: websockets.asyncio.server.ServerConnection,
+        message: dict[str, Any],
+    ) -> None:
+        if message["janus"] == "keepalive":
+            await connection.close(1011, "the gateway went away")
+
+    async with gateway(rewrite=unanswered, after=cut) as (url, _, _requests):
+        with pytest.raises(WebSocketError, match="signalling connection broke"):
+            async with session(url, keepalive_interval=0.01) as rtc:
+                assert rtc._reader is not None
+                await asyncio.wait_for(asyncio.shield(rtc._reader), timeout=5.0)
+
+
+async def test_a_clean_close_before_webrtcup_is_not_a_session() -> None:
+    """A negotiation that ends without an answer has not succeeded.
+
+    `_drain`'s exit sets `_up` so that a dead reader cannot hang the
+    negotiation, which leaves a socket closed mid-handshake looking exactly
+    like one that came up. `__aenter__` used to return a session whose
+    `video()` yielded nothing and whose `events()` ended at once.
+    """
+
+    def silent(message: dict[str, Any], out: list[dict[str, Any]]) -> Any:
+        return [item for item in out if item["janus"] != "webrtcup"]
+
+    async def bye(
+        connection: websockets.asyncio.server.ServerConnection,
+        message: dict[str, Any],
+    ) -> None:
+        if message["janus"] == "trickle":
+            await connection.close()
+
+    async with gateway(rewrite=silent, after=bye) as (url, _, _requests):
+        with pytest.raises(WebSocketError, match="before the peer connection came up"):
+            async with session(url):
+                pass  # pragma: no cover - __aenter__ raises
+
+
+async def test_a_cancelled_negotiation_is_not_replaced_by_the_recorded_failure() -> (
+    None
+):
+    """A failed `__aenter__` tears down without raising over what it caught.
+
+    Its cleanup used to tell `__aexit__` the block had ended cleanly, so the
+    teardown raised the reader's recorded failure and the exception on its way
+    out never got to be re-raised. For a `CancelledError` that means the
+    cancellation is swallowed and replaced, which is what breaks
+    `asyncio.timeout` and every TaskGroup around it.
+
+    Here the keepalive task records the failure — Janus has forgotten the
+    session — while the negotiation is still waiting for an answer to
+    ``features`` that never comes.
+    """
+    recorded = answer_of("keepalive_after_destroy")
+
+    def stall(message: dict[str, Any], out: list[dict[str, Any]]) -> Any:
+        if message["janus"] == "keepalive":
+            return [{**recorded, "transaction": message["transaction"]}]
+        if message.get("body", {}).get("request") == "features":
+            return []
+        return out
+
+    async with gateway(rewrite=stall) as (url, _, _requests):
+        rtc = session(url, keepalive_interval=0.01)
+
+        async def open_it() -> None:
+            async with rtc:
+                pass  # pragma: no cover - the negotiation never finishes
+
+        task = asyncio.create_task(open_it())
+        async with asyncio.timeout(5.0):
+            while rtc._keeper is None or not rtc._keeper.done():
+                await asyncio.sleep(0.01)
+        assert rtc._failure is not None
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
 
 
 # --- What Janus refuses ---------------------------------------------------

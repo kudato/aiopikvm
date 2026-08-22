@@ -33,7 +33,7 @@ import json
 import logging
 import ssl
 from collections import deque
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Self
 
@@ -320,16 +320,21 @@ class WebRTCSession:
         try:
             async with asyncio.timeout(self._negotiate_timeout):
                 await self._negotiate(peer_connection)
-        except TimeoutError as exc:
-            await self.__aexit__(None, None, None)
-            raise WebRTCError(
-                "Janus did not bring the peer connection up within "
-                f"{self._negotiate_timeout} s"
-            ) from exc
-        except BaseException:
+        except BaseException as exc:
             # __aexit__ never runs for a failed __aenter__, and by now there
-            # is a session on the device that nothing else will destroy.
-            await self.__aexit__(None, None, None)
+            # is a session on the device that nothing else will destroy. It
+            # is told what went wrong rather than being handed three Nones:
+            # a teardown that thinks the block ended cleanly raises the
+            # reader's recorded failure over this one, and for a cancellation
+            # that means the cancellation is swallowed and replaced.
+            await self.__aexit__(type(exc), exc, exc.__traceback__)
+            if isinstance(exc, TimeoutError):
+                # asyncio.timeout turns its own expiry into this, and only
+                # its own: an outer cancellation still arrives as one.
+                raise WebRTCError(
+                    "Janus did not bring the peer connection up within "
+                    f"{self._negotiate_timeout} s"
+                ) from exc
             raise
         return self
 
@@ -478,7 +483,8 @@ class WebRTCSession:
                 message.
             WebSocketError: The signalling connection broke.
         """
-        await self._plugin_request("key_required")
+        with self._told_the_caller():
+            await self._plugin_request("key_required")
 
     async def keepalive(self) -> None:
         """Send one session keepalive now.
@@ -492,7 +498,8 @@ class WebRTCSession:
             WebSocketError: The signalling connection broke.
         """
         self._ensure_open()
-        await self._request(janus="keepalive", session_id=self._session_id)
+        with self._told_the_caller():
+            await self._request(janus="keepalive", session_id=self._session_id)
 
     # --- Negotiation ----------------------------------------------------
 
@@ -813,7 +820,6 @@ class WebRTCSession:
         try:
             await self._connection.send(json.dumps(message))
         except websockets.exceptions.WebSocketException as exc:
-            self._reported = True
             raise WebSocketError(
                 f"Failed to send {message.get('janus')!r} to Janus: {exc}"
             ) from exc
@@ -879,7 +885,18 @@ class WebRTCSession:
             while True:
                 self._route(await self._read())
         except _Finished:
-            pass
+            if not self._up.is_set() and self._failure is None:
+                # A clean close is how a session ends, but not how one starts.
+                # The `finally` below sets `_up` so that a dead reader cannot
+                # hang the negotiation, which leaves the two indistinguishable
+                # from there — so the difference is recorded here, while the
+                # event still means what it says. The window is between the
+                # last trickle acknowledgement and `webrtcup`; a Janus or
+                # nginx restart is what lands in it.
+                self._failure = WebSocketError(
+                    "The Janus signalling connection closed before the peer "
+                    "connection came up"
+                )
         except Exception as exc:
             if self._failure is None:
                 self._failure = (
@@ -1021,6 +1038,31 @@ class WebRTCSession:
             if not future.done():
                 future.set_exception(WebSocketError(message))
         self._acks.clear()
+
+    @contextlib.contextmanager
+    def _told_the_caller(self) -> Iterator[None]:
+        """Mark a signalling failure leaving this block as one the caller saw.
+
+        [`__aexit__`][aiopikvm.WebRTCSession.__aexit__] raises the reader's
+        recorded failure when the block ended cleanly and nothing else has
+        mentioned it. A call that has just failed in the caller's own hands is
+        exactly that something else, and the same breakage arriving a second
+        time out of the ``async with`` they were leaving is not news.
+
+        Only the public calls are wrapped. `_farewell()` and the keepalive
+        task send through the same code and swallow what comes back — marking
+        a failure where it is *raised* would mark it for them too, and the
+        teardown would then have nothing to report at all.
+
+        Yields:
+            Nothing. The block runs, and a signalling failure out of it is
+            noted as reported on its way to the caller.
+        """
+        try:
+            yield
+        except (WebRTCError, WebSocketError):
+            self._reported = True
+            raise
 
     def _raise_failure(self) -> None:
         """Report the reader's failure, once.

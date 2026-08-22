@@ -572,6 +572,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A WebRTC session that dies now says so. `WebRTCSession.__aexit__` documents
+  that it raises when the signalling broke while nothing was looking and the
+  block itself ended cleanly, and three things stopped it. The send path marked
+  every failure as one the caller had been told about, but the teardown and the
+  keepalive task send through it too and swallow what comes back — so the
+  ordinary case, a link that dies mid-block, was marked reported by the very
+  teardown that had nobody to report it to. A socket closed cleanly
+  mid-negotiation looked exactly like one that came up, because the reader sets
+  the same event on its way out either way, and `__aenter__` returned a session
+  whose `video()` yielded nothing and whose `events()` ended at once. And a
+  failed `__aenter__` told its own cleanup that the block had ended cleanly, so
+  the teardown raised the recorded failure over the exception on its way out —
+  which for a `CancelledError` meant the cancellation was swallowed and
+  replaced, breaking `asyncio.timeout` and every TaskGroup around it (#134).
 - Three failures no longer reach a caller from outside the `PiKVMError`
   hierarchy. A body that does not survive its `Content-Encoding` raises
   `ResponseError` instead of `httpx.DecodingError`: it is the one
