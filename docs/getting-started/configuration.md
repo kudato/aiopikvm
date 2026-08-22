@@ -81,13 +81,43 @@ cannot log in — so make a request first, or call `login()` yourself.
 
 ## TOTP authentication
 
-When TOTP is enabled on PiKVM, the code is concatenated to the password **without a separator**:
+When TOTP is enabled on PiKVM, the code is concatenated to the password
+**without a separator** — kvmd reads the last six characters of what it is sent
+as the code and the rest as the password.
+
+A code is good for one thirty-second step, and kvmd allows the neighbouring two,
+so a literal one stops working about a minute after it was read:
 
 ```python
-# Password "secret" + TOTP code "123456" → sent as "secret123456"
+# Fine for a script that runs and exits
 async with PiKVM("https://pikvm.local", passwd="secret", totp="123456") as kvm:
     ...
 ```
+
+Pass `TOTP` instead — or any zero-argument callable returning a string — and the
+code is worked out per request:
+
+```python
+from aiopikvm import PiKVM, TOTP
+
+# The secret is what `kvmd-totp show` prints on the device
+async with PiKVM("https://pikvm.local", passwd="secret", totp=TOTP(secret)) as kvm:
+    ...   # still authenticating an hour later
+```
+
+A callable also covers the case where the secret is not yours to hold — a
+hardware token, a secrets manager, another process:
+
+```python
+async with PiKVM(url, passwd="secret", totp=lambda: vault.read("pikvm/totp")) as kvm:
+    ...
+```
+
+!!! note
+    `TOTP` implements RFC 6238 with the parameters kvmd fixes by running
+    `pyotp.TOTP(secret)` with its defaults: HMAC-SHA1, six digits, a
+    thirty-second step. It is checked against the RFC's own published test
+    vectors.
 
 ## Session tokens
 

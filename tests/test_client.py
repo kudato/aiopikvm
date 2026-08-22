@@ -8,6 +8,8 @@ from aiopikvm import ConfigurationError, PiKVM, PiKVMError
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._client import _RESOURCE_NAMES
 
+OK = {"ok": True, "result": {}}
+
 
 async def test_context_manager(mock_api: respx.MockRouter) -> None:
     async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as client:
@@ -24,18 +26,23 @@ async def test_context_manager(mock_api: respx.MockRouter) -> None:
 
 
 async def test_auth_headers(mock_api: respx.MockRouter) -> None:
+    # Asserted on the request rather than the client: the credentials are
+    # built per call, so that a rotating TOTP code is the current one.
+    mock_api.get("/api/atx").mock(return_value=httpx.Response(200, json=OK))
     async with PiKVM("https://pikvm.local", user="admin", passwd="secret") as client:
-        assert client._client is not None
-        assert client._client.headers["X-KVMD-User"] == "admin"
-        assert client._client.headers["X-KVMD-Passwd"] == "secret"
+        await client.request("GET", "/api/atx")
+    request = mock_api.calls[-1].request
+    assert request.headers["X-KVMD-User"] == "admin"
+    assert request.headers["X-KVMD-Passwd"] == "secret"
 
 
 async def test_totp_concat(mock_api: respx.MockRouter) -> None:
+    mock_api.get("/api/atx").mock(return_value=httpx.Response(200, json=OK))
     async with PiKVM(
         "https://pikvm.local", user="admin", passwd="secret", totp="123456"
     ) as client:
-        assert client._client is not None
-        assert client._client.headers["X-KVMD-Passwd"] == "secret123456"
+        await client.request("GET", "/api/atx")
+    assert mock_api.calls[-1].request.headers["X-KVMD-Passwd"] == "secret123456"
 
 
 async def test_ws_factory(mock_api: respx.MockRouter) -> None:

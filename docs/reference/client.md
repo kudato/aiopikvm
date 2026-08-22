@@ -22,3 +22,7 @@
         - system
 
 ::: aiopikvm.AuthMode
+
+::: aiopikvm.TOTP
+    options:
+      show_bases: false

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Self
@@ -91,7 +91,7 @@ class PiKVM:
         *,
         user: str = "admin",
         passwd: str = "",
-        totp: str | None = None,
+        totp: str | Callable[[], str] | None = None,
         auth: AuthMode = DEFAULT_AUTH,
         session_expire: int = 0,
         verify_ssl: bool = DEFAULT_VERIFY_SSL,
@@ -105,7 +105,10 @@ class PiKVM:
             url: PiKVM base URL, including the scheme.
             user: kvmd user name.
             passwd: kvmd password.
-            totp: Current TOTP code, appended to the password.
+            totp: TOTP code, appended to the password. A string is used
+                as given, which is good for the one window it belongs to;
+                pass a zero-argument callable — [`TOTP`][aiopikvm.TOTP]
+                is one — for a client that outlives a code.
             auth: Which credential to send; see
                 [`AuthMode`][aiopikvm.AuthMode]. ``"cookie"`` logs in on the
                 first request that needs it and again if the session is
@@ -148,14 +151,33 @@ class PiKVM:
 
     @property
     def _password(self) -> str:
-        """Password with optional TOTP code appended."""
-        return self._passwd if self._totp is None else f"{self._passwd}{self._totp}"
+        """Password with the TOTP code appended, read afresh each time.
+
+        Returns:
+            What kvmd is asked to check. A callable *totp* is called here, so
+            the code is the one current when the request goes out rather than
+            the one that was current when the client was built.
+        """
+        code = self._totp_code()
+        return self._passwd if code is None else f"{self._passwd}{code}"
+
+    def _totp_code(self) -> str | None:
+        """Return the TOTP code to use right now.
+
+        Returns:
+            The code, or ``None`` when the client was built without one. A
+            callable is called here, once per use, so nothing caches a code
+            past the window it belongs to.
+        """
+        if self._totp is None:
+            return None
+        return self._totp() if callable(self._totp) else self._totp
 
     def _credential_headers(self) -> dict[str, str]:
         """Build the credential headers for this client's auth mode.
 
         Returns:
-            The headers to send on every request. Empty for ``"cookie"``,
+            The headers to send on this request. Empty for ``"cookie"``,
             which carries its credential in the jar instead.
         """
         if self._auth == "headers":
@@ -164,6 +186,37 @@ class PiKVM:
             raw = f"{self._user}:{self._password}".encode()
             return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
         return {}
+
+    def _outgoing_headers(self, headers: dict[str, str] | None) -> dict[str, str]:
+        """Merge the credential headers into a call's own.
+
+        Built per request rather than kept on the HTTP client, so that a
+        rotating TOTP code is the one current when the request goes out.
+
+        An external *http_client* is left to carry its own credentials, as
+        it does for everything else this constructor takes.
+
+        Args:
+            headers: Headers the caller passed, if any.
+
+        Returns:
+            What to send. The caller's own win, so an explicit header can
+            still override the client's credential for one request.
+
+        Raises:
+            ConfigurationError: If the credentials are not ASCII, which is
+                all an HTTP header can carry.
+        """
+        if self._external_client:
+            return dict(headers or {})
+        try:
+            merged = self._credential_headers()
+        except UnicodeEncodeError as exc:  # pragma: no cover - defensive
+            raise ConfigurationError(
+                f"PiKVM credentials travel in HTTP headers and must be ASCII: {exc}"
+            ) from exc
+        merged.update(headers or {})
+        return merged
 
     # --- HTTP ----------------------------------------------------------
 
@@ -335,7 +388,10 @@ class PiKVM:
                     # lock; that token has not been tried yet.
                     return
             await self.auth.login(
-                self._user, self._passwd, self._totp, expire=self._session_expire
+                self._user,
+                self._passwd,
+                self._totp_code(),
+                expire=self._session_expire,
             )
 
     def _session_token(self) -> str:
@@ -398,7 +454,7 @@ class PiKVM:
                 json=json,
                 data=data,
                 content=content,
-                headers=headers,
+                headers=self._outgoing_headers(headers),
                 timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
             )
         except httpx.TimeoutException as exc:
@@ -519,7 +575,7 @@ class PiKVM:
                 method,
                 path,
                 params=params,
-                headers=headers,
+                headers=self._outgoing_headers(headers),
                 timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT,
             ) as response:
                 if response.status_code >= 400:
@@ -650,18 +706,23 @@ class PiKVM:
                 "would close the connection the outer one is still using."
             )
         if self._client is None:
+            # The credentials go on each request rather than on the client,
+            # so that a rotating TOTP code is current when it is sent. They
+            # are still checked here: an unusable password should be a
+            # failure to open the client, not a surprise on the first call.
             try:
-                self._client = httpx.AsyncClient(
-                    base_url=self._url,
-                    headers=self._credential_headers(),
-                    verify=self._verify_ssl,
-                    timeout=self._timeout,
-                    follow_redirects=self._follow_redirects,
-                )
+                f"{self._user}{self._passwd}".encode("ascii")
             except UnicodeEncodeError as exc:
                 raise ConfigurationError(
                     f"PiKVM credentials travel in HTTP headers and must be ASCII: {exc}"
                 ) from exc
+            try:
+                self._client = httpx.AsyncClient(
+                    base_url=self._url,
+                    verify=self._verify_ssl,
+                    timeout=self._timeout,
+                    follow_redirects=self._follow_redirects,
+                )
             except httpx.InvalidURL as exc:
                 raise ConfigurationError(
                     f"Invalid PiKVM URL {self._url!r}: {exc}"
@@ -762,7 +823,8 @@ class PiKVM:
         return PiKVMWebSocket(
             url=self._url,
             user=self._user,
-            passwd=self._password,
+            # The property, not its value: read when the handshake is made.
+            passwd=lambda: self._password,
             auth=self._auth,
             token=token,
             verify_ssl=self._verify_ssl,

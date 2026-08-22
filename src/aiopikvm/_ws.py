@@ -23,7 +23,7 @@ import logging
 import ssl
 import struct
 from collections import deque
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Callable, Iterable
 from types import TracebackType
 from typing import Any, NamedTuple, Self
 from urllib.parse import urlparse, urlunparse
@@ -246,7 +246,7 @@ class PiKVMWebSocket:
         url: str,
         *,
         user: str,
-        passwd: str,
+        passwd: str | Callable[[], str],
         auth: AuthMode = "headers",
         token: str = "",
         verify_ssl: bool = True,
@@ -262,6 +262,9 @@ class PiKVMWebSocket:
             url: PiKVM base URL, ``https://`` or ``http://``.
             user: kvmd user name.
             passwd: Password, TOTP code appended if the device asks for one.
+                A zero-argument callable is called when the handshake is
+                made, so a rotating code is the one current then rather
+                than the one current when this object was built.
             auth: Which credential the handshake carries. The upgrade request
                 goes through the same chain a REST call does, so all three
                 work; ``"cookie"`` needs *token* and ignores *user* and
@@ -412,12 +415,13 @@ class PiKVMWebSocket:
             plain ``Cookie`` header — a WebSocket handshake is an ordinary
             HTTP GET, and there is no jar here to keep it in.
         """
-        if self._auth == "basic":
-            raw = f"{self._user}:{self._passwd}".encode()
-            return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
         if self._auth == "cookie":
             return {"Cookie": f"auth_token={self._token}"}
-        return {"X-KVMD-User": self._user, "X-KVMD-Passwd": self._passwd}
+        passwd = self._passwd() if callable(self._passwd) else self._passwd
+        if self._auth == "basic":
+            raw = f"{self._user}:{passwd}".encode()
+            return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
+        return {"X-KVMD-User": self._user, "X-KVMD-Passwd": passwd}
 
     @property
     def version(self) -> KvmdVersion | None:

@@ -15,6 +15,7 @@ from aiopikvm._exceptions import (
     UnavailableError,
     WebSocketError,
 )
+from aiopikvm._totp import TOTP
 from aiopikvm._ws import DeviceState, KvmdVersion, PiKVMWebSocket
 from aiopikvm.models.atx import ATXActs, ATXLeds, ATXState
 from aiopikvm.models.gpio import (
@@ -121,6 +122,7 @@ __version__ = "0.2.1"
 
 __all__ = [
     "EDID",
+    "TOTP",
     "APIError",
     "ATXActs",
     "ATXLeds",
