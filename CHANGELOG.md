@@ -554,6 +554,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The retry that follows a refused session no longer resends a body it cannot
+  resend, nor logs in to log out. Under `auth="cookie"` a refusal reopens the
+  session and repeats the call, which is right for a request the client can put
+  on the wire twice — but an upload was handed an iterator the first attempt had
+  already drained, so the second sent nothing and failed about the caller's
+  `size`, burying the refusal that actually happened. And `logout()` aims at one
+  particular token: refreshing the session under it ended the session opened for
+  the retry and reported success for the one that was asked about. A streamed
+  body now hands the refusal back with the session already reopened, so the
+  caller's own retry starts from a fresh body, and `/api/auth/logout` no longer
+  goes through the session check at all (#132).
 - A burst of requests that lose the session together no longer opens a session
   each. Under `auth="cookie"` a refused token is replaced under a lock, and the
   guard meant to spot that another task had already replaced it deleted the

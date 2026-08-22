@@ -381,6 +381,13 @@ class PiKVM:
                 # Anything wrong with the password itself fails again below,
                 # this time for good.
                 await self._ensure_session(refused=carried)
+                if content is not None and not isinstance(content, bytes):
+                    # Anything but bytes is a stream the first attempt has
+                    # consumed. Sending it again delivers nothing and fails
+                    # for a reason that has nothing to do with the refusal, so
+                    # hand the refusal back — the session is open now, and the
+                    # caller's own retry starts from a fresh body.
+                    raise
         return await self._send(
             method, path, params, json, data, content, headers, timeout
         )
@@ -392,11 +399,16 @@ class PiKVM:
             path: URL path the request is about to go to.
 
         Returns:
-            ``True`` for a request that authenticates by cookie and is not
-            itself the login that mints one — that endpoint needs no
-            credential, and calling it through here would not terminate.
+            ``True`` for a request that authenticates by cookie and is neither
+            of the two endpoints that carry their own. The login needs no
+            credential, and routing it through here would not terminate; the
+            logout is aimed at one particular token, which it has already put
+            in the jar, and a retry under a session opened here would drop
+            that session instead of the one asked for.
         """
-        return self._auth == "cookie" and not path.rstrip("/").endswith("/auth/login")
+        return self._auth == "cookie" and not path.rstrip("/").endswith(
+            ("/auth/login", "/auth/logout")
+        )
 
     async def _ensure_session(self, *, refused: str | None = None) -> None:
         """Make sure the cookie jar holds a session token.

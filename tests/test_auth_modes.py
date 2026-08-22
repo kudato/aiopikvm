@@ -9,6 +9,7 @@ what is sent: a client meaning to authenticate by session that still carries
 import asyncio
 import base64
 import itertools
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
@@ -16,6 +17,7 @@ import respx
 
 from aiopikvm import AuthError, ConfigurationError, PiKVM
 
+_COOKIE = "auth_token"
 OK = {"ok": True, "result": {}}
 TOKEN = "a" * 64
 OTHER_TOKEN = "b" * 64
@@ -196,6 +198,49 @@ async def test_cookie_mode_does_not_log_in_to_log_in(
     async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
         await kvm.auth.login("admin", "secret")
     assert login.call_count == 1
+
+
+async def test_cookie_mode_does_not_log_in_to_log_out(
+    mock_api: respx.MockRouter,
+) -> None:
+    # logout() aims at one particular token, which it has just put in the jar
+    # itself. Refreshing the session on a refusal would drop the session this
+    # client opened for the retry and report success for the one that was
+    # asked about. No login route is registered on purpose: a login here
+    # matches nothing and fails the test.
+    logout = mock_api.post("/api/auth/logout").mock(
+        return_value=httpx.Response(403, json=OK)
+    )
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        with pytest.raises(AuthError):
+            await kvm.auth.logout(OTHER_TOKEN)
+        # The jar is left as it was found, which here is empty.
+        assert kvm.cookies.get(_COOKIE) is None
+    assert logout.call_count == 1
+    assert f"auth_token={OTHER_TOKEN}" in logout.calls[0].request.headers["Cookie"]
+
+
+async def test_cookie_mode_does_not_replay_a_streamed_body(
+    mock_api: respx.MockRouter,
+) -> None:
+    # The retry would re-iterate an iterator the first attempt consumed, send
+    # nothing, and fail with a ConfigurationError about the caller's `size` —
+    # burying the refusal that actually happened.
+    login = _login_route(mock_api)
+    write = mock_api.post("/api/msd/write").mock(
+        return_value=httpx.Response(403, json=OK)
+    )
+
+    async def image() -> AsyncIterator[bytes]:
+        yield b"data"
+
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        with pytest.raises(AuthError):
+            await kvm.msd.upload("x.iso", image(), size=4)
+    assert write.call_count == 1
+    # The session was refreshed anyway, so the caller's own retry starts from
+    # a token that has not been refused.
+    assert login.call_count == 2
 
 
 async def test_cookie_mode_reuses_a_token_put_there_by_hand(
