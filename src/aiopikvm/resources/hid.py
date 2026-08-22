@@ -411,9 +411,24 @@ class HIDResource(BaseResource):
     async def send_mouse_wheel(self, delta_x: int, delta_y: int) -> None:
         """Send a mouse wheel event.
 
+        Deltas are steps in kvmd's own range, -127 to 127, clamped by kvmd
+        rather than rejected, and carried in the HID wheel field. They are not
+        a browser's pixel deltas: a browser reports a scroll-down gesture as a
+        positive ``deltaY``, and kvmd's own web UI negates it and sizes it by
+        its scroll-rate setting (1 to 25, 5 by default), so the gesture
+        reaches the device as ``delta_y = -5``.
+
         Args:
-            delta_x: Horizontal scroll delta.
-            delta_y: Vertical scroll delta.
+            delta_x: Horizontal step, -127 to 127. It needs a backend with a
+                horizontal wheel behind it, and in kvmd 4.206 only ``otg`` has
+                one, while its ``horizontal_wheel`` option is on — the
+                default. ``serial``, ``spi``, ``ch9329`` and ``bt`` drop it
+                without a word, and which way a positive step pans is not
+                settled here.
+            delta_y: Vertical step, -127 to 127. Negative scrolls down on a
+                host with the usual wheel mapping. ``ch9329`` keeps only the
+                sign and sends one detent, a zero counting as negative, so the
+                size is lost there.
         """
         await self._post(
             "/api/hid/events/send_mouse_wheel",

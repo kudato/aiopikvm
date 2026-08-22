@@ -864,16 +864,23 @@ class PiKVMWebSocket:
 
         Deltas are steps in kvmd's own range, -127 to 127, clamped rather
         than rejected — by kvmd for a JSON event and here for a binary one,
-        which has nowhere to put a larger number — and passed straight into
-        the USB HID wheel field. They are not the browser's pixel deltas:
-        kvmd's own web UI sends one step per gesture, sized by its scroll-rate
-        setting (1 to 25, 5 by default) and negated, so a scroll-down gesture
-        leaves it as ``delta_y = -5``.
+        which has nowhere to put a larger number — and carried in the HID
+        wheel field. They are not the browser's pixel deltas: a browser
+        reports a scroll-down gesture as a positive ``deltaY``, and kvmd's own
+        web UI negates it and sizes it by its scroll-rate setting (1 to 25, 5
+        by default), so the gesture reaches the device as ``delta_y = -5``.
 
         Args:
-            delta_x: Horizontal step, -127 to 127.
+            delta_x: Horizontal step, -127 to 127. It needs a backend with a
+                horizontal wheel behind it, and in kvmd 4.206 only ``otg`` has
+                one, while its ``horizontal_wheel`` option is on — the
+                default. ``serial``, ``spi``, ``ch9329`` and ``bt`` drop it
+                without a word, and which way a positive step pans is not
+                settled here.
             delta_y: Vertical step, -127 to 127. Negative scrolls down on a
-                host with the usual wheel mapping.
+                host with the usual wheel mapping. ``ch9329`` keeps only the
+                sign and sends one detent, a zero counting as negative, so the
+                size is lost there.
 
         Raises:
             WebSocketError: The client is not connected, or the connection
@@ -885,6 +892,9 @@ class PiKVMWebSocket:
         self, deltas: Iterable[tuple[int, int]], *, squash: bool = False
     ) -> None:
         """Send several wheel steps in one frame.
+
+        A step means what it does in ``send_mouse_wheel()``, backends and
+        directions included.
 
         Args:
             deltas: ``(delta_x, delta_y)`` steps, in the order they happened.

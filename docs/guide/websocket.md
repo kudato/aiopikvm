@@ -359,10 +359,12 @@ async with kvm.ws() as ws:
 Deltas are steps in kvmd's own range, `-127` to `127`, clamped rather than
 rejected — not the browser's pixel deltas. kvmd's web UI sends a single step per
 gesture, sized by its scroll-rate setting (1 to 25, `5` by default) and negated,
-so a scroll-down gesture reaches the device as `delta_y = -5`.
+so a scroll-down gesture reaches the device as `delta_y = -5`. What a step means
+on each backend — the horizontal axis, and where a step's size survives — is
+[on the HID page](hid.md#mouse-wheel).
 
 Several steps can go in one frame with `send_mouse_wheel_batch()`, described
-under [batching](#batching) below.
+under [batching](#batching) above.
 
 ## The binary channel
 

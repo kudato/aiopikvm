@@ -196,15 +196,36 @@ back and forward, not wheel directions — the wheel is below.
 ### Mouse wheel
 
 ```python
-# Scroll up
+# Scroll down
 await kvm.hid.send_mouse_wheel(0, -5)
 
-# Scroll down
+# Scroll up
 await kvm.hid.send_mouse_wheel(0, 5)
 
-# Horizontal scroll
+# Horizontal step
 await kvm.hid.send_mouse_wheel(3, 0)
 ```
+
+Steps are in kvmd's own `-127` to `127` range, clamped rather than rejected,
+and are not a browser's pixel deltas. A browser reports a scroll-down gesture
+as a positive `deltaY`; kvmd's web UI negates it and sizes it by its
+scroll-rate setting (1 to 25, `5` by default), so the gesture reaches the
+device as `delta_y = -5` — which is what settles the direction in the sample
+above. `ch9329` keeps only the sign and sends one detent, a zero counting as
+negative, so the size is lost there. Several steps can go in one frame over
+the [WebSocket](websocket.md#batching).
+
+`delta_x` needs a backend with a horizontal wheel behind it. In kvmd 4.206
+only `otg` has one, and only while its `horizontal_wheel` option is on, which
+is the default; `serial` and `spi` leave the slot empty and the Arduino and
+Pico firmware behind them refuse it in any case, while `ch9329` and `bt`
+receive it and throw it away. None of them says a word about it.
+
+Which way a positive `delta_x` pans is not settled here. What settles the
+vertical axis — kvmd's negation agreeing with the usual reading of the HID
+field — comes apart on the horizontal one, where the two point opposite ways,
+and no target screen was on hand to break the tie. kvmd passes the byte
+through untouched, so whichever way `3` goes, `-3` goes the other.
 
 ## HID parameters
 

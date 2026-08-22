@@ -369,6 +369,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The HID guide had the mouse wheel backwards: it labelled
+  `send_mouse_wheel(0, -5)` "Scroll up" where the WebSocket guide labels the
+  same call "scroll down". Both reach the same kvmd handler and the same HID
+  report, so at most one could be right, and kvmd's own source decides it: a
+  browser reports a scroll-down gesture as a positive `deltaY` and kvmd's web
+  UI negates it, so the gesture reaches the device as `delta_y = -5`. The HID
+  guide now agrees, and gained the step range and the negation that only the
+  WebSocket page carried. The direction was read off kvmd rather than off a
+  target's screen, and the one thing that reading does not settle is which
+  way a positive `delta_x` pans — the guide says so instead of guessing.
+  Alongside it, both `send_mouse_wheel()` docstrings gained what `delta_x`
+  needs (a backend with a horizontal wheel: only `otg`, with its
+  `horizontal_wheel` option on, which is the default) and what `ch9329` does
+  to a step (keeps the sign, drops the size, sends one detent) (#112).
 - `MSDResource.upload_remote()` raised `APIError("Invalid JSON response")` on
   every call, successful ones included. `POST /msd/write_remote` answers HTTP
   200 with `application/x-ndjson` — one envelope per line, never fewer than
