@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- A `timeout` parameter on `SystemResource.stream_log()`, which was the one
+  streaming method without one while its three siblings all took it (#137).
 - `PiKVMWebSocket.state`, the device as `states()` last left it. The
   accumulated snapshot used to live in a generator local and was reachable
   from nowhere else, so a loop that stopped on the event it was waiting for
@@ -576,6 +578,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The four streaming calls — `system.stream_log()`, `msd.download()`,
+  `msd.upload_remote_progress()` and `streamer.mjpeg()` — no longer override an
+  external `http_client`'s timeout. Each built its own from the `timeout`
+  argument the constructor documents as ignored when a client is passed in, so
+  a caller who injected one tuned for a slow link got this library's own
+  connect, write and pool values back on exactly the calls where a long
+  transfer is expected. They now read the underlying client's own timeout and
+  lift only the read one, which is what a stream needs and all any of them
+  ever wanted (#137).
 - `PiKVMWebSocket.states()` no longer starts merging from nothing. Its merge
   base was a local of the async generator, so it began empty on every call,
   while kvmd sends each subsystem in full only when the socket opens and only

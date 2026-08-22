@@ -243,6 +243,10 @@ async with httpx.AsyncClient(verify=False, timeout=30.0) as http:
     `PiKVM` that keeps serving requests through an `httpx.AsyncClient` its
     owner is free to have closed in the meantime.
 
+    Its `timeout` is the one every call uses, streaming calls included: those
+    lift the read timeout, since a stream has no end to wait for, and keep the
+    connect, write and pool values the injected client was built with.
+
 ## Resource access
 
 Resources are accessed as properties on the `PiKVM` instance. They are lazily initialized on first access:

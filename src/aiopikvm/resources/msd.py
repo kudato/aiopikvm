@@ -305,16 +305,12 @@ class MSDResource(BaseResource):
             params["remove_incomplete"] = int(remove_incomplete)
         if connect_timeout is not None:
             params["timeout"] = connect_timeout
-        async with self._client.stream(
+        async with self._stream(
             "POST",
             _WRITE_REMOTE_PATH,
             params=params,
             headers={"Accept": "application/x-ndjson"},
-            timeout=(
-                timeout
-                if timeout is not None
-                else httpx.Timeout(self._client._timeout, read=None)
-            ),
+            timeout=timeout,
         ) as response:
             async for line in response.aiter_lines():
                 if line.strip():
@@ -405,16 +401,12 @@ class MSDResource(BaseResource):
         params: dict[str, Any] = {"image": name}
         if compress:
             params["compress"] = compress
-        async with self._client.stream(
+        async with self._stream(
             "GET",
             "/api/msd/read",
             params=params,
             headers={"Accept": "application/octet-stream"},
-            timeout=(
-                timeout
-                if timeout is not None
-                else httpx.Timeout(self._client._timeout, read=None)
-            ),
+            timeout=timeout,
         ) as response:
             async for chunk in response.aiter_bytes(chunk_size):
                 yield chunk

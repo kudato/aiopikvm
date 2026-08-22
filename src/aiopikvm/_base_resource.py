@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -10,6 +11,8 @@ from pydantic import BaseModel, ValidationError
 from aiopikvm._exceptions import APIError, ResponseError
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from aiopikvm._client import PiKVM
 
 
@@ -77,6 +80,51 @@ class BaseResource:
             ) from exc
 
         return self._unwrap(body, path, response.status_code)
+
+    @asynccontextmanager
+    async def _stream(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float | httpx.Timeout | None = None,
+    ) -> AsyncIterator[httpx.Response]:
+        """Open a streaming connection with the read timeout lifted.
+
+        Every streaming endpoint wants the same thing from its timeout and
+        none of them want the client-level one, which is sized for a request
+        that answers at once. This is where that default lives, so a new
+        streaming method inherits it instead of restating it.
+
+        Args:
+            method: HTTP method.
+            path: URL path relative to the PiKVM base URL.
+            params: Query parameters.
+            headers: Extra HTTP headers.
+            timeout: Override the default described above, in full — a value
+                here is passed on as given, read timeout included.
+
+        Yields:
+            The *httpx.Response* with an unconsumed body.
+
+        Raises:
+            PiKVMError: Whatever [`PiKVM.stream()`][aiopikvm.PiKVM.stream]
+                raises for a transport failure or an error status. Nothing
+                here reads the body, so the response envelope — which a
+                streaming endpoint sends per record anyway — is the caller's.
+        """
+        async with self._client.stream(
+            method,
+            path,
+            params=params,
+            headers=headers,
+            timeout=(
+                timeout if timeout is not None else self._client._stream_timeout()
+            ),
+        ) as response:
+            yield response
 
     @staticmethod
     def _unwrap(body: Any, path: str, status_code: int = 0) -> Any:

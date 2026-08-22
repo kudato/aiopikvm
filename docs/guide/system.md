@@ -114,6 +114,11 @@ async for line in kvm.system.stream_log(seek=3600):
 !!! note
     `stream_log()` disables the read timeout to support long-lived connections. The connect timeout still applies.
 
+    Pass `timeout=` to decide all of them yourself — a `float` for one value
+    across the board, or an `httpx.Timeout` to spell out the fields
+    separately. An override is used as given, so a read timeout named there
+    is applied rather than disabled.
+
 ## Full example
 
 ```python

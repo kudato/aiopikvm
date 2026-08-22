@@ -634,6 +634,29 @@ class PiKVM:
         except httpx.ResponseNotRead:  # pragma: no cover - defensive
             return ""
 
+    def _stream_timeout(self) -> httpx.Timeout:
+        """Build the default timeout for a call that reads until kvmd stops.
+
+        Returns:
+            The underlying client's own timeout with the read one lifted: a
+            stream has no end to wait for, so a gap between records is not a
+            failure. Connect, write and pool keep their configured values —
+            with an external *http_client* that means the ones it was built
+            with, since ``timeout`` is among the constructor arguments this
+            client documents as ignored when a client is passed in.
+
+        Raises:
+            PiKVMError: If this client has been closed, or the async context
+                has not been entered yet.
+        """
+        base = self._ensure_client().timeout
+        # The three are spelled out because httpx.Timeout() asserts when a
+        # per-field override is passed beside a Timeout instance. Reading the
+        # fields off it and handing them back is the same thing without it.
+        return httpx.Timeout(
+            connect=base.connect, read=None, write=base.write, pool=base.pool
+        )
+
     @asynccontextmanager
     async def stream(
         self,

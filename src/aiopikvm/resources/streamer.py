@@ -154,15 +154,11 @@ class StreamerResource(BaseResource):
             params["extra_headers"] = 1
         if zero_data:
             params["zero_data"] = 1
-        async with self._client.stream(
+        async with self._stream(
             "GET",
             "/streamer/stream",
             params=params or None,
-            timeout=(
-                timeout
-                if timeout is not None
-                else httpx.Timeout(self._client._timeout, read=None)
-            ),
+            timeout=timeout,
         ) as response:
             reader = _MultipartReader(_boundary_of(response))
             async for chunk in response.aiter_bytes(chunk_size):
