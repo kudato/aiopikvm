@@ -2,6 +2,34 @@
 
 The System resource provides device information and KVMD service logs.
 
+## Typed device state
+
+`get_state()` is the counterpart of every other subsystem's `get_state()`: it
+asks for the whole of `/api/info` in the per-submanager shape and hands back an
+`InfoState`.
+
+```python
+state = await kvm.system.get_state()
+
+print(state.system.kvmd.version)          # "4.206"
+print(state.health.temp.cpu)              # 33.589
+print(state.uptime.parts.days)
+
+if state.health.throttling and state.health.throttling.parsed_flags.undervoltage.now:
+    print("the power supply is sagging right now")
+```
+
+Every attribute is optional, because the same model carries the WebSocket
+`info` events, which arrive one submanager at a time. On a `get_state()` result
+they are all filled in; on a
+[`states()`][aiopikvm.PiKVMWebSocket.states] snapshot they fill in as the events
+come.
+
+Two blocks stay untyped on purpose. `meta` is a YAML file the device's owner
+writes — kvmd reads exactly one thing out of it — and `fan.state` belongs to the
+`kvmd-fan` daemon, which answers on its own socket. Neither shape is kvmd's to
+promise.
+
 ## Get device info
 
 ```python

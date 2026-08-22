@@ -6,6 +6,7 @@ from typing import Any, Literal
 import httpx
 
 from aiopikvm._base_resource import BaseResource
+from aiopikvm.models.info import InfoState
 
 type InfoField = Literal[
     "auth", "extras", "fan", "health", "hw", "meta", "node", "system", "uptime"
@@ -21,6 +22,23 @@ legacy shape assembles, and asking for it with ``legacy=False`` is HTTP 400.
 
 class SystemResource(BaseResource):
     """System information and logs for PiKVM."""
+
+    async def get_state(self) -> InfoState:
+        """Get device information as a typed state.
+
+        Asks for the per-submanager shape and every category, so the result
+        is the whole of ``/api/info`` with none of the legacy rearrangement.
+        This is the call the other subsystems' ``get_state()`` is named
+        after; [`get_info()`][aiopikvm.resources.system.SystemResource.get_info]
+        stays the way to ask for a subset, or for the legacy shape.
+
+        Returns:
+            Device information, one attribute per kvmd submanager.
+
+        Raises:
+            ResponseError: If the payload does not fit the model.
+        """
+        return await self._get_model("/api/info", InfoState, params={"legacy": 0})
 
     async def get_info(self, *fields: InfoField, legacy: bool = True) -> dict[str, Any]:
         """Get general device information.

@@ -38,7 +38,7 @@ from tests.helpers import undeclared_fields
 
 pytestmark = pytest.mark.live
 
-SUBSYSTEMS = ("atx", "hid", "msd", "gpio", "streamer", "switch")
+SUBSYSTEMS = ("atx", "hid", "msd", "gpio", "streamer", "switch", "system")
 
 WS_TIMEOUT = 5.0
 """How long to wait for the initial WebSocket events."""
@@ -74,6 +74,25 @@ async def test_info_honours_the_field_filter(live: PiKVM) -> None:
     """Several ``fields`` values are all applied, not just the first one."""
     info = await live.system.get_info("hw", "system")
     assert set(info) == {"hw", "system"}
+
+
+async def test_info_legacy_shape_hides_health_and_moves_platform(
+    live: PiKVM,
+) -> None:
+    """The rearrangement kvmd applies unless ``legacy=0`` is asked for."""
+    legacy = await live.system.get_info()
+    modern = await live.system.get_info(legacy=False)
+    assert "hw" in legacy and "health" not in legacy
+    assert "platform" not in legacy["system"]
+    assert "hw" not in modern and "health" in modern
+    assert "platform" in modern["system"]
+
+
+async def test_info_refuses_hw_without_the_legacy_shape(live: PiKVM) -> None:
+    """``hw`` is a legacy alias, not a submanager kvmd can return."""
+    with pytest.raises(APIError) as excinfo:
+        await live.system.get_info("hw", legacy=False)
+    assert excinfo.value.status_code == 400
 
 
 async def test_log_returns_text(live: PiKVM) -> None:

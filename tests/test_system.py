@@ -91,6 +91,57 @@ async def test_get_info_modern_shape(mock_api: respx.MockRouter, client: PiKVM) 
     assert "platform" in result["system"]
 
 
+async def test_get_state(mock_api: respx.MockRouter, client: PiKVM) -> None:
+    mock_api.get("/api/info").mock(
+        return_value=httpx.Response(200, json=load_json("info_legacy0"))
+    )
+    state = await client.system.get_state()
+    request = mock_api.calls[-1].request
+    # Always the modern shape, always every category: the legacy one has no
+    # submanager behind `hw`, so no model could describe both.
+    assert request.url.params.get_list("legacy") == ["0"]
+    assert "fields" not in request.url.params
+    assert state.system is not None
+    assert state.system.kvmd.version == "4.206"
+    assert state.system.platform.type == "rpi"
+    assert state.health is not None
+    assert state.health.throttling is not None
+    assert state.health.throttling.parsed_flags.undervoltage.now is False
+    assert state.uptime is not None
+    assert state.uptime.total > 0
+    assert state.auth is not None and state.auth.enabled is True
+
+
+async def test_get_state_keeps_an_unmonitored_fan(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # `state` belongs to the kvmd-fan daemon and is None whenever it is not
+    # there — a device without the fan board reports exactly this.
+    mock_api.get("/api/info").mock(
+        return_value=httpx.Response(200, json=load_json("info_legacy0"))
+    )
+    state = await client.system.get_state()
+    assert state.fan is not None
+    assert state.fan.monitored is False
+    assert state.fan.state is None
+
+
+async def test_get_state_accepts_a_partial_payload(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    # The same model carries the WebSocket info events, which arrive one
+    # submanager at a time, so every attribute has to be optional.
+    body = {
+        "ok": True,
+        "result": {"uptime": load_json("info_legacy0")["result"]["uptime"]},
+    }
+    mock_api.get("/api/info").mock(return_value=httpx.Response(200, json=body))
+    state = await client.system.get_state()
+    assert state.uptime is not None
+    assert state.system is None
+    assert state.health is None
+
+
 async def test_get_log(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/api/log").mock(return_value=httpx.Response(200, text=LOG_TEXT))
     log = await client.system.get_log()

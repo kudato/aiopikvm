@@ -43,6 +43,7 @@ from aiopikvm._exceptions import (
 from aiopikvm.models.atx import ATXState
 from aiopikvm.models.gpio import GPIOState
 from aiopikvm.models.hid import HIDKeymaps, HIDState
+from aiopikvm.models.info import InfoState
 from aiopikvm.models.msd import MSDState
 from aiopikvm.models.streamer import OCRInfo, StreamerState
 from aiopikvm.models.switch import SwitchState
@@ -120,8 +121,9 @@ class DeviceState:
             broadcasts it to everybody whenever a session comes or goes, this
             one included.
         info: The ``/api/info`` subsystems, merged as they arrive. kvmd sends
-            one key at a time — ``uptime``, ``health``, ``system`` — and this
-            is still a raw dictionary; typing it is tracked in #71.
+            one submanager at a time — ``uptime``, ``health``, ``system`` —
+            so every attribute of it is optional and fills in as the events
+            come. It is the per-submanager shape, never the legacy one.
     """
 
     updated: str = ""
@@ -134,7 +136,7 @@ class DeviceState:
     streamer: StreamerState | None = None
     switch: SwitchState | None = None
     clients: int | None = None
-    info: dict[str, Any] = dataclasses.field(default_factory=dict)
+    info: InfoState | None = None
 
 
 _STATE_MODELS: dict[str, tuple[type[BaseModel], str]] = {
@@ -142,6 +144,7 @@ _STATE_MODELS: dict[str, tuple[type[BaseModel], str]] = {
     "gpio": (GPIOState, ""),
     "hid": (HIDState, ""),
     "hid_keymaps": (HIDKeymaps, "keymaps"),
+    "info": (InfoState, ""),
     "msd": (MSDState, ""),
     "ocr": (OCRInfo, ""),
     "streamer": (StreamerState, ""),
@@ -490,7 +493,7 @@ class PiKVMWebSocket:
                 if not isinstance(count, int):
                     continue
                 state = dataclasses.replace(state, updated=event_type, clients=count)
-            elif event_type == "info" or event_type in _STATE_MODELS:
+            elif event_type in _STATE_MODELS:
                 merged = _merge(seen.get(event_type, {}), payload)
                 seen[event_type] = merged
                 state = dataclasses.replace(
@@ -1066,16 +1069,13 @@ def _as_state(event_type: str, merged: dict[str, Any]) -> Any:
         merged: Everything that subsystem has sent, merged.
 
     Returns:
-        The validated model, or the payload itself for ``info``, which has no
-        model yet.
+        The validated model.
 
     Raises:
         ResponseError: The payload does not match the model. Pydantic raises
             ``ValidationError``, which is outside the aiopikvm hierarchy and
             would escape ``except PiKVMError``.
     """
-    if event_type not in _STATE_MODELS:
-        return merged
     (model, key) = _STATE_MODELS[event_type]
     data = merged.get(key) if key else merged
     try:

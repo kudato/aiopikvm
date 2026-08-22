@@ -297,3 +297,81 @@ All response models inherit from a base class with `extra="allow"` for forward-c
 ::: aiopikvm.SwitchAtxLeds
     options:
       show_bases: false
+
+## Info
+
+::: aiopikvm.InfoState
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoAuth
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoNode
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoUptime
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoUptimeParts
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoHealth
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoTemp
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoCPU
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoMem
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoThrottling
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoThrottlingFlags
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoThrottlingFlag
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoFan
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoSystem
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoKvmd
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoKernel
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoStreamer
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoPlatform
+    options:
+      show_bases: false
+
+::: aiopikvm.InfoExtra
+    options:
+      show_bases: false
