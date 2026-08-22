@@ -1,6 +1,7 @@
 """PiKVMWebSocket tests."""
 
 import asyncio
+import dataclasses
 import json
 import logging
 import ssl
@@ -45,6 +46,7 @@ from aiopikvm._ws import (
     _STATE_FIELDS,
     _STATE_MODELS,
     _Connector,
+    _landing_fields,
     _merge,
     _open,
 )
@@ -814,9 +816,40 @@ def test_the_table_lands_in_the_fields_and_nowhere_else() -> None:
     right ones, because a table entry deleted and excluded in the same edit
     keeps the equality true. `test_every_typed_subsystem_has_a_field_to_land_in`
     in the contract suite is what checks the table against the dataclass
-    without going through this set.
+    without going through this set. What `states()` does with an entry this
+    equality would have caught is
+    `test_states_ignore_a_table_entry_with_nowhere_to_land` below.
     """
     assert set(_STATE_MODELS) == _STATE_FIELDS
+
+
+def test_a_field_replace_will_not_take_is_not_a_landing_field() -> None:
+    """A field declared `init=False` is a field, and not somewhere to land.
+
+    `dataclasses.replace()` refuses one before `__init__` runs, with the same
+    bare `TypeError` a name with no field at all gets, so a derivation that
+    went by `dataclasses.fields()` alone would hand `states()` a name that
+    breaks the loop. `DeviceState` has no such field today, which is why this
+    asks `_landing_fields()` about a dataclass written for the question
+    instead: the module constant cannot show the difference until someone
+    declares one, and by then it is a released bug.
+
+    `updated` and `clients` are here too, because they are dropped by name
+    rather than by what `replace()` will take — it takes both.
+    """
+
+    @dataclasses.dataclass(frozen=True, slots=True)
+    class Fake:
+        updated: str = ""
+        clients: int | None = None
+        atx: ATXState | None = None
+        ocr: OCRInfo | None = dataclasses.field(default=None, init=False)
+
+    assert _landing_fields(dataclasses.fields(Fake)) == {"atx"}
+
+    with pytest.raises(TypeError):
+        dataclasses.replace(Fake(), ocr=None)
+    assert dataclasses.replace(Fake(), updated="atx", clients=2).clients == 2
 
 
 @pytest.mark.parametrize("event_type", ["quantum", "updated", "__class__"])

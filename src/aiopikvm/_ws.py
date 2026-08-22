@@ -170,11 +170,31 @@ object, the way ``GET /api/hid/keymaps`` returns it. The ``ocr`` event is the
 other way round — the REST endpoint wraps it in ``ocr`` and the event does not.
 """
 
-_STATE_FIELDS = frozenset(
-    field.name
-    for field in dataclasses.fields(DeviceState)
-    if field.init and field.name != "updated"
-) - {"clients"}
+
+def _landing_fields(
+    state_fields: Iterable[dataclasses.Field[Any]],
+) -> frozenset[str]:
+    """Names a subsystem event may be merged into, out of a dataclass's fields.
+
+    A field is in only if ``dataclasses.replace()`` takes it as a keyword,
+    which rules out one declared ``init=False`` — ``replace()`` refuses that
+    before ``__init__`` runs. ``updated`` and ``clients`` are dropped on top:
+    ``states()`` passes both itself.
+
+    Args:
+        state_fields: The fields of the dataclass events are merged into,
+            as ``dataclasses.fields()`` returns them.
+
+    Returns:
+        The subset of their names an event type is allowed to be.
+    """
+    return frozenset(field.name for field in state_fields if field.init) - {
+        "updated",
+        "clients",
+    }
+
+
+_STATE_FIELDS = _landing_fields(dataclasses.fields(DeviceState))
 """Where a subsystem event can land on [`DeviceState`][aiopikvm.DeviceState].
 
 Every key of ``_STATE_MODELS`` has to be one of these, and two tests hold
@@ -188,13 +208,17 @@ dataclass are written out by hand and a build can ship with them apart.
 Handing ``replace()`` a keyword the dataclass has no field for raises a bare
 ``TypeError``, outside the hierarchy this package promises; so does handing
 it ``updated`` a second time, and so does naming a field declared
-``init=False``. None of the three is a name kvmd broadcasts, so what is
-checked is the set of fields ``replace()`` will actually take, rather than
-whatever ``DeviceState`` happens to answer ``hasattr`` for (#143).
+``init=False``. kvmd does broadcast names ``DeviceState`` has no field for —
+``loop`` and ``pong`` are in every capture — but none of them is in
+``_STATE_MODELS``, so no live event reaches this check as any of the three.
+It is here for the build whose two lists have come apart, and it is derived
+rather than asked of the class so that it answers for what ``replace()``
+takes rather than for what ``DeviceState`` has (#143).
 
-``updated`` is out because ``states()`` passes it itself, and ``clients``
-because it is not a subsystem — kvmd sends a bare count, and ``states()`` has
-a branch of its own for it.
+``updated`` is out of it because ``states()`` passes that itself, and
+``clients`` because it is not a subsystem: kvmd sends a bare count, and
+``states()`` merges it in a branch of its own, which does not come through
+here.
 """
 
 
