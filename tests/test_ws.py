@@ -23,6 +23,7 @@ from aiopikvm import (
     AuthError,
     BusyError,
     ConfigurationError,
+    DeviceState,
     GPIOState,
     HIDKeymaps,
     HIDState,
@@ -88,6 +89,11 @@ def recorded(event_type: str) -> dict[str, Any]:
 def iterating(*messages: str | bytes, closed: BaseException | None = None) -> AsyncMock:
     """Build a mock connection whose ``recv`` hands out *messages*.
 
+    Once they run out it keeps raising the same close, the way a real
+    connection does — a list of side effects would raise ``StopAsyncIteration``
+    on the read after that, which a second reader on the same socket would
+    record as a failure that never happened.
+
     Args:
         messages: Frames to hand out, in order.
         closed: What to raise once they run out; a clean close by default,
@@ -98,7 +104,15 @@ def iterating(*messages: str | bytes, closed: BaseException | None = None) -> As
     """
     conn = AsyncMock()
     ending = closed or websockets.exceptions.ConnectionClosedOK(None, None)
-    conn.recv = AsyncMock(side_effect=[*messages, ending])
+    remaining = list(messages)
+
+    def next_message(*_args: Any, **_kwargs: Any) -> str | bytes:
+        """Hand out the next frame, or report the close for good."""
+        if not remaining:
+            raise ending
+        return remaining.pop(0)
+
+    conn.recv = AsyncMock(side_effect=next_message)
     return conn
 
 
@@ -806,6 +820,49 @@ async def test_states_end_with_the_connection() -> None:
         async for state in ws.states():
             seen.append(state)
     assert [state.updated for state in seen] == ["atx"]
+
+
+async def test_states_pick_up_what_events_already_took() -> None:
+    """kvmd sends a subsystem in full once, and it counts whoever took it.
+
+    Reading `events()` first — to see the kvmd version the `loop` event
+    carries, say — and switching to `states()` used to start the merge from
+    nothing, so the next partial update was validated on its own.
+    """
+    ws = socket()
+    ws._connection = replaying()
+    async for event in ws.events():
+        if event.get("event_type") == "streamer":
+            break
+    after = [state async for state in ws.states() if state.updated == "streamer"]
+    assert after, "the capture must have a partial update left"
+    assert after[-1].streamer is not None
+    assert after[-1].streamer.features is not None
+
+
+async def test_states_resume_a_loop_that_was_left() -> None:
+    """A caller that breaks out and starts again merges into the same base."""
+    ws = socket()
+    ws._connection = replaying()
+    async for state in ws.states():
+        if state.updated == "streamer":
+            break
+    again = [state async for state in ws.states() if state.updated == "streamer"]
+    assert again, "the capture must have a partial update left"
+    assert again[-1].streamer is not None
+    assert again[-1].streamer.features is not None
+
+
+async def test_the_last_snapshot_is_readable_outside_the_loop() -> None:
+    """The accumulated state used to live in a generator local and no further."""
+    ws = socket()
+    assert ws.state == DeviceState()
+    ws._connection = replaying()
+    async for state in ws.states():
+        if state.updated == "streamer":
+            break
+    assert ws.state.updated == "streamer"
+    assert ws.state.streamer is not None
 
 
 def test_merge_keeps_what_the_update_does_not_mention() -> None:

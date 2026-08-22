@@ -388,6 +388,8 @@ class PiKVMWebSocket:
         self._reported = False
         self._pending: deque[dict[str, Any]] = deque()
         self._carry: dict[str, dict[str, Any]] = {}
+        self._seen: dict[str, dict[str, Any]] = {}
+        self._state = DeviceState()
         self._overflowed = False
         self._pong_waiters: list[asyncio.Future[float]] = []
 
@@ -463,6 +465,11 @@ class PiKVMWebSocket:
         self._version = None
         self._pending.clear()
         self._carry.clear()
+        # The merge base belongs to a connection, not to a call: kvmd sends
+        # each subsystem in full when the socket opens and only the changes
+        # afterwards. A reconnection starts that over.
+        self._seen.clear()
+        self._state = DeviceState()
         self._overflowed = False
         self._failure = None
         self._reported = False
@@ -612,6 +619,25 @@ class PiKVMWebSocket:
         """
         return self._version
 
+    @property
+    def state(self) -> DeviceState:
+        """The device as [`states()`][aiopikvm.PiKVMWebSocket.states] left it.
+
+        Every snapshot that call yields is this, so a loop that breaks out
+        leaves the last one readable, and a caller that wants the picture
+        rather than the changes can hold the socket open and read this
+        whenever it suits — the socket is drained by a task of its own, so
+        the events arrive either way.
+
+        It is empty until something iterates
+        [`states()`][aiopikvm.PiKVMWebSocket.states] — merely reading
+        [`events()`][aiopikvm.PiKVMWebSocket.events] does not fill it in.
+        Turning a payload into a model is where a kvmd this release does not
+        describe correctly is found out, and that belongs to the call whose
+        documented failure it is. A fresh connection empties it.
+        """
+        return self._state
+
     async def events(self) -> AsyncIterator[dict[str, Any]]:
         """Iterate over incoming events.
 
@@ -666,6 +692,15 @@ class PiKVMWebSocket:
     def _next_event(self) -> dict[str, Any]:
         """Take the oldest buffered event, with anything dropped folded in.
 
+        The subsystem's running total is kept up to date here rather than in
+        [`states()`][aiopikvm.PiKVMWebSocket.states], because every event this
+        connection hands out passes through here whichever way it was asked
+        for. kvmd sends a subsystem in full when the socket opens and only the
+        changes afterwards, so a `states()` that started merging from nothing
+        — because `events()` had already taken the full one, or because an
+        earlier `states()` loop was left — would be validating half a
+        subsystem.
+
         Returns:
             The event, its payload merged over whatever was dropped from the
             same subsystem before it.
@@ -675,11 +710,13 @@ class PiKVMWebSocket:
         if not isinstance(event_type, str):
             return event
         carried = self._carry.pop(event_type, None)
-        if carried is None:
-            return event
         payload = event.get("event")
-        merged = _merge(carried, payload) if isinstance(payload, dict) else carried
-        return {**event, "event": merged}
+        if carried is not None:
+            payload = _merge(carried, payload) if isinstance(payload, dict) else carried
+            event = {**event, "event": payload}
+        if event_type in _STATE_MODELS and isinstance(payload, dict):
+            self._seen[event_type] = _merge(self._seen.get(event_type, {}), payload)
+        return event
 
     async def states(self) -> AsyncIterator[DeviceState]:
         """Iterate over the device state the events add up to.
@@ -705,16 +742,20 @@ class PiKVMWebSocket:
         Yields:
             The device as of the event that has just arrived.
 
+        What has been merged so far is on
+        [`state`][aiopikvm.PiKVMWebSocket.state], so a loop that was left can
+        be resumed and the last snapshot is readable from outside it.
+
         Raises:
             ResponseError: A merged payload did not match its model, which
                 means a kvmd this release does not describe correctly. kvmd
                 sends every subsystem in full when the socket opens, so a
-                partial update always has something to merge into.
+                partial update always has something to merge into — whether it
+                was this call that took the full one, an earlier `states()`,
+                or [`events()`][aiopikvm.PiKVMWebSocket.events].
             WebSocketError: The client is not connected, or the connection
                 broke instead of closing cleanly.
         """
-        seen: dict[str, dict[str, Any]] = {}
-        state = DeviceState()
         async for event in self.events():
             event_type = event.get("event_type")
             payload = event.get("event")
@@ -724,18 +765,20 @@ class PiKVMWebSocket:
                 count = payload.get("count")
                 if not isinstance(count, int):
                     continue
-                state = dataclasses.replace(state, updated=event_type, clients=count)
+                self._state = dataclasses.replace(
+                    self._state, updated=event_type, clients=count
+                )
             elif event_type in _STATE_MODELS:
-                merged = _merge(seen.get(event_type, {}), payload)
-                seen[event_type] = merged
-                state = dataclasses.replace(
-                    state,
+                # Merged as the event came off the buffer, so this is that
+                # subsystem's whole state and not only what just changed.
+                self._state = dataclasses.replace(
+                    self._state,
                     updated=event_type,
-                    **{event_type: _as_state(event_type, merged)},
+                    **{event_type: _as_state(event_type, self._seen[event_type])},
                 )
             else:
                 continue
-            yield state
+            yield self._state
 
     async def ping(self, *, timeout: float = 10.0) -> float:
         """Ask kvmd for a pong, and wait for it.
