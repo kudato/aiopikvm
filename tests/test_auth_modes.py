@@ -326,9 +326,29 @@ async def test_websocket_carries_the_same_credential() -> None:
 
 
 async def test_websocket_without_a_session_says_what_to_do() -> None:
+    """Building the socket is fine; it is the handshake that needs a token."""
     async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        ws = kvm.ws()
         with pytest.raises(ConfigurationError, match="no session token"):
-            kvm.ws()
+            ws._credential_headers()
+
+
+async def test_websocket_on_a_client_that_was_never_entered() -> None:
+    """There is no cookie jar to read at all, which the message says."""
+    ws = PiKVM(URL, user="admin", passwd="secret", auth="cookie").ws()
+    with pytest.raises(ConfigurationError, match="has not been entered"):
+        ws._credential_headers()
+
+
+async def test_websocket_carries_a_token_minted_after_it_was_built(
+    mock_api: respx.MockRouter,
+) -> None:
+    """The socket is built before the login every guide does after it."""
+    _login_route(mock_api)
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        ws = kvm.ws()
+        await kvm.auth.login("admin", "secret")
+        assert ws._credential_headers() == {"Cookie": f"auth_token={TOKEN}"}
 
 
 async def test_websocket_uses_the_session_token(mock_api: respx.MockRouter) -> None:

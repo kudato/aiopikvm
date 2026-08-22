@@ -958,8 +958,11 @@ class PiKVM:
         The socket carries whichever credential this client's *auth* mode
         says. Under ``"headers"`` and ``"basic"`` those are the *user* and
         *passwd* it was built with; under ``"cookie"`` it is the session
-        token from [`cookies`][aiopikvm.PiKVM.cookies], which has to be there
-        already — this call is not a coroutine and cannot log in for you.
+        token from [`cookies`][aiopikvm.PiKVM.cookies], read when the socket
+        is opened rather than here — so something must have logged in by
+        then, though not necessarily before this call. Neither this method
+        nor the socket logs in: it is a request that opens a session, or
+        [`AuthResource.login()`][aiopikvm.resources.auth.AuthResource.login].
 
         Args:
             stream: Count this client as a video viewer, which is also kvmd's
@@ -998,16 +1001,20 @@ class PiKVM:
 
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
-                was built with has no usable scheme.
+                was built with has no usable scheme. Under ``auth="cookie"``
+                a missing session token is reported too, but only once the
+                socket is entered: the token is read at the handshake, so one
+                minted in between is the one that goes out.
         """
-        token = self._ws_token("ws()")
+        self._ws_usable()
         return PiKVMWebSocket(
             url=self._url,
             user=self._user,
             # The property, not its value: read when the handshake is made.
             passwd=lambda: self._password,
             auth=self._auth,
-            token=token,
+            # The token as it is when the handshake is made, not now.
+            token=lambda: self._ws_token("ws()"),
             verify_ssl=self._verify_ssl,
             cert=self._cert,
             proxy=self._proxy,
@@ -1081,16 +1088,20 @@ class PiKVM:
 
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
-                was built with has no usable scheme.
+                was built with has no usable scheme. Under ``auth="cookie"``
+                a missing session token is reported too, but only once the
+                socket is entered: the token is read at the handshake, so one
+                minted in between is the one that goes out.
         """
-        token = self._ws_token("media_ws()")
+        self._ws_usable()
         return MediaWebSocket(
             url=self._url,
             user=self._user,
             # The property, not its value: read when the handshake is made.
             passwd=lambda: self._password,
             auth=self._auth,
-            token=token,
+            # The token as it is when the handshake is made, not now.
+            token=lambda: self._ws_token("media_ws()"),
             verify_ssl=self._verify_ssl,
             cert=self._cert,
             proxy=self._proxy,
@@ -1173,17 +1184,20 @@ class PiKVM:
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
                 was built with has no usable scheme. The missing ``webrtc``
-                extra is reported here too, but only once the session is
-                entered.
+                extra is reported here too, and so is a missing session token
+                under ``auth="cookie"`` — but both only once the session is
+                entered. The token is read at the handshake, so one minted in
+                between is the one that goes out.
         """
-        token = self._ws_token("webrtc()")
+        self._ws_usable()
         return WebRTCSession(
             url=self._url,
             user=self._user,
             # The property, not its value: read when the handshake is made.
             passwd=lambda: self._password,
             auth=self._auth,
-            token=token,
+            # The token as it is when the handshake is made, not now.
+            token=lambda: self._ws_token("webrtc()"),
             verify_ssl=self._verify_ssl,
             cert=self._cert,
             proxy=self._proxy,
@@ -1201,26 +1215,52 @@ class PiKVM:
             ping_timeout=ping_timeout,
         )
 
-    def _ws_token(self, what: str) -> str:
-        """Find the session token a WebSocket handshake needs, if it needs one.
-
-        Args:
-            what: Name of the method asking, for the error message.
-
-        Returns:
-            The token under ``auth="cookie"``, otherwise an empty string.
+    def _ws_usable(self) -> None:
+        """Refuse to build a socket on a client that can no longer open one.
 
         Raises:
-            ConfigurationError: This client has been closed, or it is using
-                cookie auth and has no session token yet.
+            ConfigurationError: This client has been closed.
         """
         if self._closed:
             raise ConfigurationError(
                 "This PiKVM client has been closed; it cannot open a new "
                 "WebSocket. Build a new client."
             )
+
+    def _ws_token(self, what: str) -> str:
+        """Find the session token a WebSocket handshake needs, if it needs one.
+
+        Read when the handshake is made rather than when the socket was built,
+        the way the password is. Under ``auth="cookie"`` the token is not the
+        client's to keep: a request mints one, kvmd refusing it mints another,
+        and an explicit login replaces both. Reading it here is what lets a
+        socket built before any of that carry the token that is current when
+        it opens — and a socket reopened later carry the one current then,
+        rather than the one it was built with.
+
+        Args:
+            what: Name of the method that built the socket, for the error
+                message.
+
+        Returns:
+            The token under ``auth="cookie"``, otherwise an empty string.
+
+        Raises:
+            ConfigurationError: This client has been closed, or it is using
+                cookie auth and there is no session token to read — either
+                because it has not been entered, so there is no cookie jar at
+                all, or because nothing has logged in yet.
+        """
+        self._ws_usable()
         if self._auth != "cookie":
             return ""
+        if self._client is None:
+            raise ConfigurationError(
+                f"auth='cookie' reads its session token from this client's "
+                f"cookie jar, and the client has not been entered, so there "
+                f"is no jar to read. Open it with 'async with PiKVM(...) as "
+                f"kvm:' and open the {what} socket inside that block."
+            )
         token = self._session_token()
         if not token:
             raise ConfigurationError(

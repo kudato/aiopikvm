@@ -92,7 +92,7 @@ class MediaWebSocket:
         user: str,
         passwd: str | Callable[[], str],
         auth: AuthMode = "headers",
-        token: str = "",
+        token: str | Callable[[], str] = "",
         verify_ssl: VerifyTypes = True,
         cert: CertTypes | None = None,
         proxy: str | None = None,
@@ -116,7 +116,10 @@ class MediaWebSocket:
                 so a rotating code is the one current then.
             auth: Which credential the handshake carries; ``"cookie"`` needs
                 *token* and ignores *user* and *passwd*.
-            token: Session token for ``auth="cookie"``.
+            token: Session token for ``auth="cookie"``. A callable is
+                called when the handshake is made, for the same reason
+                *passwd* takes one: a session opened or refreshed after
+                this object was built is the one that goes out.
             verify_ssl: What to trust; see
                 [`VerifyTypes`][aiopikvm.VerifyTypes].
             cert: Client certificate to present.
@@ -210,6 +213,10 @@ class MediaWebSocket:
             This client, connected.
 
         Raises:
+            ConfigurationError: Under ``auth="cookie"``, there is no session
+                token to send. The credential is read here rather than when
+                the socket was built, so a session opened in between is the
+                one that goes out — and one that never was is reported here.
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
@@ -228,12 +235,12 @@ class MediaWebSocket:
         if self._url.startswith("wss://"):
             ssl_context = build_ssl_context(self._verify_ssl, self._cert)
 
+        headers = self._credential_headers()
+
         try:
             self._connection = await _Connector(
                 self._url,
-                additional_headers=_credential_headers(
-                    self._auth, self._user, self._passwd, self._token
-                ),
+                additional_headers=headers,
                 ssl_context=ssl_context,
                 proxy=(self._proxy or (True if self._trust_env else None)),
                 open_timeout=self._open_timeout,
@@ -265,6 +272,20 @@ class MediaWebSocket:
                 await self.__aexit__(None, None, None)
                 raise
         return self
+
+    def _credential_headers(self) -> dict[str, str]:
+        """Build the credential headers the upgrade request carries.
+
+        Returns:
+            The headers for this socket's auth mode.
+
+        Raises:
+            ConfigurationError: Under ``auth="cookie"``, there is no session
+                token to send. Only a socket built by
+                [`PiKVM.media_ws()`][aiopikvm.PiKVM.media_ws] can say that:
+                one built directly was handed whatever token it holds.
+        """
+        return _credential_headers(self._auth, self._user, self._passwd, self._token)
 
     async def __aexit__(
         self,

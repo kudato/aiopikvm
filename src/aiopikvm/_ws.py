@@ -281,7 +281,7 @@ class PiKVMWebSocket:
         user: str,
         passwd: str | Callable[[], str],
         auth: AuthMode = "headers",
-        token: str = "",
+        token: str | Callable[[], str] = "",
         verify_ssl: VerifyTypes = True,
         cert: CertTypes | None = None,
         proxy: str | None = None,
@@ -309,7 +309,10 @@ class PiKVMWebSocket:
                 goes through the same chain a REST call does, so all three
                 work; ``"cookie"`` needs *token* and ignores *user* and
                 *passwd*.
-            token: Session token for ``auth="cookie"``.
+            token: Session token for ``auth="cookie"``. A callable is
+                called when the handshake is made, for the same reason
+                *passwd* takes one: a session opened or refreshed after
+                this object was built is the one that goes out.
             verify_ssl: What to trust; see
                 [`VerifyTypes`][aiopikvm.VerifyTypes].
             cert: Client certificate to present.
@@ -403,6 +406,10 @@ class PiKVMWebSocket:
             This client, connected.
 
         Raises:
+            ConfigurationError: Under ``auth="cookie"``, there is no session
+                token to send. The credential is read here rather than when
+                the socket was built, so a session opened in between is the
+                one that goes out — and one that never was is reported here.
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
@@ -580,6 +587,12 @@ class PiKVMWebSocket:
 
         Returns:
             The headers for this socket's auth mode.
+
+        Raises:
+            ConfigurationError: Under ``auth="cookie"``, there is no session
+                token to send. Only a socket built by
+                [`PiKVM.ws()`][aiopikvm.PiKVM.ws] can say that: one built
+                directly was handed whatever token it holds.
         """
         return _credential_headers(self._auth, self._user, self._passwd, self._token)
 
@@ -1278,7 +1291,7 @@ def _credential_headers(
     auth: AuthMode,
     user: str,
     passwd: str | Callable[[], str],
-    token: str,
+    token: str | Callable[[], str],
 ) -> dict[str, str]:
     """Build the credential headers a WebSocket upgrade request carries.
 
@@ -1290,7 +1303,9 @@ def _credential_headers(
         user: kvmd user name, for ``"headers"`` and ``"basic"``.
         passwd: Password, or a callable read at the moment of the handshake so
             that a rotating TOTP code is the one current then.
-        token: Session token, for ``"cookie"``.
+        token: Session token, for ``"cookie"``. A callable for the same reason
+            the password takes one: a session opened, refreshed or replaced
+            after this socket was built is the one the handshake carries.
 
     Returns:
         The headers for that auth mode. The cookie goes in a plain ``Cookie``
@@ -1298,7 +1313,7 @@ def _credential_headers(
         no jar here to keep it in.
     """
     if auth == "cookie":
-        return {"Cookie": f"auth_token={token}"}
+        return {"Cookie": f"auth_token={token() if callable(token) else token}"}
     value = passwd() if callable(passwd) else passwd
     if auth == "basic":
         raw = f"{user}:{value}".encode()
