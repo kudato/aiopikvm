@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `max_size`, `max_queue`, `ping_interval` and `ping_timeout` on `PiKVM.ws()`
+  and `PiKVMWebSocket`, so the keepalive that decides when a link counts as
+  dead can be adjusted for one where twenty seconds is the wrong answer.
+  They were *websockets*' defaults, unreachable through this client (#126).
 - `PiKVM.media_ws()` and `MediaWebSocket`, the H.264 stream the `kvmd-media`
   daemon serves — the moving picture the client had no way to reach at all,
   having only `snapshot()`'s one frame per request. The daemon has two
@@ -285,6 +289,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- The event buffer no longer simply drops the oldest event when it is full.
+  kvmd sends each subsystem in full once and then only what changed, so an
+  event lost off the front left every later one of its kind unusable — and
+  `states()` documents the opposite as an invariant. What a dropped event
+  said is now merged into the next event of the same type, which yields
+  exactly what merging all of them in order would have (#126).
 - **Breaking:** `StreamerStream.clients_stat` is a
   `dict[str, StreamerClientStat]` instead of a `dict[str, Any]`. Nothing had
   read it, since there was no way to open a stream and so nothing to read it
@@ -518,6 +528,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A WebSocket nobody reads no longer dies about forty seconds in, taking
+  kvmd's streamer with it. *websockets* parses frames in the transport
+  callback and acknowledges a keepalive pong there, and pauses reading the
+  transport once more than `max_queue` frames are buffered — so a socket held
+  open the way `docs/guide/websocket.md` taught (`async with kvm.ws(): ...`,
+  keeping the video pipeline alive while doing something else) stopped
+  answering its own keepalive and was failed on the ping timeout, with the
+  `async with` block none the wiser. The socket is now drained by a task of
+  its own from the moment it opens, whether or not anything iterates
+  `events()`, which is where the frames were always going anyway (#126).
+- A connection that breaks while nothing is reading it is raised by
+  `__aexit__` instead of being closed in silence. It gives way to whatever
+  the block itself raised, and says nothing when the failure has already
+  reached the caller through `events()`, `states()`, `ping()` or a send; a
+  clean close is not reported at all (#126).
+- `ping()` no longer waits out its timeout on a socket that closed while it
+  was waiting — the reader fails it as soon as the connection ends, cleanly
+  or otherwise (#126).
 - Documented that `GPIOChannel.state` is `False` — and `online` `True` —
   for as long as `busy` is set, whatever the pin is doing: kvmd skips the
   read entirely for a channel with an action running. Easy to walk into,

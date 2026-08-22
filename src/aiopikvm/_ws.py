@@ -17,6 +17,7 @@ with ``binary=True``; incoming frames of either kind are understood regardless.
 
 import asyncio
 import base64
+import contextlib
 import dataclasses
 import json
 import logging
@@ -75,11 +76,7 @@ _DELTA_MAX = 127
 """kvmd's wheel and relative step range, clamped by ``valid_hid_mouse_delta``."""
 
 _PENDING_LIMIT = 1024
-"""How many events [`PiKVMWebSocket.ping()`][aiopikvm.PiKVMWebSocket.ping]
-may buffer for [`events()`][aiopikvm.PiKVMWebSocket.events]."""
-
-_POLL_INTERVAL = 0.02
-"""How often a waiting ping rechecks whether another reader took the socket."""
+"""How many events the reader may buffer before it starts dropping them."""
 
 _WS_MAX_SIZE = 2**20
 _WS_MAX_QUEUE = 16
@@ -289,6 +286,10 @@ class PiKVMWebSocket:
         follow_redirects: bool = False,
         open_timeout: float = 10.0,
         close_timeout: float = 10.0,
+        max_size: int | None = _WS_MAX_SIZE,
+        max_queue: int = _WS_MAX_QUEUE,
+        ping_interval: float | None = _WS_PING_INTERVAL,
+        ping_timeout: float | None = _WS_PING_TIMEOUT,
     ) -> None:
         """Prepare a connection.
 
@@ -333,6 +334,18 @@ class PiKVMWebSocket:
                 redirect hands it to whatever the redirect points at.
             open_timeout: Seconds to wait for the handshake.
             close_timeout: Seconds to wait for the closing handshake.
+            max_size: Largest frame to accept, in bytes, or ``None`` for no
+                limit. kvmd's events are small; the cap is *websockets*' own.
+            max_queue: How many frames the transport may buffer before it
+                pauses reading. This connection reads continuously, so the
+                queue is drained as fast as it fills and the setting is here
+                for a caller who knows otherwise.
+            ping_interval: Seconds between the protocol keepalive pings, or
+                ``None`` to send none. This is *websockets*' own keepalive,
+                not [`ping()`][aiopikvm.PiKVMWebSocket.ping]; turning it off
+                means a link that dies silently is never noticed.
+            ping_timeout: Seconds to wait for a keepalive pong before failing
+                the connection, or ``None`` to wait forever.
 
         Raises:
             ConfigurationError: If the URL scheme is not ``https`` or ``http``.
@@ -352,18 +365,34 @@ class PiKVMWebSocket:
         self._follow_redirects = follow_redirects
         self._open_timeout = open_timeout
         self._close_timeout = close_timeout
+        self._max_size = max_size
+        self._max_queue = max_queue
+        self._ping_interval = ping_interval
+        self._ping_timeout = ping_timeout
         self._connection: websockets.asyncio.client.ClientConnection | None = None
         self._version: KvmdVersion | None = None
-        # Only one task may read the socket at a time, and whichever one holds
-        # the lock routes what it reads for everybody: an event another task
-        # buffered is still an event this connection received.
-        self._read_lock = asyncio.Lock()
+        # One task reads the socket and routes what it reads for everybody:
+        # an event it buffered is still an event this connection received.
+        # Nothing else touches `recv`, so the transport is never left unread.
+        self._reader: asyncio.Task[None] | None = None
+        self._wakeup = asyncio.Event()
+        self._failure: WebSocketError | None = None
+        self._reported = False
         self._pending: deque[dict[str, Any]] = deque()
+        self._carry: dict[str, dict[str, Any]] = {}
         self._overflowed = False
         self._pong_waiters: list[asyncio.Future[float]] = []
 
     async def __aenter__(self) -> Self:
-        """Open the connection.
+        """Open the connection and start reading it.
+
+        A task begins draining the socket as soon as it is open, whether or
+        not anything iterates [`events()`][aiopikvm.PiKVMWebSocket.events].
+        That is not an optimisation: *websockets* parses frames in the
+        transport callback and pauses reading once its inbound queue fills, so
+        a socket nobody reads stops acknowledging the protocol keepalive and
+        is dropped about forty seconds in — taking kvmd's streamer with it,
+        since kvmd runs it for as long as a session says it wants video.
 
         Returns:
             This client, connected.
@@ -397,6 +426,10 @@ class PiKVMWebSocket:
                 open_timeout=self._open_timeout,
                 close_timeout=self._close_timeout,
                 follow_redirects=self._follow_redirects,
+                max_size=self._max_size,
+                max_queue=self._max_queue,
+                ping_interval=self._ping_interval,
+                ping_timeout=self._ping_timeout,
             )
         except websockets.exceptions.InvalidStatus as exc:
             # The upgrade never happened: kvmd answered the GET with an
@@ -414,7 +447,12 @@ class PiKVMWebSocket:
 
         self._version = None
         self._pending.clear()
+        self._carry.clear()
         self._overflowed = False
+        self._failure = None
+        self._reported = False
+        self._wakeup.clear()
+        self._start_reader()
         return self
 
     async def __aexit__(
@@ -429,16 +467,108 @@ class PiKVMWebSocket:
         answer fails here rather than waiting out its timeout: the socket it
         was waiting on is gone.
 
+        A connection that broke while the block was doing something else is
+        raised here, and this is the only place it can be: a block that holds
+        the socket open without reading it has nowhere else to find out. It
+        gives way to whatever the block itself raised, and says nothing when
+        the failure has already reached the caller through
+        [`events()`][aiopikvm.PiKVMWebSocket.events],
+        [`states()`][aiopikvm.PiKVMWebSocket.states] or
+        [`ping()`][aiopikvm.PiKVMWebSocket.ping].
+
         Args:
             exc_type: Type of the exception the block raised, if any.
             exc_val: The exception the block raised, if any.
             exc_tb: Traceback of that exception, if any.
+
+        Raises:
+            WebSocketError: The connection broke during the block and nothing
+                in it noticed.
         """
+        await self._stop_reader()
         if self._connection is not None:
             try:
                 await self._connection.close()
             finally:
                 self._connection = None
+        if exc_type is None and self._failure is not None and not self._reported:
+            self._reported = True
+            raise self._failure
+
+    def _start_reader(self) -> None:
+        """Start the task that reads the socket, unless one is running."""
+        if self._reader is None or self._reader.done():
+            self._reader = asyncio.create_task(self._drain())
+
+    async def _stop_reader(self) -> None:
+        """Stop that task and fail anything still waiting on what it reads."""
+        reader = self._reader
+        self._reader = None
+        if reader is not None:
+            reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reader
+        self._fail_pongs("The connection closed before kvmd answered the ping")
+
+    async def _drain(self) -> None:
+        """Read the socket for as long as it has anything to say.
+
+        Every frame is routed as it arrives — the version noted, a pong handed
+        to whoever asked for one — and every event is kept for
+        [`events()`][aiopikvm.PiKVMWebSocket.events]. Reading here rather than
+        from `events()` is what keeps the transport drained; see
+        [`__aenter__`][aiopikvm.PiKVMWebSocket.__aenter__] for why that
+        matters.
+
+        A clean close ends this quietly. Anything else is kept and handed to
+        the next caller who asks, or raised by
+        [`__aexit__`][aiopikvm.PiKVMWebSocket.__aexit__] if nobody does.
+        """
+        try:
+            while True:
+                event = await self._read_one()
+                if event is not None:
+                    self._buffer(event)
+                self._wakeup.set()
+        except _Finished:
+            pass
+        except Exception as exc:
+            self._failure = (
+                exc
+                if isinstance(exc, WebSocketError)
+                else WebSocketError(f"The socket reader stopped: {exc}")
+            )
+        finally:
+            self._wakeup.set()
+            # Nothing will answer a ping now, either way: a clean close is
+            # still a close, and waiting out the timeout says nothing extra.
+            self._fail_pongs(
+                str(self._failure)
+                if self._failure is not None
+                else "The connection closed before kvmd answered the ping"
+            )
+
+    def _fail_pongs(self, message: str) -> None:
+        """Fail every waiting [`ping()`][aiopikvm.PiKVMWebSocket.ping].
+
+        Args:
+            message: What to tell each of them. Each gets an exception of its
+                own, so one caller's traceback is not another's.
+        """
+        for waiter in self._pong_waiters:
+            if not waiter.done():
+                waiter.set_exception(WebSocketError(message))
+        self._pong_waiters.clear()
+
+    def _raise_failure(self) -> None:
+        """Hand the reader's failure to a caller, once.
+
+        Raises:
+            WebSocketError: The connection broke rather than closing cleanly.
+        """
+        if self._failure is not None:
+            self._reported = True
+            raise self._failure
 
     def _credential_headers(self) -> dict[str, str]:
         """Build the credential headers the upgrade request carries.
@@ -452,11 +582,11 @@ class PiKVMWebSocket:
     def version(self) -> KvmdVersion | None:
         """The kvmd version this connection reported, once it has been read.
 
-        kvmd sends the ``loop`` event carrying it before anything else, so
-        this is set as soon as one frame has been read off the socket — by
-        [`events()`][aiopikvm.PiKVMWebSocket.events], or by a
-        [`ping()`][aiopikvm.PiKVMWebSocket.ping] waiting for its answer. It is
-        ``None`` before that, and on a connection whose ``loop`` event carried
+        kvmd sends the ``loop`` event carrying it before anything else, and
+        the socket is read from the moment it opens, so this fills in shortly
+        after the connection is made whether or not anything is iterating
+        [`events()`][aiopikvm.PiKVMWebSocket.events]. It is ``None`` until that
+        first frame arrives, and on a connection whose ``loop`` event carried
         no usable version.
         """
         return self._version
@@ -481,6 +611,14 @@ class PiKVMWebSocket:
         the loop finish cannot tell "kvmd has nothing more to say" from
         "the events stopped arriving".
 
+        Nothing is read here: the socket is drained by a task of its own from
+        the moment it opens, and this hands out what that task collected. A
+        consumer slower than kvmd is broadcasting therefore falls behind in
+        memory rather than on the wire — and once
+        1024 events are waiting, the oldest are dropped, merged into the next
+        event of their kind so that no field a
+        [`states()`][aiopikvm.PiKVMWebSocket.states] snapshot rests on is lost.
+
         Yields:
             Parsed JSON event dictionaries.
 
@@ -488,18 +626,39 @@ class PiKVMWebSocket:
             WebSocketError: The client is not connected, or the connection
                 broke instead of closing cleanly.
         """
+        self._ensure_connected()
+        self._start_reader()
         while True:
             while self._pending:
-                yield self._pending.popleft()
-            # The lock is held for one frame at a time, so a ping in another
-            # task gets its turn between events instead of after the last one.
-            async with self._read_lock:
-                try:
-                    event = await self._read_one()
-                except _Finished:
-                    return
-            if event is not None:
-                yield event
+                yield self._next_event()
+            reader = self._reader
+            if reader is None or reader.done():
+                self._raise_failure()
+                return
+            # Cleared before the recheck, so an event buffered between the two
+            # wakes this up rather than being waited past.
+            self._wakeup.clear()
+            if self._pending or reader.done():
+                continue
+            await self._wakeup.wait()
+
+    def _next_event(self) -> dict[str, Any]:
+        """Take the oldest buffered event, with anything dropped folded in.
+
+        Returns:
+            The event, its payload merged over whatever was dropped from the
+            same subsystem before it.
+        """
+        event = self._pending.popleft()
+        event_type = event.get("event_type")
+        if not isinstance(event_type, str):
+            return event
+        carried = self._carry.pop(event_type, None)
+        if carried is None:
+            return event
+        payload = event.get("event")
+        merged = _merge(carried, payload) if isinstance(payload, dict) else carried
+        return {**event, "event": merged}
 
     async def states(self) -> AsyncIterator[DeviceState]:
         """Iterate over the device state the events add up to.
@@ -567,19 +726,18 @@ class PiKVMWebSocket:
         the connection alive needs neither — *websockets* sends a protocol
         ping every 20 seconds by itself and drops the connection when one goes
         unanswered for another 20, which is what turns a silently dead link
-        into a [`WebSocketError`][aiopikvm.WebSocketError] out of
-        [`events()`][aiopikvm.PiKVMWebSocket.events].
+        into a [`WebSocketError`][aiopikvm.WebSocketError]. That keepalive
+        tells a dead link from a live one only because this connection is
+        always being read: a pong is acknowledged where the frames are parsed,
+        so a socket left unread fails its own keepalive.
 
-        The answer arrives on the socket like everything else, so this waits
-        for whoever is reading it. When
-        [`events()`][aiopikvm.PiKVMWebSocket.events] is being iterated in
-        another task, that iteration hands the pong over; otherwise this reads
-        the socket itself and keeps the events it finds on the way for the
-        next [`events()`][aiopikvm.PiKVMWebSocket.events] call. Either way the
-        round trip is measured from the frame going out to the pong being
-        read, so a consumer of [`events()`][aiopikvm.PiKVMWebSocket.events]
-        that takes its time between frames adds its own delay to the number —
-        the pong waits behind whatever it is doing.
+        The answer arrives on the socket like everything else, so the task
+        reading it is what hands the pong over, and the events it passes on
+        the way are kept for the next
+        [`events()`][aiopikvm.PiKVMWebSocket.events] call. The round trip is
+        measured from the frame going out to the pong being read, which is not
+        affected by how fast anything consumes
+        [`events()`][aiopikvm.PiKVMWebSocket.events].
 
         Args:
             timeout: Seconds to wait for the answer.
@@ -592,6 +750,8 @@ class PiKVMWebSocket:
                 or closed before the answer arrived, or kvmd did not answer
                 within *timeout*.
         """
+        self._ensure_connected()
+        self._start_reader()
         loop = asyncio.get_running_loop()
         waiter: asyncio.Future[float] = loop.create_future()
         self._pong_waiters.append(waiter)
@@ -602,51 +762,36 @@ class PiKVMWebSocket:
             else:
                 await self._send_event("ping", {})
             async with asyncio.timeout(timeout):
-                await self._wait_pong(waiter)
-            return waiter.result() - sent_at
+                answered_at = await waiter
+            return answered_at - sent_at
         except TimeoutError as exc:
             raise WebSocketError(
                 f"kvmd did not answer the ping within {timeout} s"
             ) from exc
+        except WebSocketError:
+            # The caller has been told the socket is gone, so __aexit__ has
+            # nothing left to report.
+            self._reported = True
+            raise
         finally:
             if waiter in self._pong_waiters:
                 self._pong_waiters.remove(waiter)
 
-    async def _wait_pong(self, waiter: asyncio.Future[float]) -> None:
-        """Read the socket, or wait for whoever is reading it, until *waiter*.
-
-        Args:
-            waiter: Future resolved with the moment a pong was read.
-
-        Raises:
-            WebSocketError: The client is not connected, or the connection
-                broke or closed before the answer arrived.
-        """
-        while not waiter.done():
-            if self._read_lock.locked():
-                # Another task is reading; it resolves the waiter when the
-                # pong turns up. The poll only exists for the case where that
-                # task stops reading without ever seeing one.
-                await asyncio.wait([waiter], timeout=_POLL_INTERVAL)
-                continue
-            async with self._read_lock:
-                if waiter.done():
-                    return
-                try:
-                    event = await self._read_one()
-                except _Finished as exc:
-                    raise WebSocketError(
-                        "The connection closed before kvmd answered the ping"
-                    ) from exc
-                if event is not None:
-                    self._buffer(event)
-
     def _buffer(self, event: dict[str, Any]) -> None:
-        """Keep an event read while waiting for something else.
+        """Keep an event the reader took off the socket.
 
-        The buffer is bounded, because a caller that only ever pings never
-        collects what those pings read: kvmd broadcasts its state whether or
-        not anyone iterates [`events()`][aiopikvm.PiKVMWebSocket.events].
+        The buffer is bounded, because the socket is read whether or not
+        anything collects what it says: kvmd broadcasts its state regardless,
+        and a caller may hold the connection open only to keep the streamer
+        running.
+
+        Dropping the oldest is not quite dropping it. kvmd sends each
+        subsystem in full once and then only what changed, so an event lost
+        from the front of the queue can leave every later one unusable —
+        [`states()`][aiopikvm.PiKVMWebSocket.states] would have nothing to
+        merge a partial update into. Its payload is therefore folded into a
+        carry and merged back over the next event of the same type, which
+        yields exactly what merging all of them in order would have.
 
         Args:
             event: The event to hand to the next
@@ -660,8 +805,19 @@ class PiKVMWebSocket:
                     _PENDING_LIMIT,
                 )
                 self._overflowed = True
-            self._pending.popleft()
+            self._carry_over(self._pending.popleft())
         self._pending.append(event)
+
+    def _carry_over(self, dropped: dict[str, Any]) -> None:
+        """Keep what a dropped event said, to merge into the next of its kind.
+
+        Args:
+            dropped: The event that did not fit in the buffer.
+        """
+        event_type = dropped.get("event_type")
+        payload = dropped.get("event")
+        if isinstance(event_type, str) and isinstance(payload, dict):
+            self._carry[event_type] = _merge(self._carry.get(event_type, {}), payload)
 
     async def _read_one(self) -> dict[str, Any] | None:
         """Read one frame off the socket and route it.
@@ -786,6 +942,9 @@ class PiKVMWebSocket:
         try:
             await conn.send(frame)
         except websockets.exceptions.WebSocketException as exc:
+            # The caller has just been told the socket is gone, so whatever
+            # the reader saw needs no second telling from __aexit__.
+            self._reported = True
             raise WebSocketError(f"Failed to send {what!r}: {exc}") from exc
 
     async def _send_event(self, event_type: str, event: dict[str, Any]) -> None:

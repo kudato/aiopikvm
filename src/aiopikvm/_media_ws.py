@@ -80,8 +80,9 @@ class MediaWebSocket:
     The daemon only has something to send while the streamer is running, and
     kvmd runs the streamer while at least one connected session asks for
     video. Opening this socket is not that ask — it is a separate daemon.
-    Hold a [`PiKVM.ws()`][aiopikvm.PiKVM.ws] open alongside, and keep reading
-    it, or the video stops arriving with nothing to say why.
+    Hold a [`PiKVM.ws()`][aiopikvm.PiKVM.ws] open alongside, or the video
+    stops arriving with nothing to say why. That socket reads itself, so
+    holding it open is the whole of it.
     """
 
     def __init__(

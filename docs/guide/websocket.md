@@ -38,6 +38,10 @@ async with kvm.ws():                        # streamer stays up
     print(await kvm.streamer.snapshot())    # ... so this has a picture to return
 ```
 
+Holding it open is the whole of it: the socket is drained by a task of its own
+from the moment it opens, whether or not anything iterates `events()`. That is
+not an optimisation — see [Backpressure](#backpressure).
+
 Pass `stream=False` only for a client that reads events and never looks at the
 picture. With nothing else watching, the streamer stops, `StreamerState.streamer`
 becomes `None` and `kvm.streamer.snapshot()` answers `UnavailableError`
@@ -426,31 +430,19 @@ other end still holds a TCP socket open. `WebSocketError` is raised if the
 answer does not arrive within `timeout` (10 seconds by default), or if the
 connection breaks or closes first.
 
-The answer arrives on the socket like everything else, so `ping()` waits for
-whoever is reading it. Both arrangements work:
+The answer arrives on the socket like everything else, and the task reading it
+hands the pong over — so this works with or without anything iterating
+`events()`:
 
 ```python
-# Nobody else reading: ping() reads the socket itself, and keeps the events it
-# finds on the way for the next events() call.
 async with kvm.ws() as ws:
     if await ws.ping() > 0.5:
         print("the device is struggling")
-
-# Reading in another task: that iteration hands the pong over.
-async def watch(ws):
-    async for event in ws.events():
-        handle(event)
-
-async with kvm.ws() as ws:
-    reader = asyncio.create_task(watch(ws))
-    while True:
-        await asyncio.sleep(5)
-        print(await ws.ping())
 ```
 
-The round trip is measured from the frame going out to the pong being read, so
-a consumer of `events()` that takes its time between frames adds its own delay
-to the number — the pong waits behind whatever it is doing.
+Events read on the way are kept for the next `events()` call. The round trip is
+measured from the frame going out to the pong being read, and is not affected
+by how fast anything consumes `events()`.
 
 On a JSON socket the answer is also a `pong` event, and `events()` yields it
 like any other. On a binary one it is operation `255`, which is not an event and
@@ -459,7 +451,53 @@ does not appear there.
 Keeping the socket alive needs none of this. The underlying library sends a
 protocol-level ping every 20 seconds and closes the connection if one goes
 unanswered for another 20, which is how a link that dies without a close frame
-surfaces as `WebSocketError` from `events()` rather than hanging forever.
+surfaces as `WebSocketError` rather than hanging forever.
+
+## Backpressure
+
+The socket is read continuously and what it says is buffered for `events()`.
+Nothing about this is optional, and it is worth knowing why.
+
+*websockets* parses incoming frames in the transport callback, and a protocol
+pong is acknowledged there too. Once more frames are buffered than `max_queue`
+allows, it pauses reading the transport — at which point its own keepalive
+pings still go out, their answers are never parsed, and the connection is
+failed after `ping_timeout`. A kvmd socket nobody read used to die about forty
+seconds in, and kvmd stopped the streamer ten seconds after that, with the
+`async with` block none the wiser.
+
+So the reader keeps the transport drained, and a consumer slower than kvmd is
+broadcasting falls behind in memory instead. That buffer holds 1024 events;
+past it the oldest are dropped, merged into the next event of their kind so
+that a `states()` snapshot never loses a field it needs. A warning is logged
+once when it starts happening.
+
+The keepalive itself is adjustable, for a link where the defaults are wrong:
+
+```python
+async with kvm.ws(
+    ping_interval=20.0,   # seconds between protocol pings, None for none
+    ping_timeout=20.0,    # seconds to wait for the pong before failing
+    max_queue=16,         # frames the transport may buffer before it pauses
+    max_size=2**20,       # largest frame to accept, None for no limit
+) as ws:
+    ...
+```
+
+### A connection that broke while nothing was looking
+
+A block that holds the socket without reading it has nowhere to find out that
+the link died — so `__aexit__` raises it:
+
+```python
+async with kvm.ws():          # raises WebSocketError on the way out
+    await asyncio.sleep(3600)
+```
+
+It gives way to whatever the block itself raised, and says nothing when the
+failure has already reached the caller through `events()`, `states()`,
+`ping()` or a send. A connection the far end closed cleanly is not a failure
+and is never reported this way.
 
 ## Standalone usage
 

@@ -145,16 +145,9 @@ async def main() -> int:
                 body_excerpt=r.text.strip().splitlines()[1][:80] if r.text else "",
             )
 
-        async with kvm.ws(stream=True) as event_ws:
-            # Something has to read the socket. websockets stops reading
-            # the transport once its inbound queue fills, its own keepalive
-            # pong then goes unread, and the connection is closed about 40
-            # seconds in — taking the streamer with it.
-            async def drain() -> None:
-                async for _ in event_ws.events():
-                    pass
-
-            reader = asyncio.create_task(drain())
+        # The socket reads itself, which is what keeps it — and the streamer
+        # with it — alive for the length of this recording (#126).
+        async with kvm.ws(stream=True):
             await asyncio.sleep(5.0)
             async with httpx.AsyncClient(
                 base_url=URL, headers=HEADERS, verify=False, timeout=20.0
@@ -509,8 +502,6 @@ async def main() -> int:
                         content_type=exc.response.headers.get("content-type", ""),
                         response=json.loads(exc.response.body),
                     )
-
-            reader.cancel()
 
     payload = {
         "description": (
