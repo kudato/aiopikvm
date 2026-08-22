@@ -582,6 +582,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   refreshed. All four now run the same preamble, and a refusal reopens the
   connection under a fresh session — nothing has been yielded at that point, so
   the caller never sees the attempt that failed (#130).
+- `mjpeg()` reads a part's `Content-Length` without regard to case, as it
+  already read every other part header. The two halves of the parser
+  disagreed: `_meta_from_headers()` lowercased before matching, the frame
+  splitter looked up the exact string. A part carrying `content-length` was
+  therefore rejected with a `ResponseError` saying the frame "arrived with no
+  Content-Length … something between the client and the device is rewriting
+  the stream" — which is the one thing that produces that casing, so the
+  message described its own cause and refused it anyway. The keys are still
+  handed to the caller in the case they arrived in, as `MJPEGFrame.headers`
+  documents (#140).
 - The retry that follows a refused session no longer resends a body it cannot
   resend, nor logs in to log out. Under `auth="cookie"` a refusal reopens the
   session and repeats the call, which is right for a request the client can put

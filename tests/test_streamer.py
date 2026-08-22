@@ -1,6 +1,7 @@
 """StreamerResource tests."""
 
 import copy
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -455,7 +456,9 @@ def stream_step(name: str) -> dict[str, Any]:
     raise KeyError(f"Unknown media_stream step {name!r}; recorded: {known}")
 
 
-def multipart(name: str) -> tuple[bytes, str]:
+def multipart(
+    name: str, rename: Callable[[str], str] = lambda header: header
+) -> tuple[bytes, str]:
     """Rebuild a recorded MJPEG stream.
 
     The scenario stores each part's headers, its length and its first four
@@ -465,6 +468,9 @@ def multipart(name: str) -> tuple[bytes, str]:
 
     Args:
         name: Step name from the ``media_stream`` scenario.
+        rename: Applied to each header name on the way out, for replaying a
+            recorded stream as something between the client and ustreamer
+            would have rewritten it.
 
     Returns:
         The body and the ``Content-Type`` it arrived with.
@@ -474,7 +480,7 @@ def multipart(name: str) -> tuple[bytes, str]:
     boundary = content_type.partition("boundary=")[2]
     body = b""
     for part in recorded["parts"]:
-        head = "".join(f"{n}: {v}\r\n" for n, v in part["headers"].items())
+        head = "".join(f"{rename(n)}: {v}\r\n" for n, v in part["headers"].items())
         head_bytes = bytes.fromhex(part["data_head"])
         body += f"--{boundary}\r\n{head}\r\n".encode()
         body += head_bytes + bytes(part["data_len"] - len(head_bytes))
@@ -623,6 +629,31 @@ async def test_mjpeg_sends_no_flags_by_default(
     async for _ in client.streamer.mjpeg():
         break
     assert route.calls.last.request.url.query == b""
+
+
+async def test_mjpeg_reads_part_headers_whatever_their_case(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """The recorded stream replayed with every header name lower-cased.
+
+    ustreamer sends canonical casing and HTTP does not promise it survives a
+    hop, so a rewriting proxy is the one thing that changes it — and that is
+    exactly what the "no Content-Length" message below exists to describe.
+    Matching the name case-sensitively made the parser blame it for the
+    header being absent when it was there all along.
+    """
+    (body, content_type) = multipart("stream_extra_headers", rename=str.lower)
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200, content=body, headers={"Content-Type": content_type}
+        )
+    )
+    frames = [frame async for frame in client.streamer.mjpeg(extra_headers=True)]
+    assert frames
+    assert frames[0].online is True
+    assert frames[0].width == 1920
+    # Read without regard to case, handed over in the case they arrived in.
+    assert "content-length" in frames[0].headers
 
 
 async def test_mjpeg_without_a_content_length(
