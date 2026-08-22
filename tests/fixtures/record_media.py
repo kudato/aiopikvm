@@ -1,5 +1,14 @@
 """Hand-record the live-video scenario fixture for #84.
 
+Usage::
+
+    PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \\
+        uv run python -m tests.fixtures.record_media
+
+As a module, not as a script: the output path comes from the same
+``tests.fixtures`` the loader reads it through, and that import needs the
+repository root on the path.
+
 Read-only. It opens one event socket with ``stream=True`` so that ustreamer is
 running, then reads ustreamer's own API and the kvmd-media daemon. Frame
 payloads are never stored: an MJPEG part and an H.264 frame are a picture of

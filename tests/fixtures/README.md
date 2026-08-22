@@ -211,13 +211,6 @@ video session for about half a minute and holds a viewer socket open while it
 does; nothing needs undoing afterwards, but it is somebody's device, so ask
 first.
 
-Both recorders write into `data/`, resolved through `DATA_DIR` the way the
-loader resolves it, and print the path they wrote. Neither touches
-[`data/_manifest.json`](data/_manifest.json): only the capture tool writes
-that, and only its `captures` and `device` sections. A scenario that grows a
-step — or a new scenario altogether — needs its `scenarios` entry edited by
-hand, or the file is one the loader can read and nothing describes.
-
 `redfish_actions.json` is hand-recorded for the same reason: the capture tool
 only records GETs that succeed, and everything interesting about the Redfish
 actions is either an empty 204 or a refusal. It holds the one system id this
@@ -235,6 +228,15 @@ online across it. On a device with a working ATX that same step —
 `{"ResetType": "On"}` — powers an off host up, and a switch port is not
 covered by the `enabled` check at all, so do not re-record any of this without
 asking.
+
+Both recorders write into `data/`, resolved through `DATA_DIR` exactly as the
+loader resolves it, and print the path they wrote — anywhere else is a file
+the loader will not look at. Neither touches
+[`data/_manifest.json`](data/_manifest.json); only the capture tool writes it,
+and only its `captures` and `device` sections. So a brand-new scenario needs
+its `scenarios` entry added by hand before anything can load it, and a
+scenario that grows a step loads fine but leaves that entry's `description`
+saying less than the file holds.
 
 ## What these fixtures do and do not prove
 

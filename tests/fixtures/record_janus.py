@@ -1,5 +1,14 @@
 """Hand-record the Janus WebRTC signalling scenario fixture for #94.
 
+Usage::
+
+    PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \\
+        uv run python -m tests.fixtures.record_janus
+
+As a module, not as a script: the output path comes from the same
+``tests.fixtures`` the loader reads it through, and that import needs the
+repository root on the path.
+
 Read-only. It walks one whole session against ``/janus/ws`` — create, attach,
 features, watch, answer, start, keepalive, key_required, stop, detach, destroy
 — and records every message shape along the way, including the refusals the
