@@ -6,10 +6,10 @@ Basic, and the unix socket peer. The first one that is *present* decides the
 request — a non-empty ``X-KVMD-User`` with the wrong password is refused
 rather than retried against the cookie.
 
-:class:`aiopikvm.PiKVM` always sends those headers, so the sessions opened
-here are for other consumers: a browser, another tool, or an
-:class:`httpx.AsyncClient` passed in as *http_client* that sends no
-credential headers of its own.
+[`aiopikvm.PiKVM`][aiopikvm.PiKVM] always sends those headers, so the sessions
+opened here are for other consumers: a browser, another tool, or an
+`httpx.AsyncClient` passed in as *http_client* that sends no credential
+headers of its own.
 """
 
 import re
@@ -55,10 +55,11 @@ class AuthResource(BaseResource):
         answers with an empty envelope and puts the token in a ``Set-Cookie:
         auth_token`` header — that header is the only place it ever appears.
 
-        The token is also stored in :attr:`PiKVM.cookies`, scoped to the host
-        it came from, and sent with every later request — though it decides
-        nothing while this client keeps sending its credential headers. See
-        :attr:`PiKVM.cookies` for what a session token is actually good for.
+        The token is also stored in [`PiKVM.cookies`][aiopikvm.PiKVM.cookies],
+        scoped to the host it came from, and sent with every later request —
+        though it decides nothing while this client keeps sending its
+        credential headers. See [`PiKVM.cookies`][aiopikvm.PiKVM.cookies] for
+        what a session token is actually good for.
 
         A token already in the jar is replaced. The session it belonged to
         stays open on the device until it expires or any session of that user
@@ -177,17 +178,18 @@ class AuthResource(BaseResource):
         nothing about which session is meant, so a call with no cookie fails
         with HTTP 400.
 
-        The cookie is dropped from :attr:`PiKVM.cookies` once kvmd confirms.
-        On failure the jar is left as it was found — including when the token
-        came from the argument rather than the jar — because the session is
-        then in an unknown state, and throwing a token away is the one thing
-        that cannot be undone. Clear it by hand —
+        The cookie is dropped from [`PiKVM.cookies`][aiopikvm.PiKVM.cookies]
+        once kvmd confirms. On failure the jar is left as it was found —
+        including when the token came from the argument rather than the jar —
+        because the session is then in an unknown state, and throwing a token
+        away is the one thing that cannot be undone. Clear it by hand —
         ``kvm.cookies.delete("auth_token")`` — for a token known to be dead.
 
         Args:
             token: Session token to drop, surrounding whitespace ignored.
-                Defaults to the one :meth:`login` left in
-                :attr:`PiKVM.cookies`.
+                Defaults to the one
+                [`login()`][aiopikvm.resources.auth.AuthResource.login] left
+                in [`PiKVM.cookies`][aiopikvm.PiKVM.cookies].
             timeout: Per-call timeout in seconds.
 
         Raises:
@@ -248,9 +250,9 @@ class AuthResource(BaseResource):
         """Return the session token held by the client, if any.
 
         Walks the jar rather than calling ``httpx.Cookies.get``, which raises
-        ``CookieConflict`` — outside the :class:`PiKVMError` hierarchy — when
-        two cookies share a name under different domains. Should the jar hold
-        more than one anyway, the last in jar order wins.
+        ``CookieConflict`` — outside the [`PiKVMError`][aiopikvm.PiKVMError]
+        hierarchy — when two cookies share a name under different domains.
+        Should the jar hold more than one anyway, the last in jar order wins.
 
         Returns:
             The stored token, or ``""`` when there is none.

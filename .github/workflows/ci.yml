@@ -17,7 +17,7 @@ jobs:
 
       - run: uv python install 3.13
 
-      - run: uv sync --group dev
+      - run: uv sync --group dev --group docs
 
       - name: Audit dependencies
         run: uv audit --frozen --no-dev --no-group docs
@@ -33,6 +33,12 @@ jobs:
 
       - name: Tests
         run: uv run pytest --cov=aiopikvm --cov-report=term-missing --cov-report=xml
+
+      # Strict turns a warning into a failure, and an unresolved cross-reference
+      # is a warning — otherwise it reaches the published page as its own source
+      # text. Nothing else ran a docs build, so nothing caught that.
+      - name: Docs build
+        run: uv run mkdocs build --strict
 
       - uses: actions/upload-artifact@v7
         with:

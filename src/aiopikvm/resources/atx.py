@@ -33,7 +33,7 @@ class ATXResource(BaseResource):
             BusyError: Another ATX action is still running (409). Raised
                 with or without ``wait``.
             APIError: The ATX plugin is disabled (400), which
-                :attr:`ATXState.enabled` reports up front.
+                [`ATXState.enabled`][aiopikvm.ATXState] reports up front.
         """
         await self._post(
             "/api/atx/click",
@@ -60,7 +60,7 @@ class ATXResource(BaseResource):
             BusyError: Another ATX action is still running (409). Raised
                 with or without ``wait``.
             APIError: The ATX plugin is disabled (400), which
-                :attr:`ATXState.enabled` reports up front.
+                [`ATXState.enabled`][aiopikvm.ATXState] reports up front.
         """
         await self._post(
             "/api/atx/click",
@@ -86,7 +86,7 @@ class ATXResource(BaseResource):
             BusyError: Another ATX action is still running (409). Raised
                 with or without ``wait``.
             APIError: The ATX plugin is disabled (400), which
-                :attr:`ATXState.enabled` reports up front.
+                [`ATXState.enabled`][aiopikvm.ATXState] reports up front.
         """
         await self._post(
             "/api/atx/click",
@@ -112,7 +112,7 @@ class ATXResource(BaseResource):
             BusyError: Another ATX action is still running (409). Raised
                 with or without ``wait``.
             APIError: The ATX plugin is disabled (400), which
-                :attr:`ATXState.enabled` reports up front.
+                [`ATXState.enabled`][aiopikvm.ATXState] reports up front.
         """
         await self._post(
             "/api/atx/power",
@@ -138,7 +138,7 @@ class ATXResource(BaseResource):
             BusyError: Another ATX action is still running (409). Raised
                 with or without ``wait``.
             APIError: The ATX plugin is disabled (400), which
-                :attr:`ATXState.enabled` reports up front.
+                [`ATXState.enabled`][aiopikvm.ATXState] reports up front.
         """
         await self._post(
             "/api/atx/power",
@@ -164,7 +164,7 @@ class ATXResource(BaseResource):
             BusyError: Another ATX action is still running (409). Raised
                 with or without ``wait``.
             APIError: The ATX plugin is disabled (400), which
-                :attr:`ATXState.enabled` reports up front.
+                [`ATXState.enabled`][aiopikvm.ATXState] reports up front.
         """
         await self._post(
             "/api/atx/power",
@@ -190,7 +190,7 @@ class ATXResource(BaseResource):
             BusyError: Another ATX action is still running (409). Raised
                 with or without ``wait``.
             APIError: The ATX plugin is disabled (400), which
-                :attr:`ATXState.enabled` reports up front.
+                [`ATXState.enabled`][aiopikvm.ATXState] reports up front.
         """
         await self._post(
             "/api/atx/power",

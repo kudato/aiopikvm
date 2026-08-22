@@ -7,38 +7,41 @@ from aiopikvm._exceptions import ConfigurationError, ResponseError
 from aiopikvm.models.switch import EDID, SwitchState
 
 type ATXAction = Literal["on", "off", "off_hard", "reset_hard"]
-"""The power actions :meth:`SwitchResource.atx_power` takes.
+"""The power actions taken by
+[`SwitchResource.atx_power()`][aiopikvm.resources.switch.SwitchResource.atx_power].
 
 ``"on"`` and ``"off"`` are short presses of the power switch, the second
 leaving the OS to decide what a press means; ``"off_hard"`` holds it down
 instead, and ``"reset_hard"`` presses the reset switch.
 
-Every one of the four is conditional on the power state kvmd reads from
-the host's power LED: ``"on"`` acts only on a host it believes to be off,
-the other three only on one it believes to be on. A command that fails
-the test is dropped and the call still answers success, so where that LED
-is miswired or unread all four are unpredictable — a stuck-on reading
-lets the three off-and-reset actions fire at any moment, and a stuck-off
-one lets ``"on"``. :meth:`SwitchResource.atx_click` presses a switch
-unconditionally, which is the way to reach a host whose LED kvmd cannot
-read.
+Every one of the four is conditional on the power state kvmd reads from the
+host's power LED: ``"on"`` acts only on a host it believes to be off, the
+other three only on one it believes to be on. A command that fails the test is
+dropped and the call still answers success, so where that LED is miswired or
+unread all four are unpredictable — a stuck-on reading lets the three
+off-and-reset actions fire at any moment, and a stuck-off one lets ``"on"``.
+[`SwitchResource.atx_click()`][aiopikvm.resources.switch.SwitchResource.atx_click]
+presses a switch unconditionally, which is the way to reach a host whose LED
+kvmd cannot read.
 
-This is kvmd's ATX vocabulary rather than the switch's own: the same
-validator serves ``/api/atx/power``, where :class:`ATXResource` spells each
-value out as a method of its own. kvmd lowercases the value before it
-looks, so only the canonical spelling is typed.
+This is kvmd's ATX vocabulary rather than the switch's own: the same validator
+serves ``/api/atx/power``, where
+[`ATXResource`][aiopikvm.resources.atx.ATXResource] spells each value out as a
+method of its own. kvmd lowercases the value before it looks, so only the
+canonical spelling is typed.
 """
 
 type ATXButton = Literal["power", "power_long", "reset"]
-"""The buttons :meth:`SwitchResource.atx_click` presses.
+"""The buttons pressed by
+[`SwitchResource.atx_click()`][aiopikvm.resources.switch.SwitchResource.atx_click].
 
 ``"power"`` is a short press and ``"power_long"`` the same switch held down
-for several seconds; ``"reset"`` is the other front-panel switch. Unlike
-every value of :data:`ATXAction`, none of these looks at what state the
-host is in.
+for several seconds; ``"reset"`` is the other front-panel switch. Unlike every
+value of [`ATXAction`][aiopikvm.resources.switch.ATXAction], none of these
+looks at what state the host is in.
 
 Shared with ``/api/atx/click`` and lowercased on the way in, exactly as
-:data:`ATXAction` is.
+[`ATXAction`][aiopikvm.resources.switch.ATXAction] is.
 """
 
 
@@ -87,7 +90,8 @@ class SwitchResource(BaseResource):
 
         Returns:
             The id kvmd generated for it, which is what
-            :meth:`set_port_params` takes as ``edid_id``.
+            [`set_port_params()`][aiopikvm.resources.switch.SwitchResource.set_port_params]
+            takes as ``edid_id``.
 
         Raises:
             ResponseError: If kvmd does not answer with the new id.
@@ -108,7 +112,8 @@ class SwitchResource(BaseResource):
         """Rename a stored EDID or replace its contents.
 
         This edits the EDID itself. Assigning one to a port is
-        :meth:`set_port_params` with ``edid_id``.
+        [`set_port_params()`][aiopikvm.resources.switch.SwitchResource.set_port_params]
+        with ``edid_id``.
 
         Args:
             edid_id: Id of the EDID to change. The built-in ``"default"``
@@ -292,7 +297,8 @@ class SwitchResource(BaseResource):
 
         Args:
             port: Port number (``0``-``19`` or unit.port notation).
-            action: Power action, one of :data:`ATXAction`.
+            action: Power action, one of
+                [`ATXAction`][aiopikvm.resources.switch.ATXAction].
 
         Raises:
             APIError: If kvmd does not know the action (HTTP 400).
@@ -306,7 +312,8 @@ class SwitchResource(BaseResource):
 
         Args:
             port: Port number (``0``-``19`` or unit.port notation).
-            button: Button to press, one of :data:`ATXButton`.
+            button: Button to press, one of
+                [`ATXButton`][aiopikvm.resources.switch.ATXButton].
 
         Raises:
             APIError: If kvmd does not know the button (HTTP 400).

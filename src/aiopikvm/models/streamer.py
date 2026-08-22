@@ -158,7 +158,8 @@ class StreamerSnapshot(_Base):
     """The snapshot stored on the device, if any.
 
     ``saved`` is ``None`` until something calls
-    :meth:`StreamerResource.snapshot` with ``save=True``.
+    [`StreamerResource.snapshot()`][aiopikvm.resources.streamer.StreamerResource.snapshot]
+    with ``save=True``.
     """
 
     saved: SavedSnapshot | None = None

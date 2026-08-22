@@ -35,6 +35,8 @@ plugins:
         python:
           options:
             docstring_style: google
+            docstring_options:
+              returns_multiple_items: false
             show_source: true
             show_root_heading: true
             show_root_full_path: false

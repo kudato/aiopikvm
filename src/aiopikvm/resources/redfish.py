@@ -5,7 +5,7 @@ read a machine's power state and change it. It is a subset in two directions:
 ``ComputerSystem`` exposes power and nothing else, and the documents are plain
 Redfish JSON rather than the ``{"ok": ..., "result": ...}`` envelope the rest
 of the API uses. Failures still arrive in that envelope, so they reach the
-caller as the usual :class:`APIError` and friends.
+caller as the usual [`APIError`][aiopikvm.APIError] and friends.
 
 The actions answer with HTTP 204 and no body at all, which is why the calls
 that perform them return nothing.
@@ -32,11 +32,13 @@ compression names elsewhere in this client, these are not lowercased on the
 way in: kvmd looks the name up as given, so ``"forceoff"`` is refused as
 surely as a type it has never heard of. Key names are matched the same way.
 
-:data:`RESET_TYPES` is the same list to check against at runtime.
+[`RESET_TYPES`][aiopikvm.resources.redfish.RESET_TYPES] is the same list to
+check against at runtime.
 """
 
 RESET_TYPES: tuple[ResetType, ...] = get_args(ResetType.__value__)
-"""The values of :data:`ResetType`, in a tuple, for checking at runtime.
+"""The values of [`ResetType`][aiopikvm.resources.redfish.ResetType], in a
+tuple, for checking at runtime.
 
 Read off the type rather than written out again, so the two cannot drift
 apart. The live list is also in each system document under
@@ -49,7 +51,7 @@ class RedfishResource(BaseResource):
     """Redfish API for DMTF BMC compatibility.
 
     Redfish does not use the standard PiKVM response format,
-    so it calls :pymethod:`PiKVM.request` directly.
+    so it calls [`PiKVM.request()`][aiopikvm.PiKVM.request] directly.
     """
 
     async def _get_document(self, path: str) -> dict[str, Any]:
@@ -63,9 +65,10 @@ class RedfishResource(BaseResource):
 
         Raises:
             ResponseError: If the body is not a JSON object.
-            PiKVMError: Whatever :meth:`PiKVM.request` raises — an
-                :class:`APIError` subclass for the status, or a transport
-                failure such as :class:`ConnectError`.
+            PiKVMError: Whatever [`PiKVM.request()`][aiopikvm.PiKVM.request]
+                raises — an [`APIError`][aiopikvm.APIError] subclass for the
+                status, or a transport failure such as
+                [`ConnectError`][aiopikvm.ConnectError].
         """
         response = await self._client.request("GET", path)
         try:
@@ -94,12 +97,13 @@ class RedfishResource(BaseResource):
             json: Optional JSON body.
 
         Raises:
-            PiKVMError: Whatever :meth:`PiKVM.request` raises — an
-                :class:`APIError` subclass for the status, or a transport
-                failure such as :class:`ConnectError`. A 2xx is the whole of
+            PiKVMError: Whatever [`PiKVM.request()`][aiopikvm.PiKVM.request]
+                raises — an [`APIError`][aiopikvm.APIError] subclass for the
+                status, or a transport failure such as
+                [`ConnectError`][aiopikvm.ConnectError]. A 2xx is the whole of
                 the success signal: kvmd answers 204 with an empty body, and
-                any body a later version might add is ignored here rather
-                than guessed at.
+                any body a later version might add is ignored here rather than
+                guessed at.
         """
         await self._client.request(method, path, json=json)
 
@@ -146,7 +150,9 @@ class RedfishResource(BaseResource):
 
         Returns:
             System resource document, including ``PowerState`` and the
-            ``ResetType`` values :meth:`reset` accepts for it.
+            ``ResetType`` values
+            [`reset()`][aiopikvm.resources.redfish.RedfishResource.reset]
+            accepts for it.
 
         Raises:
             ResponseError: If the body is not a JSON object.
@@ -208,8 +214,9 @@ class RedfishResource(BaseResource):
 
         Returns nothing — kvmd answers HTTP 204 with an empty body, and the
         action is asynchronous besides. Read the outcome from
-        :meth:`get_system`'s ``PowerState``, or from
-        :meth:`ATXResource.get_state`.
+        [`get_system()`][aiopikvm.resources.redfish.RedfishResource.get_system]'s
+        ``PowerState``, or from
+        [`ATXResource.get_state()`][aiopikvm.resources.atx.ATXResource.get_state].
 
         With the ATX subsystem disabled in the kvmd config, ``system_id="0"``
         still answers 204 and does nothing at all, so there is no error to
@@ -218,17 +225,22 @@ class RedfishResource(BaseResource):
         ``"0"`` branch, and a ``"SwitchPort<N>"`` reset acts on the port
         whatever the ATX plugin is set to.
 
-        Unlike :meth:`get_system`, this does not bounds-check a switch port:
-        kvmd validates the *form* of the id and then drops a command for a
-        port that does not exist, so ``"SwitchPort9"`` on a four-port switch
-        answers 204 and does nothing. Read the port back with
-        :meth:`get_system` — that one does answer 400 — if the id came from
-        somewhere you do not control.
+        Unlike
+        [`get_system()`][aiopikvm.resources.redfish.RedfishResource.get_system],
+        this does not bounds-check a switch port: kvmd validates the *form* of
+        the id and then drops a command for a port that does not exist, so
+        ``"SwitchPort9"`` on a four-port switch answers 204 and does nothing.
+        Read the port back with
+        [`get_system()`][aiopikvm.resources.redfish.RedfishResource.get_system]
+        — that one does answer 400 — if the id came from somewhere you do not
+        control.
 
         Args:
-            reset_type: One of :data:`ResetType`, matched case-sensitively.
-                Anything else is refused with HTTP 400 before any action is
-                taken, ``"GracefulRestart"`` from the DMTF schema included.
+            reset_type: One of
+                [`ResetType`][aiopikvm.resources.redfish.ResetType], matched
+                case-sensitively. Anything else is refused with HTTP 400
+                before any action is taken, ``"GracefulRestart"`` from the
+                DMTF schema included.
             system_id: Redfish id of the system to act on: ``"0"`` for the
                 machine PiKVM is wired to, or ``"SwitchPort<N>"`` for port
                 *N* of an attached PiKVM Switch.

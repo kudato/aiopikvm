@@ -71,7 +71,8 @@ _DELTA_MAX = 127
 """kvmd's wheel and relative step range, clamped by ``valid_hid_mouse_delta``."""
 
 _PENDING_LIMIT = 1024
-"""How many events :meth:`PiKVMWebSocket.ping` may buffer for :meth:`events`."""
+"""How many events [`PiKVMWebSocket.ping()`][aiopikvm.PiKVMWebSocket.ping]
+may buffer for [`events()`][aiopikvm.PiKVMWebSocket.events]."""
 
 _POLL_INTERVAL = 0.02
 """How often a waiting ping rechecks whether another reader took the socket."""
@@ -97,7 +98,8 @@ class KvmdVersion(NamedTuple):
 class DeviceState:
     """Everything the socket has said about the device so far.
 
-    One of these comes out of :meth:`PiKVMWebSocket.states` per event that
+    One of these comes out of
+    [`PiKVMWebSocket.states()`][aiopikvm.PiKVMWebSocket.states] per event that
     changed something, with the subsystem that event was about validated
     against the same model its REST endpoint returns. A field is ``None``
     until kvmd has sent that subsystem — which it does for all of them when
@@ -208,8 +210,9 @@ class _Connector(websockets.asyncio.client.connect):
         Returns:
             The URI to follow when redirects are allowed and this is one,
             otherwise the exception, which makes *websockets* raise it — and
-            which :meth:`PiKVMWebSocket.__aenter__` turns into a
-            :class:`PiKVMError`.
+            which
+            [`PiKVMWebSocket.__aenter__()`][aiopikvm.PiKVMWebSocket.__aenter__]
+            turns into a [`PiKVMError`][aiopikvm.PiKVMError].
         """
         if not self._follow_redirects:
             return exc
@@ -226,7 +229,7 @@ class _Connector(websockets.asyncio.client.connect):
 class PiKVMWebSocket:
     """WebSocket client for PiKVM realtime events and HID input.
 
-    Usage::
+    Usage:
 
         async with kvm.ws() as ws:
             async for event in ws.events():
@@ -268,10 +271,10 @@ class PiKVMWebSocket:
                 since JSON is what this client has always sent and the
                 encoding a packet capture can be read in. The binary channel
                 was verified against kvmd 4.186.
-            follow_redirects: Follow a redirected handshake instead of
-                raising :class:`RedirectError`. Off by default: the upgrade
-                carries the password in a header, and following the redirect
-                hands it to whatever the redirect points at.
+            follow_redirects: Follow a redirected handshake instead of raising
+                [`RedirectError`][aiopikvm.RedirectError]. Off by default: the
+                upgrade carries the password in a header, and following the
+                redirect hands it to whatever the redirect points at.
             open_timeout: Seconds to wait for the handshake.
             close_timeout: Seconds to wait for the closing handshake.
 
@@ -375,8 +378,9 @@ class PiKVMWebSocket:
     ) -> None:
         """Close the connection, whatever happened inside the block.
 
-        A :meth:`ping` still waiting for its answer fails here rather than
-        waiting out its timeout: the socket it was waiting on is gone.
+        A [`ping()`][aiopikvm.PiKVMWebSocket.ping] still waiting for its
+        answer fails here rather than waiting out its timeout: the socket it
+        was waiting on is gone.
 
         Args:
             exc_type: Type of the exception the block raised, if any.
@@ -394,8 +398,9 @@ class PiKVMWebSocket:
         """The kvmd version this connection reported, once it has been read.
 
         kvmd sends the ``loop`` event carrying it before anything else, so
-        this is set as soon as one frame has been read off the socket —
-        by :meth:`events`, or by a :meth:`ping` waiting for its answer. It is
+        this is set as soon as one frame has been read off the socket — by
+        [`events()`][aiopikvm.PiKVMWebSocket.events], or by a
+        [`ping()`][aiopikvm.PiKVMWebSocket.ping] waiting for its answer. It is
         ``None`` before that, and on a connection whose ``loop`` event carried
         no usable version.
         """
@@ -411,9 +416,9 @@ class PiKVMWebSocket:
         a guaranteed order. See the WebSocket guide for the full list.
 
         Binary frames do not appear here. The only one kvmd sends is the
-        answer to :meth:`ping`, which that method consumes; anything else on
-        that channel is logged and dropped, since a binary frame is an
-        operation number and a payload, not an event.
+        answer to [`ping()`][aiopikvm.PiKVMWebSocket.ping], which that method
+        consumes; anything else on that channel is logged and dropped, since a
+        binary frame is an operation number and a payload, not an event.
 
         The iteration ends when either side closes the connection cleanly. A
         connection that breaks instead — the device rebooting, the network
@@ -455,11 +460,12 @@ class PiKVMWebSocket:
         Only the events that say something about the device produce a
         snapshot; ``loop`` and ``pong`` do not, and neither does an event type
         this release does not know. The kvmd version the ``loop`` event
-        carries is on :attr:`version`.
+        carries is on [`version`][aiopikvm.PiKVMWebSocket.version].
 
-        Everything :meth:`events` does about the connection applies here, and
-        the two cannot be iterated over the same socket at once: this is
-        :meth:`events` with the states built on top.
+        Everything [`events()`][aiopikvm.PiKVMWebSocket.events] does about the
+        connection applies here, and the two cannot be iterated over the same
+        socket at once: this is [`events()`][aiopikvm.PiKVMWebSocket.events]
+        with the states built on top.
 
         Yields:
             The device as of the event that has just arrived.
@@ -502,20 +508,23 @@ class PiKVMWebSocket:
         This is kvmd's application-level ping, not the protocol one: the
         request goes through the same event loop that dispatches HID input and
         broadcasts state, so the answer means that loop is running, not merely
-        that something on the other end still holds a TCP socket open.
-        Keeping the connection alive needs neither — *websockets* sends a
-        protocol ping every 20 seconds by itself and drops the connection when
-        one goes unanswered for another 20, which is what turns a silently
-        dead link into a :class:`WebSocketError` out of :meth:`events`.
+        that something on the other end still holds a TCP socket open. Keeping
+        the connection alive needs neither — *websockets* sends a protocol
+        ping every 20 seconds by itself and drops the connection when one goes
+        unanswered for another 20, which is what turns a silently dead link
+        into a [`WebSocketError`][aiopikvm.WebSocketError] out of
+        [`events()`][aiopikvm.PiKVMWebSocket.events].
 
         The answer arrives on the socket like everything else, so this waits
-        for whoever is reading it. When :meth:`events` is being iterated in
+        for whoever is reading it. When
+        [`events()`][aiopikvm.PiKVMWebSocket.events] is being iterated in
         another task, that iteration hands the pong over; otherwise this reads
         the socket itself and keeps the events it finds on the way for the
-        next :meth:`events` call. Either way the round trip is measured from
-        the frame going out to the pong being read, so a consumer of
-        :meth:`events` that takes its time between frames adds its own delay to
-        the number — the pong waits behind whatever it is doing.
+        next [`events()`][aiopikvm.PiKVMWebSocket.events] call. Either way the
+        round trip is measured from the frame going out to the pong being
+        read, so a consumer of [`events()`][aiopikvm.PiKVMWebSocket.events]
+        that takes its time between frames adds its own delay to the number —
+        the pong waits behind whatever it is doing.
 
         Args:
             timeout: Seconds to wait for the answer.
@@ -582,10 +591,11 @@ class PiKVMWebSocket:
 
         The buffer is bounded, because a caller that only ever pings never
         collects what those pings read: kvmd broadcasts its state whether or
-        not anyone iterates :meth:`events`.
+        not anyone iterates [`events()`][aiopikvm.PiKVMWebSocket.events].
 
         Args:
-            event: The event to hand to the next :meth:`events` call.
+            event: The event to hand to the next
+                [`events()`][aiopikvm.PiKVMWebSocket.events] call.
         """
         if len(self._pending) >= _PENDING_LIMIT:
             if not self._overflowed:
@@ -900,8 +910,9 @@ class PiKVMWebSocket:
             deltas: ``(delta_x, delta_y)`` steps, in the order they happened.
                 An empty batch is a frame kvmd does nothing with.
             squash: Ask kvmd to add the steps together instead of reporting
-                each one. See :meth:`send_mouse_relative_batch`, which squashes
-                by the same rule.
+                each one. See
+                [`send_mouse_relative_batch()`][aiopikvm.PiKVMWebSocket.send_mouse_relative_batch],
+                which squashes by the same rule.
 
         Raises:
             WebSocketError: The client is not connected, or the connection
@@ -914,15 +925,17 @@ class PiKVMWebSocket:
 
         This needs the mouse in a relative mode: kvmd drops a relative event
         while the current mouse is absolute, and drops
-        :meth:`send_mouse_move` while it is relative — in both cases without
-        a word to the sender. ``kvm.hid.set_params(mouse_output="usb_rel")``
-        switches it, and ``HIDState.mouse.absolute`` says which mode is on.
+        [`send_mouse_move()`][aiopikvm.PiKVMWebSocket.send_mouse_move] while
+        it is relative — in both cases without a word to the sender.
+        ``kvm.hid.set_params(mouse_output="usb_rel")`` switches it, and
+        ``HIDState.mouse.absolute`` says which mode is on.
 
         Deltas are steps in kvmd's own range, -127 to 127, clamped rather than
         rejected — by kvmd for a JSON event and here for a binary one, which
         has nowhere to put a larger number. A gesture longer than one step
         therefore takes several events, which is what
-        :meth:`send_mouse_relative_batch` is for.
+        [`send_mouse_relative_batch()`][aiopikvm.PiKVMWebSocket.send_mouse_relative_batch]
+        is for.
 
         Args:
             delta_x: Horizontal step, -127 to 127. Positive moves right.
@@ -1052,7 +1065,8 @@ def _merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
 
 
 def _as_state(event_type: str, merged: dict[str, Any]) -> Any:
-    """Turn a merged payload into whatever :class:`DeviceState` holds for it.
+    """Turn a merged payload into whatever
+    [`DeviceState`][aiopikvm.DeviceState] holds for it.
 
     Args:
         event_type: kvmd event name.

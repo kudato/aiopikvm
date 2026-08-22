@@ -7,7 +7,7 @@ class SwitchFirmware(_Base):
     """Protocol version the switch subsystem speaks.
 
     A constant of the kvmd build, unrelated to the firmware running on the
-    units — that one is :class:`SwitchUnitFirmware`.
+    units — that one is [`SwitchUnitFirmware`][aiopikvm.SwitchUnitFirmware].
     """
 
     version: int

@@ -70,9 +70,9 @@ class UnavailableError(APIError):
     """The subsystem is offline (HTTP 503).
 
     Raised for a subsystem that cannot serve the request right now — an MSD
-    that has not finished setting up, or a snapshot while the video source
-    has no signal. A subsystem switched off in the kvmd config answers
-    HTTP 400 instead, so that arrives as a plain :class:`APIError` whose
+    that has not finished setting up, or a snapshot while the video source has
+    no signal. A subsystem switched off in the kvmd config answers HTTP 400
+    instead, so that arrives as a plain [`APIError`][aiopikvm.APIError] whose
     ``error`` names the reason, e.g. ``"AtxDisabledError"``.
     """
 
@@ -145,8 +145,9 @@ def _status_error(
         location: Target of a redirect, when the response carried one.
 
     Returns:
-        :class:`RedirectError` for 3xx, the class registered for the status,
-        or :class:`APIError` for anything else.
+        [`RedirectError`][aiopikvm.RedirectError] for 3xx, the class
+        registered for the status, or [`APIError`][aiopikvm.APIError] for
+        anything else.
     """
     if 300 <= status < 400:
         return RedirectError(

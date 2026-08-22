@@ -45,14 +45,14 @@ is why they read like ``"KeyA"`` and ``"Digit1"`` rather than ``"a"`` and
 ``"1"``. Anything else is refused — ``"keya"`` and ``"a"`` included.
 
 Only one of the two transports says so. An HTTP call raises
-:class:`APIError` with HTTP 400, and its message names the key kvmd would
-not take — except from :meth:`HIDResource.send_key`, where a name past 16
-characters is refused on length alone and the message names nothing at all.
-A key sent over the
-WebSocket is dropped inside kvmd's handler with no answer of any kind, and
-nothing there tells a typo from a keystroke that landed. Checking a name
-that came from somewhere untrusted is what stands in for the answer the
-socket does not give::
+[`APIError`][aiopikvm.APIError] with HTTP 400, and its message names the key
+kvmd would not take — except from
+[`HIDResource.send_key()`][aiopikvm.resources.hid.HIDResource.send_key], where
+a name past 16 characters is refused on length alone and the message names
+nothing at all. A key sent over the WebSocket is dropped inside kvmd's handler
+with no answer of any kind, and nothing there tells a typo from a keystroke
+that landed. Checking a name that came from somewhere untrusted is what stands
+in for the answer the socket does not give:
 
     if key not in KEY_NAMES:
         raise ValueError(f"kvmd has no key named {key!r}")
@@ -70,7 +70,8 @@ be in the way far more often than it caught a typo.
 """
 
 type KeyboardOutput = Literal["usb", "ps2", "disabled"]
-"""What :meth:`HIDResource.set_params` takes as ``keyboard_output``.
+"""What ``keyboard_output`` may be in
+[`HIDResource.set_params()`][aiopikvm.resources.hid.HIDResource.set_params].
 
 These three are what kvmd's own validator accepts; anything else is
 HTTP 400. It lowercases the value first, so a device would also take
@@ -85,24 +86,27 @@ backend offers, and it is empty when there is no choice to make.
 """
 
 type MouseOutput = Literal["usb", "usb_win98", "usb_rel", "ps2", "disabled"]
-"""What :meth:`HIDResource.set_params` takes as ``mouse_output``.
+"""What ``mouse_output`` may be in
+[`HIDResource.set_params()`][aiopikvm.resources.hid.HIDResource.set_params].
 
 ``"usb"`` is the absolute mouse, ``"usb_rel"`` the relative one, and
-``"usb_win98"`` an absolute mouse with a workaround for Windows 98's
-driver. ``HIDState.mouse.outputs.active`` names the one in use, and
-``HIDState.mouse.absolute`` says whether it reports positions or
-movement — which is what decides between
-:meth:`HIDResource.send_mouse_move` and
-:meth:`HIDResource.send_mouse_relative`.
+``"usb_win98"`` an absolute mouse with a workaround for Windows 98's driver.
+``HIDState.mouse.outputs.active`` names the one in use, and
+``HIDState.mouse.absolute`` says whether it reports positions or movement —
+which is what decides between
+[`HIDResource.send_mouse_move()`][aiopikvm.resources.hid.HIDResource.send_mouse_move]
+and
+[`HIDResource.send_mouse_relative()`][aiopikvm.resources.hid.HIDResource.send_mouse_relative].
 
-The same two-step as :data:`KeyboardOutput`: kvmd validates the name
-against this list on every backend, then hands it to a backend that may
-not have that mouse. What happens then is the backend's own business and
-not always visible — ``otg`` ignores a name outside
+The same two-step as
+[`KeyboardOutput`][aiopikvm.resources.hid.KeyboardOutput]: kvmd validates the
+name against this list on every backend, then hands it to a backend that may
+not have that mouse. What happens then is the backend's own business and not
+always visible — ``otg`` ignores a name outside
 ``HIDState.mouse.outputs.available``, under an HTTP 200, while ``ch9329``
-offers two names and acts on any of the five, taking everything but
-``"usb"`` as its relative mouse. Read the state back rather than assume
-the name was applied as asked.
+offers two names and acts on any of the five, taking everything but ``"usb"``
+as its relative mouse. Read the state back rather than assume the name was
+applied as asked.
 """
 
 type MouseButton = Literal["left", "right", "middle", "up", "down"]
@@ -110,14 +114,16 @@ type MouseButton = Literal["left", "right", "middle", "up", "down"]
 
 ``"up"`` and ``"down"`` are the side buttons a browser reports as back and
 forward — not wheel directions, which are
-:meth:`HIDResource.send_mouse_wheel`. kvmd lowercases the name before it
-looks it up, so only the canonical spelling is typed.
+[`HIDResource.send_mouse_wheel()`][aiopikvm.resources.hid.HIDResource.send_mouse_wheel].
+kvmd lowercases the name before it looks it up, so only the canonical spelling
+is typed.
 
-This is the only one of these vocabularies with two ways in, and they
-report a wrong name differently: :meth:`HIDResource.send_mouse_button`
-raises :class:`APIError` with HTTP 400, while
-``PiKVMWebSocket.send_mouse_button()`` gets no answer of any kind — the
-frame is dropped inside kvmd's handler, as a bad key name is.
+This is the only one of these vocabularies with two ways in, and they report a
+wrong name differently:
+[`HIDResource.send_mouse_button()`][aiopikvm.resources.hid.HIDResource.send_mouse_button]
+raises [`APIError`][aiopikvm.APIError] with HTTP 400, while
+``PiKVMWebSocket.send_mouse_button()`` gets no answer of any kind — the frame
+is dropped inside kvmd's handler, as a bad key name is.
 """
 
 
@@ -156,9 +162,11 @@ class HIDResource(BaseResource):
 
         Args:
             keyboard_output: Keyboard output type, one of
-                :data:`KeyboardOutput`. Which of them the running backend can
-                actually switch to is ``HIDState.keyboard.outputs.available``.
-            mouse_output: Mouse output type, one of :data:`MouseOutput` —
+                [`KeyboardOutput`][aiopikvm.resources.hid.KeyboardOutput].
+                Which of them the running backend can actually switch to is
+                ``HIDState.keyboard.outputs.available``.
+            mouse_output: Mouse output type, one of
+                [`MouseOutput`][aiopikvm.resources.hid.MouseOutput] —
                 ``"usb"`` for the absolute mouse, ``"usb_rel"`` for the
                 relative one; see ``HIDState.mouse.outputs.available``.
             jiggler: Whether the mouse jiggler moves the pointer while the
@@ -205,7 +213,8 @@ class HIDResource(BaseResource):
         it is queued. On the way in it empties that queue, so keystrokes sent
         a moment earlier and not yet delivered are dropped with it.
 
-        :meth:`reset` is a different matter: every backend overrides that.
+        [`reset()`][aiopikvm.resources.hid.HIDResource.reset] is a different
+        matter: every backend overrides that.
 
         Args:
             connected: Whether the host should see the HID as plugged in.
@@ -215,18 +224,19 @@ class HIDResource(BaseResource):
     async def reset(self) -> None:
         """Reset the HID subsystem.
 
-        Every backend overrides this, unlike :meth:`set_connected`, but what
-        it means differs by more than the name suggests. Under ``otg`` kvmd
-        drops the input still queued and releases every key and button the
-        host sees as held — the way out of a modifier left stuck by a script
-        that died mid-shortcut. ``bt`` does that and then drops its Bluetooth
-        clients, unpairing them unless ``unpair_on_close`` is turned off, so
-        the host has to pair again. An MCU backend resets the microcontroller
-        itself, through its reset pin where one is configured, and keeps the
-        queued input to deliver afterwards. Under ``ch9329`` nothing happens
-        that anything can observe: the reset request its loop would send is
-        commented out in kvmd 4.186, and all it does instead is set an
-        internal busy flag that ``get_state()`` never reports.
+        Every backend overrides this, unlike
+        [`set_connected()`][aiopikvm.resources.hid.HIDResource.set_connected],
+        but what it means differs by more than the name suggests. Under
+        ``otg`` kvmd drops the input still queued and releases every key and
+        button the host sees as held — the way out of a modifier left stuck by
+        a script that died mid-shortcut. ``bt`` does that and then drops its
+        Bluetooth clients, unpairing them unless ``unpair_on_close`` is turned
+        off, so the host has to pair again. An MCU backend resets the
+        microcontroller itself, through its reset pin where one is configured,
+        and keeps the queued input to deliver afterwards. Under ``ch9329``
+        nothing happens that anything can observe: the reset request its loop
+        would send is commented out in kvmd 4.186, and all it does instead is
+        set an internal busy flag that ``get_state()`` never reports.
         """
         await self._post("/api/hid/reset")
 
@@ -259,8 +269,9 @@ class HIDResource(BaseResource):
                 Always sent on the wire — kvmd's own default is 1024, so
                 omitting the parameter would cap long strings.
             keymap: Layout used to translate the text into key events, from
-                :meth:`get_keymaps`. Defaults to the device-wide layout, which
-                is not necessarily ``en-us``.
+                [`get_keymaps()`][aiopikvm.resources.hid.HIDResource.get_keymaps].
+                Defaults to the device-wide layout, which is not necessarily
+                ``en-us``.
             delay: Seconds to sleep between key events, 0 to 5. Defaults to
                 ``0.02`` when ``slow`` is set and to ``0`` otherwise.
             slow: Enable server-side per-character delays for reliable input.
@@ -291,7 +302,8 @@ class HIDResource(BaseResource):
         """Send a single key event.
 
         Args:
-            key: Key name, one of :data:`KEY_NAMES` and matched
+            key: Key name, one of
+                [`KEY_NAMES`][aiopikvm.resources.hid.KEY_NAMES] and matched
                 case-sensitively.
             state: Key state (``True`` = press, ``False`` = release,
                 ``None`` = press carrying *finish*, which is what kvmd 4.33
@@ -335,17 +347,18 @@ class HIDResource(BaseResource):
 
         Args:
             *keys: Key names forming the shortcut, each one of
-                :data:`KEY_NAMES` and matched case-sensitively.
+                [`KEY_NAMES`][aiopikvm.resources.hid.KEY_NAMES] and matched
+                case-sensitively.
 
         Raises:
             ConfigurationError: If no keys are given, or if one of them is
                 empty or holds a comma or any whitespace. kvmd takes the
-                shortcut as one string, strips it, splits it on commas,
-                spaces and tabs and throws away what falls out empty, so
-                such a key would not survive the trip: it vanishes and the
-                rest of the shortcut is pressed as if it had never been
-                asked for. No name in :data:`KEY_NAMES` contains any of
-                those characters.
+                shortcut as one string, strips it, splits it on commas, spaces
+                and tabs and throws away what falls out empty, so such a key
+                would not survive the trip: it vanishes and the rest of the
+                shortcut is pressed as if it had never been asked for. No name
+                in [`KEY_NAMES`][aiopikvm.resources.hid.KEY_NAMES] contains
+                any of those characters.
             APIError: If kvmd has no key by one of those names (HTTP 400).
                 It validates the whole list before pressing anything, so a
                 shortcut with one bad name sends nothing at all.
@@ -372,7 +385,8 @@ class HIDResource(BaseResource):
         """Send a mouse button event.
 
         Args:
-            button: Button name, one of :data:`MouseButton`.
+            button: Button name, one of
+                [`MouseButton`][aiopikvm.resources.hid.MouseButton].
             state: Button state (``True`` = press, ``False`` = release,
                 ``None`` = click).
 
