@@ -20,3 +20,5 @@
         - redfish
         - prometheus
         - system
+
+::: aiopikvm.AuthMode

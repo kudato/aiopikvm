@@ -10,7 +10,9 @@ reach the repository:
 """
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
+from typing import Any
 
 import pytest
 
@@ -47,3 +49,23 @@ async def live() -> AsyncIterator[PiKVM]:
         totp=os.environ.get("PIKVM_TOTP"),
     ) as kvm:
         yield kvm
+
+
+@pytest.fixture()
+def live_client() -> Callable[..., AbstractAsyncContextManager[PiKVM]]:
+    """Build a client against the same device with other settings.
+
+    The `live` fixture covers the default; this is for the tests that have to
+    compare it with something, an authentication mode above all.
+    """
+
+    def build(**kwargs: Any) -> AbstractAsyncContextManager[PiKVM]:
+        return PiKVM(
+            _require("PIKVM_URL"),
+            user=os.environ.get("PIKVM_USER", "admin"),
+            passwd=_require("PIKVM_PASSWD"),
+            totp=os.environ.get("PIKVM_TOTP"),
+            **kwargs,
+        )
+
+    return build

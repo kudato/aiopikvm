@@ -16,6 +16,7 @@ with ``binary=True``; incoming frames of either kind are understood regardless.
 """
 
 import asyncio
+import base64
 import dataclasses
 import json
 import logging
@@ -32,6 +33,7 @@ import websockets.asyncio.client
 import websockets.http11
 from pydantic import BaseModel, ValidationError
 
+from aiopikvm._constants import AuthMode
 from aiopikvm._exceptions import (
     APIError,
     ConfigurationError,
@@ -245,6 +247,8 @@ class PiKVMWebSocket:
         *,
         user: str,
         passwd: str,
+        auth: AuthMode = "headers",
+        token: str = "",
         verify_ssl: bool = True,
         stream: bool = True,
         binary: bool = False,
@@ -258,6 +262,11 @@ class PiKVMWebSocket:
             url: PiKVM base URL, ``https://`` or ``http://``.
             user: kvmd user name.
             passwd: Password, TOTP code appended if the device asks for one.
+            auth: Which credential the handshake carries. The upgrade request
+                goes through the same chain a REST call does, so all three
+                work; ``"cookie"`` needs *token* and ignores *user* and
+                *passwd*.
+            token: Session token for ``auth="cookie"``.
             verify_ssl: Verify the TLS certificate.
             stream: Ask kvmd to treat this client as a video viewer. kvmd
                 counts the sessions that did and runs the streamer while that
@@ -298,6 +307,8 @@ class PiKVMWebSocket:
         self._url = f"{ws_url}/api/ws?stream={'1' if stream else '0'}"
         self._user = user
         self._passwd = passwd
+        self._auth = auth
+        self._token = token
         self._verify_ssl = verify_ssl
         self._binary = binary
         self._follow_redirects = follow_redirects
@@ -340,10 +351,7 @@ class PiKVMWebSocket:
             else:
                 ssl_context = True
 
-        headers = {
-            "X-KVMD-User": self._user,
-            "X-KVMD-Passwd": self._passwd,
-        }
+        headers = self._credential_headers()
 
         try:
             self._connection = await _Connector(
@@ -395,6 +403,21 @@ class PiKVMWebSocket:
                 await self._connection.close()
             finally:
                 self._connection = None
+
+    def _credential_headers(self) -> dict[str, str]:
+        """Build the credential headers the upgrade request carries.
+
+        Returns:
+            The headers for this socket's auth mode. The cookie goes in a
+            plain ``Cookie`` header — a WebSocket handshake is an ordinary
+            HTTP GET, and there is no jar here to keep it in.
+        """
+        if self._auth == "basic":
+            raw = f"{self._user}:{self._passwd}".encode()
+            return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
+        if self._auth == "cookie":
+            return {"Cookie": f"auth_token={self._token}"}
+        return {"X-KVMD-User": self._user, "X-KVMD-Passwd": self._passwd}
 
     @property
     def version(self) -> KvmdVersion | None:

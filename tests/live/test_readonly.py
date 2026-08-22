@@ -20,6 +20,9 @@ mean every socket opened here has a cost, so open as few as the check needs.
 
 import asyncio
 import contextlib
+import os
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 
 import pytest
 
@@ -42,6 +45,14 @@ SUBSYSTEMS = ("atx", "hid", "msd", "gpio", "streamer", "switch", "system")
 
 WS_TIMEOUT = 5.0
 """How long to wait for the initial WebSocket events."""
+
+SESSION_SECONDS = 60
+"""Expiry asked for by the tests that open a session.
+
+The capture device sets no global limit, so a session opened the usual
+way would outlive the run — and kvmd cannot close one session, only all
+of a user's at once, which would sign out whoever else is logged in.
+"""
 
 WS_EXPECTED = frozenset({"loop", "atx", "msd", "streamer"})
 """Event types kvmd pushes right after the handshake, in no fixed order."""
@@ -93,6 +104,55 @@ async def test_info_refuses_hw_without_the_legacy_shape(live: PiKVM) -> None:
     with pytest.raises(APIError) as excinfo:
         await live.system.get_info("hw", legacy=False)
     assert excinfo.value.status_code == 400
+
+
+async def test_basic_auth_is_accepted(
+    live_client: Callable[..., AbstractAsyncContextManager[PiKVM]],
+) -> None:
+    """kvmd takes the same credentials as HTTP Basic, with no kvmd headers."""
+    async with live_client(auth="basic") as kvm:
+        await kvm.auth.check()
+        response = await kvm.request("GET", "/api/auth/check")
+    assert "X-KVMD-User" not in response.request.headers
+    assert response.request.headers["Authorization"].startswith("Basic ")
+
+
+async def test_session_auth_is_accepted(
+    live_client: Callable[..., AbstractAsyncContextManager[PiKVM]],
+) -> None:
+    """A session token alone gets a request past the auth chain.
+
+    The session is opened with a short expiry on purpose: this device has no
+    global limit, so a default login would leave a session behind for good,
+    and logging out would drop every other session the same user has.
+    """
+    async with live_client(auth="cookie") as kvm:
+        token = await kvm.auth.login(
+            os.environ.get("PIKVM_USER", "admin"),
+            os.environ["PIKVM_PASSWD"],
+            os.environ.get("PIKVM_TOTP"),
+            expire=SESSION_SECONDS,
+        )
+        assert len(token) == 64
+        await kvm.auth.check()
+        response = await kvm.request("GET", "/api/auth/check")
+    assert "X-KVMD-User" not in response.request.headers
+    assert "Authorization" not in response.request.headers
+    assert f"auth_token={token}" in response.request.headers["Cookie"]
+
+
+async def test_session_auth_opens_a_session_on_its_own(
+    live_client: Callable[..., AbstractAsyncContextManager[PiKVM]],
+) -> None:
+    """With no token to start from, the first request logs in for itself.
+
+    `session_expire` keeps the test from leaving anything behind. Logging
+    out would: kvmd ends every session a user has, not the one it is given.
+    """
+    async with live_client(auth="cookie", session_expire=SESSION_SECONDS) as kvm:
+        state = await kvm.atx.get_state()
+        assert state is not None
+        assert len(kvm.cookies["auth_token"]) == 64
 
 
 async def test_log_returns_text(live: PiKVM) -> None:

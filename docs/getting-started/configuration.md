@@ -21,9 +21,63 @@ kvm = PiKVM(
 | `user` | `str` | `"admin"` | Username for authentication |
 | `passwd` | `str` | `""` | Password for authentication |
 | `totp` | `str \| None` | `None` | TOTP code for two-factor auth |
+| `auth` | `AuthMode` | `"headers"` | Which credential to send — see [below](#authentication-modes) |
+| `session_expire` | `int` | `0` | Lifetime of a session `auth="cookie"` opens; `0` asks for unlimited |
 | `verify_ssl` | `bool` | `False` | Verify SSL certificates |
 | `timeout` | `float` | `10.0` | Request timeout in seconds |
 | `http_client` | `httpx.AsyncClient \| None` | `None` | External httpx client |
+
+## Authentication modes
+
+kvmd tries four credential sources in order — the `X-KVMD-*` headers, the
+`auth_token` cookie, HTTP Basic, then the unix socket peer — and the first one
+**present** decides the request. It never falls through after a wrong password,
+so sending more than one credential is not a fallback: the earlier one wins and
+the rest are never looked at. `auth` picks exactly one.
+
+```python
+# The default: X-KVMD-User and X-KVMD-Passwd on every request
+async with PiKVM(url, user="admin", passwd="secret") as kvm: ...
+
+# Authorization: Basic — what Redfish tooling and ordinary HTTP clients expect
+async with PiKVM(url, user="admin", passwd="secret", auth="basic") as kvm: ...
+
+# A session token: log in once, then send only the cookie
+async with PiKVM(url, user="admin", passwd="secret", auth="cookie") as kvm: ...
+```
+
+`"headers"` and `"basic"` cost the same. kvmd runs its auth plugin — PAM, or a
+read of `htpasswd` — on **every** request and writes a line to its log for each
+one. `"cookie"` does not: kvmd looks the token up in a table it keeps in memory.
+Measured against kvmd 4.206, ten `/api/auth/check` calls:
+
+| Mode | `Authorized user` lines in kvmd's log |
+|---|---|
+| `"headers"` | 10 |
+| `"cookie"` | 0 |
+
+That is the mode for anything that polls.
+
+`auth="cookie"` logs in by itself on the first request that needs a token, and
+again if kvmd refuses the one it holds — a session expires, or another logout of
+the same user drops it. It gives up after one retry, so a wrong password fails
+as a wrong password rather than looping.
+
+!!! warning
+    A session opened this way outlives the client. kvmd cannot close one
+    session — `logout()` ends **every** session that user has — so the tidy
+    way to avoid leaving one behind is `session_expire`:
+
+    ```python
+    async with PiKVM(url, passwd="secret", auth="cookie", session_expire=3600) as kvm:
+        ...
+    ```
+
+    Leave it at `0` for a long-lived client, where one session is the point.
+
+`kvm.ws()` carries whichever credential the mode says. Under `auth="cookie"` the
+token has to exist before the socket is opened — `ws()` is not a coroutine and
+cannot log in — so make a request first, or call `login()` yourself.
 
 ## TOTP authentication
 
@@ -37,9 +91,8 @@ async with PiKVM("https://pikvm.local", passwd="secret", totp="123456") as kvm:
 
 ## Session tokens
 
-By default every request carries the `X-KVMD-User` and `X-KVMD-Passwd` headers,
-and nothing else is needed. `kvm.auth.login()` exists for the other case: handing
-a session to something that should not see the password.
+`auth="cookie"` above manages a session for you. `kvm.auth.login()` is for the
+other case: handing a session to something that should not see the password.
 
 ```python
 async with PiKVM("https://pikvm.local", user="admin", passwd="secret") as kvm:
@@ -47,11 +100,9 @@ async with PiKVM("https://pikvm.local", user="admin", passwd="secret") as kvm:
     # 64 hex characters; kvmd only ever sends it in a Set-Cookie header
 ```
 
-kvmd tries four credential sources in order — the `X-KVMD-*` headers, the
-`auth_token` cookie, HTTP Basic, then the unix socket peer — and the first one
-**present** decides the request. A non-empty `X-KVMD-User` with a bad password is
-refused outright rather than retried against the cookie, so a token only
-authenticates a client that sends no credential headers at all:
+A token only authenticates a client that sends no credential headers at all —
+`auth="cookie"` is one, and so is an external `httpx.AsyncClient` carrying
+nothing but the cookie:
 
 ```python
 import httpx
@@ -69,10 +120,10 @@ async with httpx.AsyncClient(base_url="https://pikvm.local", verify=False) as ht
     device-wide limit from its own config either way. An expired or logged-out
     token raises `AuthError`.
 
-    `kvm.ws()` is not covered by the token: the WebSocket authenticates with the
-    `user` and `passwd` the client was built with, which are the defaults when
-    the credentials live on an external `http_client`. Tracked in
-    [#63](https://github.com/kudato/aiopikvm/issues/63).
+    With an external `http_client` the WebSocket is not covered by the token:
+    it authenticates with the `user` and `passwd` the client was built with,
+    which are the defaults when the credentials live on that client instead.
+    Use [`auth="cookie"`](#authentication-modes) to have both go by session.
 
 !!! warning
     `logout()` closes **every** session belonging to that user, not only the one

@@ -1,6 +1,7 @@
 """aiopikvm — async Python client for PiKVM API."""
 
 from aiopikvm._client import PiKVM
+from aiopikvm._constants import AuthMode
 from aiopikvm._exceptions import (
     APIError,
     AuthError,
@@ -125,6 +126,7 @@ __all__ = [
     "ATXLeds",
     "ATXState",
     "AuthError",
+    "AuthMode",
     "BusyError",
     "ConfigurationError",
     "ConnectError",

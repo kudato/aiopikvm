@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import cached_property
@@ -10,11 +12,14 @@ from typing import TYPE_CHECKING, Any, Self
 import httpx
 
 from aiopikvm._constants import (
+    DEFAULT_AUTH,
     DEFAULT_FOLLOW_REDIRECTS,
     DEFAULT_TIMEOUT,
     DEFAULT_VERIFY_SSL,
+    AuthMode,
 )
 from aiopikvm._exceptions import (
+    AuthError,
     ConfigurationError,
     ConnectError,
     ConnectionTimeoutError,
@@ -38,6 +43,9 @@ if TYPE_CHECKING:
     from aiopikvm.resources.streamer import StreamerResource
     from aiopikvm.resources.switch import SwitchResource
     from aiopikvm.resources.system import SystemResource
+
+_COOKIE = "auth_token"
+"""Name of the cookie kvmd stores its session token in."""
 
 _RESOURCE_NAMES = (
     "auth",
@@ -84,6 +92,8 @@ class PiKVM:
         user: str = "admin",
         passwd: str = "",
         totp: str | None = None,
+        auth: AuthMode = DEFAULT_AUTH,
+        session_expire: int = 0,
         verify_ssl: bool = DEFAULT_VERIFY_SSL,
         timeout: float = DEFAULT_TIMEOUT,
         follow_redirects: bool = DEFAULT_FOLLOW_REDIRECTS,
@@ -96,6 +106,16 @@ class PiKVM:
             user: kvmd user name.
             passwd: kvmd password.
             totp: Current TOTP code, appended to the password.
+            auth: Which credential to send; see
+                [`AuthMode`][aiopikvm.AuthMode]. ``"cookie"`` logs in on the
+                first request that needs it and again if the session is
+                refused, so *user* and *passwd* are still required.
+            session_expire: Lifetime, in seconds, of a session opened that
+                way. ``0`` asks kvmd for an unlimited one, which is its own
+                default — and on a device that sets no limit of its own,
+                that session outlives the client: kvmd has no way to end one
+                session, only every session a user has. Give this a value if
+                the client is short-lived, so an abandoned session lapses.
             verify_ssl: Verify the TLS certificate. Off by default because
                 PiKVM ships a self-signed one.
             timeout: Default per-request timeout in seconds.
@@ -112,6 +132,8 @@ class PiKVM:
         self._user = user
         self._passwd = passwd
         self._totp = totp
+        self._auth = auth
+        self._session_expire = session_expire
         self._verify_ssl = verify_ssl
         self._timeout = timeout
         self._follow_redirects = follow_redirects
@@ -119,11 +141,29 @@ class PiKVM:
         self._client: httpx.AsyncClient | None = http_client
         self._entered = False
         self._closed = False
+        # One login at a time. Without it every request in flight when a
+        # session expires opens its own, and all but the last are orphaned
+        # on the device until they time out.
+        self._login_lock = asyncio.Lock()
 
     @property
     def _password(self) -> str:
         """Password with optional TOTP code appended."""
         return self._passwd if self._totp is None else f"{self._passwd}{self._totp}"
+
+    def _credential_headers(self) -> dict[str, str]:
+        """Build the credential headers for this client's auth mode.
+
+        Returns:
+            The headers to send on every request. Empty for ``"cookie"``,
+            which carries its credential in the jar instead.
+        """
+        if self._auth == "headers":
+            return {"X-KVMD-User": self._user, "X-KVMD-Passwd": self._password}
+        if self._auth == "basic":
+            raw = f"{self._user}:{self._password}".encode()
+            return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
+        return {}
 
     # --- HTTP ----------------------------------------------------------
 
@@ -245,6 +285,109 @@ class PiKVM:
                 client was not created with ``follow_redirects=True`` — or it
                 was, and the redirects formed a loop.
             APIError: Server returned any other error status (>= 400).
+        """
+        if self._needs_session(path):
+            await self._ensure_session()
+            try:
+                return await self._send(
+                    method, path, params, json, data, content, headers, timeout
+                )
+            except AuthError:
+                # The token was refused: expired, or logged out from
+                # somewhere else. Open a session and try the call once more.
+                # Anything wrong with the password itself fails again below,
+                # this time for good.
+                await self._ensure_session(force=True)
+        return await self._send(
+            method, path, params, json, data, content, headers, timeout
+        )
+
+    def _needs_session(self, path: str) -> bool:
+        """Whether this call has to carry a session token.
+
+        Args:
+            path: URL path the request is about to go to.
+
+        Returns:
+            ``True`` for a request that authenticates by cookie and is not
+            itself the login that mints one — that endpoint needs no
+            credential, and calling it through here would not terminate.
+        """
+        return self._auth == "cookie" and not path.rstrip("/").endswith("/auth/login")
+
+    async def _ensure_session(self, *, force: bool = False) -> None:
+        """Make sure the cookie jar holds a session token.
+
+        Args:
+            force: Log in even if a token is already stored, replacing it.
+                Used after kvmd refused the one being carried.
+
+        Raises:
+            AuthError: The credentials were refused.
+        """
+        async with self._login_lock:
+            if not force and self._session_token():
+                return
+            if force:
+                self._ensure_client().cookies.delete(_COOKIE)
+                if self._session_token():
+                    # Another task logged in while this one waited for the
+                    # lock; that token has not been tried yet.
+                    return
+            await self.auth.login(
+                self._user, self._passwd, self._totp, expire=self._session_expire
+            )
+
+    def _session_token(self) -> str:
+        """Return the session token in the jar, if any.
+
+        Walks the jar rather than calling ``httpx.Cookies.get``, which raises
+        ``CookieConflict`` — outside the
+        [`PiKVMError`][aiopikvm.PiKVMError] hierarchy — when two cookies
+        share a name under different domains.
+
+        Returns:
+            The token, or ``""`` when there is none.
+        """
+        token = ""
+        for cookie in self._ensure_client().cookies.jar:
+            if cookie.name == _COOKIE:
+                token = cookie.value or ""
+        return token
+
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any] | None,
+        json: dict[str, Any] | None,
+        data: dict[str, str] | None,
+        content: bytes | httpx.AsyncByteStream | None,
+        headers: dict[str, str] | None,
+        timeout: float | httpx.Timeout | None,
+    ) -> httpx.Response:
+        """Send one request and translate httpx's failures into this
+        package's.
+
+        Args:
+            method: HTTP method.
+            path: URL path relative to the base URL.
+            params: Query parameters.
+            json: JSON body.
+            data: Form fields.
+            content: Raw body.
+            headers: Extra headers.
+            timeout: Per-request timeout.
+
+        Returns:
+            The response, once its status has been checked.
+
+        Raises:
+            ConfigurationError: The base URL has no usable scheme.
+            ConnectError: The connection failed or broke mid-request.
+            ConnectionTimeoutError: The request timed out.
+            RedirectError: kvmd answered with a redirect, or they looped.
+            APIError: Any other error status, and its subclasses.
         """
         client = self._ensure_client()
         try:
@@ -510,10 +653,7 @@ class PiKVM:
             try:
                 self._client = httpx.AsyncClient(
                     base_url=self._url,
-                    headers={
-                        "X-KVMD-User": self._user,
-                        "X-KVMD-Passwd": self._password,
-                    },
+                    headers=self._credential_headers(),
                     verify=self._verify_ssl,
                     timeout=self._timeout,
                     follow_redirects=self._follow_redirects,
@@ -570,8 +710,11 @@ class PiKVM:
     ) -> PiKVMWebSocket:
         """Create a WebSocket connection.
 
-        The socket authenticates with the *user* and *passwd* this client was
-        built with; it does not use [`cookies`][aiopikvm.PiKVM.cookies].
+        The socket carries whichever credential this client's *auth* mode
+        says. Under ``"headers"`` and ``"basic"`` those are the *user* and
+        *passwd* it was built with; under ``"cookie"`` it is the session
+        token from [`cookies`][aiopikvm.PiKVM.cookies], which has to be there
+        already — this call is not a coroutine and cannot log in for you.
 
         Args:
             stream: Count this client as a video viewer, which is also kvmd's
@@ -606,10 +749,22 @@ class PiKVM:
                 "This PiKVM client has been closed; it cannot open a new "
                 "WebSocket. Build a new client."
             )
+        token = ""
+        if self._auth == "cookie":
+            token = self._session_token()
+            if not token:
+                raise ConfigurationError(
+                    "auth='cookie' has no session token to open a WebSocket "
+                    "with. ws() cannot log in — it is not a coroutine — so "
+                    "call 'await kvm.auth.login(user, passwd)', or make any "
+                    "request first, and open the socket after that."
+                )
         return PiKVMWebSocket(
             url=self._url,
             user=self._user,
             passwd=self._password,
+            auth=self._auth,
+            token=token,
             verify_ssl=self._verify_ssl,
             stream=stream,
             binary=binary,
