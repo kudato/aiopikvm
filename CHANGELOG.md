@@ -164,6 +164,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   calls it, and without `remove_incomplete` a failed download leaves an
   incomplete image occupying the name, which is then refused on the retry
   (#40).
+- `totp` on `PiKVM()` now takes a zero-argument callable as well as a string,
+  and `aiopikvm.TOTP` is one: give it the base32 secret and the code is
+  computed per request. A code is good for one thirty-second step and kvmd
+  allows the neighbouring two, so a client built with a literal one used to
+  stop authenticating about a minute later — the string was concatenated
+  into the credential headers once, when the client was built, and never
+  read again. `TOTP` implements RFC 6238 with the parameters kvmd fixes by
+  calling `pyotp.TOTP(secret)` with its defaults — HMAC-SHA1, six digits, a
+  thirty-second step — and is held to the RFC's own test vectors rather than
+  to a dependency. A literal code still behaves exactly as before (#62).
 - `auth` on `PiKVM()`, choosing which of kvmd's credential sources the client
   uses: `"headers"` (the `X-KVMD-*` pair, unchanged and still the default),
   `"basic"` (`Authorization: Basic`, what Redfish tooling and ordinary HTTP
@@ -205,6 +215,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Credentials are built per request instead of being baked into the HTTP
+  client's default headers when it is opened. Nothing changes on the wire for
+  a fixed password; it is what lets a rotating TOTP code be the one current
+  when the request goes out. A password that is not ASCII is still refused
+  when the client is opened rather than on the first call (#62).
 - **Breaking:** `DeviceState.info` is an `InfoState | None` instead of a
   `dict[str, Any]`. It defaulted to an empty dictionary and now defaults to
   `None`, so a snapshot taken before the first `info` event says so rather
