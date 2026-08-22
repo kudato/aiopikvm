@@ -410,6 +410,9 @@ class PiKVMWebSocket:
                 token to send. The credential is read here rather than when
                 the socket was built, so a session opened in between is the
                 one that goes out — and one that never was is reported here.
+                For a socket built by a [`PiKVM`][aiopikvm.PiKVM] client, so
+                is that client having been closed, or never entered, since
+                its cookie jar is where the token is read from.
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.

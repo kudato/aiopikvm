@@ -340,15 +340,22 @@ async def test_websocket_on_a_client_that_was_never_entered() -> None:
         ws._credential_headers()
 
 
-async def test_websocket_carries_a_token_minted_after_it_was_built(
-    mock_api: respx.MockRouter,
+@pytest.mark.parametrize("factory", ["ws", "media_ws", "webrtc"])
+async def test_every_socket_reads_the_token_at_the_handshake(
+    factory: str, mock_api: respx.MockRouter
 ) -> None:
-    """The socket is built before the login every guide does after it."""
+    """Built before the login every guide does after it, and all three alike.
+
+    The three factories are three copies of the same forwarding block, and
+    they have drifted apart before, so each is asked the same question.
+    """
     _login_route(mock_api)
     async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
-        ws = kvm.ws()
+        socket = getattr(kvm, factory)()
+        with pytest.raises(ConfigurationError, match="no session token"):
+            socket._credential_headers()
         await kvm.auth.login("admin", "secret")
-        assert ws._credential_headers() == {"Cookie": f"auth_token={TOKEN}"}
+        assert socket._credential_headers() == {"Cookie": f"auth_token={TOKEN}"}
 
 
 async def test_websocket_uses_the_session_token(mock_api: respx.MockRouter) -> None:

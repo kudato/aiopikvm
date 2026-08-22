@@ -319,7 +319,10 @@ class WebRTCSession:
                 under ``auth="cookie"`` — there is no session token to send.
                 The credential is read when the socket is opened rather than
                 when the session was built, so a session opened in between is
-                the one that goes out.
+                the one that goes out. For a session built by a
+                [`PiKVM`][aiopikvm.PiKVM] client, a client that has been
+                closed or was never entered is reported the same way: its
+                cookie jar is where the token is read from.
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.

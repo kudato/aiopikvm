@@ -585,7 +585,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   cookie-mode client that was never entered raised a bare `PiKVMError` saying
   resources cannot be accessed, where the method documents
   `ConfigurationError`; it now raises that, and says there is no cookie jar to
-  read (#139).
+  read. One consequence is deliberate: a cookie-mode socket built while a
+  session existed used to keep that token as a string and could still be
+  opened after the client was closed, and now refuses, because the jar it
+  reads is gone. Sockets under `headers` and `basic` still outlive their
+  client, carrying the credentials they were built with (#139).
 - Three latent defects in `WebRTCSession`, none of them reachable against
   PiKVM as it ships today. `video()` and `audio()` imported PyAV before
   checking there was a session, so on an install without the `webrtc` extra
