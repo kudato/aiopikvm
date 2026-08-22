@@ -204,6 +204,24 @@ does not match its model raises `ResponseError`, and the two iterators cannot
 run over one socket at the same time — `states()` is `events()` with the states
 built on top.
 
+The merge belongs to the connection rather than to the loop, so leaving one and
+starting another picks up where it left off, and so does a `states()` that
+follows an `events()` which already took a subsystem's opening event. The last
+snapshot stays readable on `ws.state`:
+
+```python
+async with kvm.ws() as ws:
+    async for state in ws.states():
+        if state.updated == "atx":
+            break
+    print(ws.state.atx)          # the snapshot the loop stopped on
+```
+
+It is empty until something iterates `states()` — reading `events()` alone does
+not fill it in, because turning a payload into a model is where a kvmd this
+release does not describe correctly is found out, and that is `states()`' own
+documented failure.
+
 ### When the stream ends
 
 The iteration finishes when either side closes the connection cleanly. A

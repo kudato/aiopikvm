@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `PiKVMWebSocket.state`, the device as `states()` last left it. The
+  accumulated snapshot used to live in a generator local and was reachable
+  from nowhere else, so a loop that stopped on the event it was waiting for
+  had to keep its own copy of the last one (#138).
 - The seven vocabularies kvmd's API is typed with are exported from
   `aiopikvm` itself: `KEY_NAMES`, `KeyboardOutput`, `MouseButton`,
   `MouseOutput`, `RESET_TYPES`, `ResetType` and `InfoField`. `__all__` held
@@ -572,6 +576,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `PiKVMWebSocket.states()` no longer starts merging from nothing. Its merge
+  base was a local of the async generator, so it began empty on every call,
+  while kvmd sends each subsystem in full only when the socket opens and only
+  the changes after that. Two ordinary shapes hit it: reading `events()` first
+  — to see the kvmd version the `loop` event carries, say — and then switching
+  to `states()`, and breaking out of one `states()` loop to start another.
+  Either way the next partial update was validated on its own and raised
+  `ResponseError` blaming a kvmd version this release does not know, on a
+  healthy socket saying nothing unusual. The running total now belongs to the
+  connection: it is built as each event comes off the buffer, whichever
+  iterator asked for it, and a reconnection starts it over (#138).
 - A socket under `auth="cookie"` now reads its session token when the
   handshake goes out rather than when the socket was built. `ws()`,
   `media_ws()` and `webrtc()` bound the token eagerly and raised
