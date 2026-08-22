@@ -236,10 +236,13 @@ from `get_virtual_media()`.
 
 !!! danger
     Despite the `Image@Redfish.AllowableValues: ["URI"]` in the document,
-    kvmd validates `Image` as the name of an **image already in MSD
-    storage** — the same name
-    [`msd.set_params()`][aiopikvm.resources.msd.MSDResource.set_params] takes.
-    A URL is refused with HTTP 400. Upload it first, or use
+    kvmd reads `Image` as the name of an **image already in MSD storage** —
+    the same name
+    [`msd.set_params()`][aiopikvm.resources.msd.MSDResource.set_params]
+    takes — and hands it straight to that call. A URL is not refused for
+    being one: kvmd's validator splits the argument on `/` and checks each
+    part as a filename, so a URL passes as a multi-part path and reaches the
+    MSD as a name nothing matches. Upload the image first, or use
     [`msd.upload_remote()`][aiopikvm.resources.msd.MSDResource.upload_remote].
 
 `inserted=False` selects the image and leaves the drive disconnected, and
