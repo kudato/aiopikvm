@@ -1,0 +1,2658 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Async Python client for PiKVM API">
+      
+      
+      
+        <link rel="canonical" href="https://kudato.github.io/aiopikvm/guide/websocket/">
+      
+      
+        <link rel="prev" href="../system/">
+      
+      
+        <link rel="next" href="../error-handling/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>WebSocket - aiopikvm</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#websocket" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="aiopikvm" class="md-header__button md-logo" aria-label="aiopikvm" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            aiopikvm
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              WebSocket
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/kudato/aiopikvm" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    kudato/aiopikvm
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="aiopikvm" class="md-nav__button md-logo" aria-label="aiopikvm" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    aiopikvm
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/kudato/aiopikvm" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    kudato/aiopikvm
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../atx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ATX Power Control
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HID Keyboard & Mouse
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../msd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mass Storage (MSD)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPIO Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../streamer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Streamer & OCR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../video/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../webrtc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebRTC Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../switch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KVM Switch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../redfish/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Redfish BMC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../prometheus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prometheus Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System Info & Logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebSocket
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebSocket
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-connection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a connection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a connection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connection-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#receiving-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Receiving events
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Receiving events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-connection-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The connection sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#typed-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typed state
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Typed state">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-stream-ends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the stream ends
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keyboard-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keyboard input
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mouse-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mouse input
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mouse input">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#move-mouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Move mouse
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relative-movement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relative movement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#batching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mouse-buttons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mouse buttons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mouse-wheel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mouse wheel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-binary-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The binary channel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backpressure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backpressure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backpressure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-connection-that-broke-while-nothing-was-looking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A connection that broke while nothing was looking
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#standalone-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full example
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../error-handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Error Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PiKVM Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/ws/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebSocket
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/media-ws/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Media WebSocket
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/webrtc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebRTC Session
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/exceptions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exceptions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Resources
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/auth/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AuthResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/atx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ATXResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/hid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HIDResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/msd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MSDResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/gpio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPIOResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/streamer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    StreamerResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/media/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MediaResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/switch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SwitchResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/redfish/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RedfishResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/prometheus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PrometheusResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SystemResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-connection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a connection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a connection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#connection-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connection parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#receiving-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Receiving events
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Receiving events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-connection-sequence" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The connection sequence
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#event-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Event types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#typed-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Typed state
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Typed state">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-the-stream-ends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the stream ends
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#keyboard-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Keyboard input
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mouse-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mouse input
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mouse input">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#move-mouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Move mouse
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#relative-movement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relative movement
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#batching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Batching
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mouse-buttons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mouse buttons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mouse-wheel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mouse wheel
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-binary-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The binary channel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backpressure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backpressure
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backpressure">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-connection-that-broke-while-nothing-was-looking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A connection that broke while nothing was looking
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#standalone-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Standalone usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full example
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="websocket">WebSocket<a class="headerlink" href="#websocket" title="Permanent link">&para;</a></h1>
+<p>The WebSocket client connects to PiKVM's realtime event stream and provides low-latency HID input.</p>
+<h2 id="creating-a-connection">Creating a connection<a class="headerlink" href="#creating-a-connection" title="Permanent link">&para;</a></h2>
+<p>Use <code>kvm.ws()</code> to create a WebSocket connection:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">PiKVM</span><span class="p">(</span><span class="s2">&quot;https://pikvm.local&quot;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s2">&quot;admin&quot;</span><span class="p">,</span> <span class="n">passwd</span><span class="o">=</span><span class="s2">&quot;admin&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">kvm</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>        <span class="o">...</span>
+</code></pre></div>
+<h3 id="connection-parameters">Connection parameters<a class="headerlink" href="#connection-parameters" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">(</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="n">stream</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>           <span class="c1"># count as a video viewer (default, same as kvmd&#39;s)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">binary</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>          <span class="c1"># send input as JSON events (default) or binary ops</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">open_timeout</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>     <span class="c1"># connection timeout</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">close_timeout</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>    <span class="c1"># close timeout</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p">)</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="o">...</span>
+</code></pre></div>
+<p>The socket inherits the client's <code>verify_ssl</code> and <code>follow_redirects</code>. Redirects
+are not followed by default for the same reason as on the REST side: the
+upgrade carries the password in a header, and following the redirect hands it
+to whatever the redirect points at.</p>
+<p><code>stream</code> is a flag, not an index. kvmd counts the connected sessions that asked for
+video and runs the streamer for as long as that count is above zero, so an open
+socket is what keeps the video pipeline alive:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">():</span>                        <span class="c1"># streamer stays up</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="nb">print</span><span class="p">(</span><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">streamer</span><span class="o">.</span><span class="n">snapshot</span><span class="p">())</span>    <span class="c1"># ... so this has a picture to return</span>
+</code></pre></div>
+<p>Holding it open is the whole of it: the socket is drained by a task of its own
+from the moment it opens, whether or not anything iterates <code>events()</code>. That is
+not an optimisation — see <a href="#backpressure">Backpressure</a>.</p>
+<p>Pass <code>stream=False</code> only for a client that reads events and never looks at the
+picture. With nothing else watching, the streamer stops, <code>StreamerState.streamer</code>
+becomes <code>None</code> and <code>kvm.streamer.snapshot()</code> answers <code>UnavailableError</code>
+(HTTP 503) — unless the device is configured with <code>kvmd.streamer.forever: true</code>,
+which keeps it running regardless.</p>
+<h3 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h3>
+<p>The socket authenticates with the <code>user</code> and <code>passwd</code> the client was built with,
+not with a session token — <code>kvm.cookies</code> plays no part in the handshake.</p>
+<p>kvmd applies the same auth chain to the upgrade as to the REST API, and refuses
+it with an ordinary HTTP response, so the errors are the familiar ones:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">aiopikvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">APIError</span><span class="p">,</span> <span class="n">AuthError</span><span class="p">,</span> <span class="n">RedirectError</span><span class="p">,</span> <span class="n">WebSocketError</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>        <span class="o">...</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="k">except</span> <span class="n">AuthError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>          <span class="c1"># 401 no credentials, 403 rejected</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">err</span><span class="o">.</span><span class="n">status_code</span><span class="p">,</span> <span class="n">err</span><span class="o">.</span><span class="n">error_msg</span><span class="p">)</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="k">except</span> <span class="n">RedirectError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>      <span class="c1"># not followed: it would resend the password</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="k">except</span> <span class="n">APIError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>           <span class="c1"># anything else kvmd refused the upgrade with</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">err</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="k">except</span> <span class="n">WebSocketError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>     <span class="c1"># DNS, TLS, timeout — the socket never opened</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+</code></pre></div>
+<p>A status means the same thing on both transports — <code>AuthError</code> for 401 and
+403, <code>BusyError</code> for 409, <code>UnavailableError</code> for 503, <code>RedirectError</code> for 3xx —
+because the REST client and the socket share one mapping.</p>
+<h2 id="receiving-events">Receiving events<a class="headerlink" href="#receiving-events" title="Permanent link">&para;</a></h2>
+<p>Iterate over incoming events using <code>events()</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="k">async</span> <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">ws</span><span class="o">.</span><span class="n">events</span><span class="p">():</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;event_type&quot;</span><span class="p">],</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;event&quot;</span><span class="p">])</span>
+</code></pre></div>
+<p>Every frame is a <code>{"event_type": ..., "event": ...}</code> dictionary.</p>
+<h3 id="the-connection-sequence">The connection sequence<a class="headerlink" href="#the-connection-sequence" title="Permanent link">&para;</a></h3>
+<p>There is no single "initial state" message. kvmd sends:</p>
+<ol>
+<li><code>loop</code> — always first, carrying the kvmd version:
+   <code>{"version": {"major": 4, "minor": 186}}</code>. The client keeps it, so there is
+   no need to catch the event to read it:</li>
+</ol>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">ping</span><span class="p">()</span>                 <span class="c1"># or read one event; either fills it in</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">ws</span><span class="o">.</span><span class="n">version</span><span class="p">)</span>               <span class="c1"># KvmdVersion(major=4, minor=186)</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="k">if</span> <span class="n">ws</span><span class="o">.</span><span class="n">version</span> <span class="o">&gt;=</span> <span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">100</span><span class="p">):</span>      <span class="c1"># it compares like a version</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>        <span class="o">...</span>
+</code></pre></div>
+<p>It is <code>None</code> until a frame has been read, since kvmd sends the event over
+   the connection rather than in the handshake. This is the only version signal
+   the socket carries; <code>GET /api/info</code> reports the full one.
+2. one event per subsystem with its current state, in <strong>no guaranteed order</strong> —
+   broadcasts meant for every client interleave with them.
+3. updates from then on, whenever anything changes.</p>
+<p>So a client that needs a particular subsystem waits for its event rather than
+reading the first message — with a timeout, since a subsystem the device does
+not have never sends one:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">wanted</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;atx&quot;</span><span class="p">,</span> <span class="s2">&quot;hid&quot;</span><span class="p">,</span> <span class="s2">&quot;streamer&quot;</span><span class="p">}</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">state</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">timeout</span><span class="p">(</span><span class="mi">5</span><span class="p">):</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>        <span class="k">async</span> <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">ws</span><span class="o">.</span><span class="n">events</span><span class="p">():</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>            <span class="n">state</span><span class="p">[</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;event_type&quot;</span><span class="p">]]</span> <span class="o">=</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;event&quot;</span><span class="p">]</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>            <span class="k">if</span> <span class="n">wanted</span> <span class="o">&lt;=</span> <span class="n">state</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>                <span class="k">break</span>
+</code></pre></div>
+<h3 id="event-types">Event types<a class="headerlink" href="#event-types" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th><code>event_type</code></th>
+<th>Payload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>loop</code></td>
+<td>kvmd version; always the first frame</td>
+</tr>
+<tr>
+<td><code>atx</code></td>
+<td>power and LED state, same shape as <code>GET /api/atx</code></td>
+</tr>
+<tr>
+<td><code>hid</code></td>
+<td>keyboard, mouse and jiggler state</td>
+</tr>
+<tr>
+<td><code>hid_keymaps</code></td>
+<td>available keymaps</td>
+</tr>
+<tr>
+<td><code>msd</code></td>
+<td>mass storage drive and storage state</td>
+</tr>
+<tr>
+<td><code>gpio</code></td>
+<td>GPIO scheme, view and pin state</td>
+</tr>
+<tr>
+<td><code>streamer</code></td>
+<td>streamer state, features, limits and parameters</td>
+</tr>
+<tr>
+<td><code>ocr</code></td>
+<td>whether OCR is enabled and which languages it has</td>
+</tr>
+<tr>
+<td><code>switch</code></td>
+<td>PiKVM Switch model, port state and summary</td>
+</tr>
+<tr>
+<td><code>info</code></td>
+<td>the <code>/api/info</code> subsystems, one at a time</td>
+</tr>
+<tr>
+<td><code>clients</code></td>
+<td><code>{"count": N}</code> — how many connected sessions asked for video</td>
+</tr>
+<tr>
+<td><code>pong</code></td>
+<td>answer to <a href="#ping"><code>ping()</code></a> on a JSON socket</td>
+</tr>
+</tbody>
+</table>
+<p>Two things a consumer has to expect:</p>
+<ul>
+<li><strong>Updates can be partial.</strong> The first <code>streamer</code> event carries the whole
+  state, later ones only the field that changed. <code>info</code> never sends a bundle at
+  all — each event carries a single key such as <code>uptime</code> or <code>health</code>. Merge into
+  what you already have instead of replacing it.</li>
+<li><strong><code>clients</code> arrives unprompted</strong>, broadcast to every session whenever any
+  session connects or disconnects — including this one, which is why it lands
+  among the initial events and again at any time afterwards.</li>
+</ul>
+<h2 id="typed-state">Typed state<a class="headerlink" href="#typed-state" title="Permanent link">&para;</a></h2>
+<p><code>events()</code> hands over what arrived. <code>states()</code> hands over what it adds up to:
+each event merged into what the same subsystem said before, validated against
+the same model its REST endpoint returns, and yielded as one snapshot per event
+that changed something.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>    <span class="k">async</span> <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">ws</span><span class="o">.</span><span class="n">states</span><span class="p">():</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>        <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">atx</span><span class="p">:</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;power&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">.</span><span class="n">atx</span><span class="o">.</span><span class="n">leds</span><span class="o">.</span><span class="n">power</span><span class="p">)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>        <span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">streamer</span> <span class="ow">and</span> <span class="n">state</span><span class="o">.</span><span class="n">streamer</span><span class="o">.</span><span class="n">streamer</span><span class="p">:</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;fps&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">.</span><span class="n">streamer</span><span class="o">.</span><span class="n">streamer</span><span class="o">.</span><span class="n">source</span><span class="o">.</span><span class="n">captured_fps</span><span class="p">)</span>
+</code></pre></div>
+<p>A field is <code>None</code> until kvmd has sent that subsystem, which it does for all of
+them when the socket opens — a device with a subsystem switched off never sends
+it at all. <code>state.updated</code> is the event type behind this particular snapshot,
+for a caller that would rather switch on it than re-read everything:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Model</th>
+<th>From the event</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>atx</code></td>
+<td><code>ATXState</code></td>
+<td><code>atx</code></td>
+</tr>
+<tr>
+<td><code>gpio</code></td>
+<td><code>GPIOState</code></td>
+<td><code>gpio</code></td>
+</tr>
+<tr>
+<td><code>hid</code></td>
+<td><code>HIDState</code></td>
+<td><code>hid</code></td>
+</tr>
+<tr>
+<td><code>hid_keymaps</code></td>
+<td><code>HIDKeymaps</code></td>
+<td><code>hid_keymaps</code></td>
+</tr>
+<tr>
+<td><code>msd</code></td>
+<td><code>MSDState</code></td>
+<td><code>msd</code></td>
+</tr>
+<tr>
+<td><code>ocr</code></td>
+<td><code>OCRInfo</code></td>
+<td><code>ocr</code></td>
+</tr>
+<tr>
+<td><code>streamer</code></td>
+<td><code>StreamerState</code></td>
+<td><code>streamer</code></td>
+</tr>
+<tr>
+<td><code>switch</code></td>
+<td><code>SwitchState</code></td>
+<td><code>switch</code></td>
+</tr>
+<tr>
+<td><code>clients</code></td>
+<td><code>int</code></td>
+<td><code>clients</code></td>
+</tr>
+<tr>
+<td><code>info</code></td>
+<td><code>dict</code></td>
+<td><code>info</code></td>
+</tr>
+</tbody>
+</table>
+<p>The merge is the point of it. kvmd sends a subsystem in full once and then only
+the parts of it that change, so validating a later event on its own fails —
+most of the model is simply not in it. <code>info</code> is merged the same way but stays a
+raw dictionary; typing it is <a href="https://github.com/kudato/aiopikvm/issues/71">#71</a>.</p>
+<p><code>loop</code> and <code>pong</code> produce no snapshot, since neither says anything about the
+device; the version the <code>loop</code> event carries is on <code>ws.version</code>. A payload that
+does not match its model raises <code>ResponseError</code>, and the two iterators cannot
+run over one socket at the same time — <code>states()</code> is <code>events()</code> with the states
+built on top.</p>
+<h3 id="when-the-stream-ends">When the stream ends<a class="headerlink" href="#when-the-stream-ends" title="Permanent link">&para;</a></h3>
+<p>The iteration finishes when either side closes the connection cleanly. A
+connection that breaks instead — the device rebooting, kvmd restarting, the
+network going away — raises <code>WebSocketError</code>, so a silent end of iteration is
+never a lost connection:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>    <span class="k">async</span> <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">ws</span><span class="o">.</span><span class="n">events</span><span class="p">():</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>        <span class="n">handle</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="k">except</span> <span class="n">WebSocketError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;reconnecting:&quot;</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="keyboard-input">Keyboard input<a class="headerlink" href="#keyboard-input" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>    <span class="c1"># Press a key</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_key</span><span class="p">(</span><span class="s2">&quot;KeyA&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>    <span class="c1"># Release a key</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_key</span><span class="p">(</span><span class="s2">&quot;KeyA&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>    <span class="c1"># Press, and have kvmd release it in the same event</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_key</span><span class="p">(</span><span class="s2">&quot;KeyA&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">finish</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p>Key names are kvmd's web names — <code>KeyA</code>, <code>Digit1</code>, <code>ControlLeft</code>, <code>F5</code>; the
+whole catalogue is <a href="../hid/#key-names"><code>KEY_NAMES</code></a>. kvmd holds a key down
+until the release arrives, and ignores a name it does not know without
+answering anything at all — over this socket there is no 400 to tell a typo
+from a keystroke that landed, which is why a name from an untrusted source is
+worth checking against the set before it goes out.</p>
+<p>The socket dropping is how a key gets left down: the press arrived and the
+process that owed the release is gone. Whether it stays down is up to the HID
+backend — closing the socket makes kvmd clear its keyboard, which on OTG
+sends an all-up report, while CH9329 only discards what it had queued and
+lets the keys stand. <code>finish=True</code> takes the client out of that: kvmd queues
+the release itself, in the same handler call that queued the press, so no
+further frame is owed. On CH9329 it narrows the window rather than closing
+it — the two are separate commands in one queue, and a socket lost after the
+device has taken the press but not the release leaves that key down like any
+other. It rides a press only, and kvmd applies it to every key
+except the eight modifiers and <code>PrintScreen</code> — the full rule, and the kvmd
+version that reads it, are in
+<a href="../hid/#finish-and-the-keys-it-does-not-release">the HID guide</a>.</p>
+<h2 id="mouse-input">Mouse input<a class="headerlink" href="#mouse-input" title="Permanent link">&para;</a></h2>
+<h3 id="move-mouse">Move mouse<a class="headerlink" href="#move-mouse" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_move</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>          <span class="c1"># centre of the screen</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_move</span><span class="p">(</span><span class="o">-</span><span class="mi">32768</span><span class="p">,</span> <span class="o">-</span><span class="mi">32768</span><span class="p">)</span>  <span class="c1"># top left corner</span>
+</code></pre></div>
+<p><strong>The coordinates are not pixels.</strong> kvmd works in a resolution-independent space
+from <code>-32768</code> (left, top) to <code>32767</code> (right, bottom), so <code>0, 0</code> is the middle of
+the screen and <code>send_mouse_move(500, 300)</code> lands a hair right of and below it.
+Values outside the range are clamped by kvmd rather than rejected.</p>
+<p>Converting from pixels needs the resolution the <em>target machine</em> is sending,
+which <code>GET /api/streamer</code> reports — but only while the streamer is running, so
+read it with the socket already open:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>                  <span class="c1"># keeps the streamer up</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>    <span class="n">state</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">streamer</span><span class="o">.</span><span class="n">get_state</span><span class="p">()</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>    <span class="k">assert</span> <span class="n">state</span><span class="o">.</span><span class="n">streamer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>       <span class="c1"># None once nothing is watching</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>    <span class="n">size</span> <span class="o">=</span> <span class="n">state</span><span class="o">.</span><span class="n">streamer</span><span class="o">.</span><span class="n">source</span><span class="o">.</span><span class="n">resolution</span>
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
+<a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">to_kvmd</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">y</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>        <span class="k">return</span> <span class="p">(</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>            <span class="nb">round</span><span class="p">(</span><span class="n">x</span> <span class="o">/</span> <span class="p">(</span><span class="n">size</span><span class="o">.</span><span class="n">width</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="mi">65535</span><span class="p">)</span> <span class="o">-</span> <span class="mi">32768</span><span class="p">,</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>            <span class="nb">round</span><span class="p">(</span><span class="n">y</span> <span class="o">/</span> <span class="p">(</span><span class="n">size</span><span class="o">.</span><span class="n">height</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="mi">65535</span><span class="p">)</span> <span class="o">-</span> <span class="mi">32768</span><span class="p">,</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>        <span class="p">)</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>
+<a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_move</span><span class="p">(</span><span class="o">*</span><span class="n">to_kvmd</span><span class="p">(</span><span class="mi">960</span><span class="p">,</span> <span class="mi">540</span><span class="p">))</span>
+</code></pre></div>
+<p>Absolute positioning also needs the mouse in absolute mode. kvmd drops a
+<code>send_mouse_move()</code> while the mouse is relative, and drops
+<code>send_mouse_relative()</code> while it is absolute — in both cases without a word to
+the sender, and with the inactivity counter bumped either way, so nothing about
+the exchange says the report went nowhere. <code>HIDState.mouse.absolute</code> is which
+mode is on, and <code>mouse.outputs.available</code> is what the device can switch to:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">state</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">hid</span><span class="o">.</span><span class="n">get_state</span><span class="p">()</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="k">if</span> <span class="n">state</span><span class="o">.</span><span class="n">mouse</span><span class="o">.</span><span class="n">absolute</span><span class="p">:</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_move</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_relative</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="relative-movement">Relative movement<a class="headerlink" href="#relative-movement" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">hid</span><span class="o">.</span><span class="n">set_params</span><span class="p">(</span><span class="n">mouse_output</span><span class="o">=</span><span class="s2">&quot;usb_rel&quot;</span><span class="p">)</span>   <span class="c1"># switches the gadget</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_relative</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>   <span class="c1"># ten steps right</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_relative</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">10</span><span class="p">)</span>  <span class="c1"># ten steps up</span>
+</code></pre></div>
+<p>Steps are in the same <code>-127</code> to <code>127</code> range as the wheel, clamped rather than
+rejected, so a longer gesture is several events — which is what batching is for.</p>
+<h3 id="batching">Batching<a class="headerlink" href="#batching" title="Permanent link">&para;</a></h3>
+<p>Both relative motion and the wheel can go in one frame, which is what kvmd's own
+web UI does: it collects the deltas a mouse produced between two screen
+refreshes and sends them together rather than one frame per browser event.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_relative_batch</span><span class="p">([(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">2</span><span class="p">)])</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_wheel_batch</span><span class="p">([(</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">5</span><span class="p">)],</span> <span class="n">squash</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p>With <code>squash</code>, kvmd adds consecutive steps up instead of reporting each one,
+starting a new sum whenever the running total would leave the <code>-127</code> to <code>127</code> a
+report can carry. Fewer reports reach the host, at the cost of the shape of the
+path between them. Two details worth knowing:</p>
+<ul>
+<li>A squashed batch that adds up to <code>(0, 0)</code> sends <strong>nothing</strong> — kvmd drops a
+  final sum of zero. Without <code>squash</code>, a <code>(0, 0)</code> step is a report like any
+  other.</li>
+<li>An empty batch is a frame kvmd does nothing with; it is not an error.</li>
+</ul>
+<h3 id="mouse-buttons">Mouse buttons<a class="headerlink" href="#mouse-buttons" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>    <span class="c1"># Press left button</span>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_button</span><span class="p">(</span><span class="s2">&quot;left&quot;</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>    <span class="c1"># Release left button</span>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_button</span><span class="p">(</span><span class="s2">&quot;left&quot;</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+<p>The names are the <code>MouseButton</code> type, shared with the REST call
+(<a href="../error-handling/#values-the-type-checker-catches">the values</a>; <code>up</code> and
+<code>down</code> are the browser's back and forward buttons, not the wheel). Having a
+type here is worth more than it is over HTTP: a name kvmd does not know is
+dropped inside its handler with no answer of any kind, exactly as a bad key
+name is.</p>
+<h3 id="mouse-wheel">Mouse wheel<a class="headerlink" href="#mouse-wheel" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_wheel</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">5</span><span class="p">)</span>   <span class="c1"># scroll down</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_mouse_wheel</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>    <span class="c1"># scroll up</span>
+</code></pre></div>
+<p>Deltas are steps in kvmd's own range, <code>-127</code> to <code>127</code>, clamped rather than
+rejected — not the browser's pixel deltas. kvmd's web UI sends a single step per
+gesture, sized by its scroll-rate setting (1 to 25, <code>5</code> by default) and negated,
+so a scroll-down gesture reaches the device as <code>delta_y = -5</code>. What a step means
+on each backend — the horizontal axis, and where a step's size survives — is
+<a href="../hid/#mouse-wheel">on the HID page</a>.</p>
+<p>Several steps can go in one frame with <code>send_mouse_wheel_batch()</code>, described
+under <a href="#batching">batching</a> above.</p>
+<h2 id="the-binary-channel">The binary channel<a class="headerlink" href="#the-binary-channel" title="Permanent link">&para;</a></h2>
+<p>kvmd accepts HID input in two encodings over the same socket. The JSON events
+above are one; the other is a compact binary frame whose first byte is an
+operation number — <code>1</code> key, <code>2</code> mouse button, <code>3</code> absolute move, <code>4</code> relative
+move, <code>5</code> wheel, and <code>0</code> ping, which kvmd answers with <code>255</code>. Both reach the same handlers and the
+same validators, and kvmd's own web UI uses the binary one for every keystroke
+and mouse move, since it is a few bytes instead of a JSON object to parse.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">(</span><span class="n">binary</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_key</span><span class="p">(</span><span class="s2">&quot;KeyA&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>                 <span class="c1"># b&quot;\x01\x01KeyA&quot;</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_key</span><span class="p">(</span><span class="s2">&quot;KeyA&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>                <span class="c1"># b&quot;\x01\x00KeyA&quot;</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a>    <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_key</span><span class="p">(</span><span class="s2">&quot;KeyA&quot;</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">finish</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>    <span class="c1"># b&quot;\x01\x03KeyA&quot;</span>
+</code></pre></div>
+<p>The second byte is a flag field: bit 0 is the state and bit 1 is <code>finish</code>, so
+a press asking for the release is <code>0b11</code>. A release never carries bit 1, since
+kvmd acts on the flag only on a press.</p>
+<p>Everything else is unchanged: the same methods, the same arguments, and events
+still arrive as JSON — that direction has nothing else in it. Two details only
+apply to the binary encoding:</p>
+<ul>
+<li>A key or button name goes on the wire as ASCII, and kvmd reads at most 32
+  bytes of it. A name that is empty, not ASCII, or longer raises
+  <code>ConfigurationError</code> instead of being sent as a frame kvmd would drop without
+  a word.</li>
+<li>Coordinates and wheel steps are clamped before packing, since the fields they
+  go into cannot hold anything else. kvmd clamps the JSON ones the same way, so
+  the device ends up with the same values either way.</li>
+</ul>
+<p>It is off by default because JSON is what this client has always sent, and it
+is the encoding a packet capture can be read in. The binary channel is verified
+against kvmd 4.206 — every frame in the <code>ws_binary</code> fixture was sent to that
+device and accepted by it.</p>
+<p>Whichever encoding you use, kvmd drops what it cannot decode without telling
+the client: a key name its validator refuses, a frame too short to unpack, an
+operation it has no handler for. It writes a line to its own log — <code>Unknown
+websocket binary event: b'\xc8'</code> for an operation, <code>Unknown websocket event</code>
+for a JSON one — and the sender hears nothing either way. Nothing about the
+input path is acknowledged, so a caller that needs to know an event landed has
+to look at the device: <code>kvm.hid.get_inactivity()</code> returns to 0 for every event
+kvmd accepted, and keeps counting for one it dropped.</p>
+<h2 id="ping">Ping<a class="headerlink" href="#ping" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a>    <span class="n">latency</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">ping</span><span class="p">()</span>       <span class="c1"># round trip in seconds</span>
+</code></pre></div>
+<p>This is kvmd's application-level ping, and it waits for the answer. The request
+goes through the same event loop that dispatches HID input and broadcasts
+state, so a pong means that loop is running — not merely that something on the
+other end still holds a TCP socket open. <code>WebSocketError</code> is raised if the
+answer does not arrive within <code>timeout</code> (10 seconds by default), or if the
+connection breaks or closes first.</p>
+<p>The answer arrives on the socket like everything else, and the task reading it
+hands the pong over — so this works with or without anything iterating
+<code>events()</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>    <span class="k">if</span> <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">ping</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mf">0.5</span><span class="p">:</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;the device is struggling&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p>Events read on the way are kept for the next <code>events()</code> call. The round trip is
+measured from the frame going out to the pong being read, and is not affected
+by how fast anything consumes <code>events()</code>.</p>
+<p>On a JSON socket the answer is also a <code>pong</code> event, and <code>events()</code> yields it
+like any other. On a binary one it is operation <code>255</code>, which is not an event and
+does not appear there.</p>
+<p>Keeping the socket alive needs none of this. The underlying library sends a
+protocol-level ping every 20 seconds and closes the connection if one goes
+unanswered for another 20, which is how a link that dies without a close frame
+surfaces as <code>WebSocketError</code> rather than hanging forever.</p>
+<h2 id="backpressure">Backpressure<a class="headerlink" href="#backpressure" title="Permanent link">&para;</a></h2>
+<p>The socket is read continuously and what it says is buffered for <code>events()</code>.
+Nothing about this is optional, and it is worth knowing why.</p>
+<p><em>websockets</em> parses incoming frames in the transport callback, and a protocol
+pong is acknowledged there too. Once more frames are buffered than <code>max_queue</code>
+allows, it pauses reading the transport — at which point its own keepalive
+pings still go out, their answers are never parsed, and the connection is
+failed after <code>ping_timeout</code>. A kvmd socket nobody read used to die about forty
+seconds in, and kvmd stopped the streamer ten seconds after that, with the
+<code>async with</code> block none the wiser.</p>
+<p>So the reader keeps the transport drained, and a consumer slower than kvmd is
+broadcasting falls behind in memory instead. That buffer holds 1024 events;
+past it the oldest are dropped, merged into the next event of their kind so
+that a <code>states()</code> snapshot never loses a field it needs. A warning is logged
+once when it starts happening.</p>
+<p>The keepalive itself is adjustable, for a link where the defaults are wrong:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">(</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>    <span class="n">ping_interval</span><span class="o">=</span><span class="mf">20.0</span><span class="p">,</span>   <span class="c1"># seconds between protocol pings, None for none</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>    <span class="n">ping_timeout</span><span class="o">=</span><span class="mf">20.0</span><span class="p">,</span>    <span class="c1"># seconds to wait for the pong before failing</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a>    <span class="n">max_queue</span><span class="o">=</span><span class="mi">16</span><span class="p">,</span>         <span class="c1"># frames the transport may buffer before it pauses</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>    <span class="n">max_size</span><span class="o">=</span><span class="mi">2</span><span class="o">**</span><span class="mi">20</span><span class="p">,</span>       <span class="c1"># largest frame to accept, None for no limit</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="p">)</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a>    <span class="o">...</span>
+</code></pre></div>
+<h3 id="a-connection-that-broke-while-nothing-was-looking">A connection that broke while nothing was looking<a class="headerlink" href="#a-connection-that-broke-while-nothing-was-looking" title="Permanent link">&para;</a></h3>
+<p>A block that holds the socket without reading it has nowhere to find out that
+the link died — so <code>__aexit__</code> raises it:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">():</span>          <span class="c1"># raises WebSocketError on the way out</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>    <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">3600</span><span class="p">)</span>
+</code></pre></div>
+<p>It gives way to whatever the block itself raised, and says nothing when the
+failure has already reached the caller through <code>events()</code>, <code>states()</code>,
+<code>ping()</code> or a send. A connection the far end closed cleanly is not a failure
+and is never reported this way.</p>
+<h2 id="standalone-usage">Standalone usage<a class="headerlink" href="#standalone-usage" title="Permanent link">&para;</a></h2>
+<p><code>PiKVMWebSocket</code> can also be used independently:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">aiopikvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">PiKVMWebSocket</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
+<a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a><span class="n">ws</span> <span class="o">=</span> <span class="n">PiKVMWebSocket</span><span class="p">(</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>    <span class="n">url</span><span class="o">=</span><span class="s2">&quot;https://pikvm.local&quot;</span><span class="p">,</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>    <span class="n">user</span><span class="o">=</span><span class="s2">&quot;admin&quot;</span><span class="p">,</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    <span class="n">passwd</span><span class="o">=</span><span class="s2">&quot;admin&quot;</span><span class="p">,</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>    <span class="n">verify_ssl</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>    <span class="n">stream</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9" href="#__codelineno-22-9"></a>    <span class="n">binary</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<a id="__codelineno-22-10" name="__codelineno-22-10" href="#__codelineno-22-10"></a>    <span class="n">open_timeout</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>
+<a id="__codelineno-22-11" name="__codelineno-22-11" href="#__codelineno-22-11"></a>    <span class="n">close_timeout</span><span class="o">=</span><span class="mf">10.0</span><span class="p">,</span>
+<a id="__codelineno-22-12" name="__codelineno-22-12" href="#__codelineno-22-12"></a><span class="p">)</span>
+<a id="__codelineno-22-13" name="__codelineno-22-13" href="#__codelineno-22-13"></a>
+<a id="__codelineno-22-14" name="__codelineno-22-14" href="#__codelineno-22-14"></a><span class="k">async</span> <span class="k">with</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-22-15" name="__codelineno-22-15" href="#__codelineno-22-15"></a>    <span class="k">async</span> <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">ws</span><span class="o">.</span><span class="n">events</span><span class="p">():</span>
+<a id="__codelineno-22-16" name="__codelineno-22-16" href="#__codelineno-22-16"></a>        <span class="nb">print</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="full-example">Full example<a class="headerlink" href="#full-example" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">aiopikvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">PiKVM</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>
+<a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">PiKVM</span><span class="p">(</span><span class="s2">&quot;https://pikvm.local&quot;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s2">&quot;admin&quot;</span><span class="p">,</span> <span class="n">passwd</span><span class="o">=</span><span class="s2">&quot;admin&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">kvm</span><span class="p">:</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">kvm</span><span class="o">.</span><span class="n">ws</span><span class="p">()</span> <span class="k">as</span> <span class="n">ws</span><span class="p">:</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a>            <span class="c1"># Type &quot;hello&quot; via WebSocket HID</span>
+<a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>            <span class="k">for</span> <span class="n">char</span> <span class="ow">in</span> <span class="s2">&quot;hello&quot;</span><span class="p">:</span>
+<a id="__codelineno-23-9" name="__codelineno-23-9" href="#__codelineno-23-9"></a>                <span class="n">key</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Key</span><span class="si">{</span><span class="n">char</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+<a id="__codelineno-23-10" name="__codelineno-23-10" href="#__codelineno-23-10"></a>                <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_key</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-23-11" name="__codelineno-23-11" href="#__codelineno-23-11"></a>                <span class="k">await</span> <span class="n">ws</span><span class="o">.</span><span class="n">send_key</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">state</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<a id="__codelineno-23-12" name="__codelineno-23-12" href="#__codelineno-23-12"></a>                <span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.05</span><span class="p">)</span>
+<a id="__codelineno-23-13" name="__codelineno-23-13" href="#__codelineno-23-13"></a>
+<a id="__codelineno-23-14" name="__codelineno-23-14" href="#__codelineno-23-14"></a>            <span class="c1"># Read a few events</span>
+<a id="__codelineno-23-15" name="__codelineno-23-15" href="#__codelineno-23-15"></a>            <span class="n">count</span> <span class="o">=</span> <span class="mi">0</span>
+<a id="__codelineno-23-16" name="__codelineno-23-16" href="#__codelineno-23-16"></a>            <span class="k">async</span> <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">ws</span><span class="o">.</span><span class="n">events</span><span class="p">():</span>
+<a id="__codelineno-23-17" name="__codelineno-23-17" href="#__codelineno-23-17"></a>                <span class="nb">print</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+<a id="__codelineno-23-18" name="__codelineno-23-18" href="#__codelineno-23-18"></a>                <span class="n">count</span> <span class="o">+=</span> <span class="mi">1</span>
+<a id="__codelineno-23-19" name="__codelineno-23-19" href="#__codelineno-23-19"></a>                <span class="k">if</span> <span class="n">count</span> <span class="o">&gt;=</span> <span class="mi">5</span><span class="p">:</span>
+<a id="__codelineno-23-20" name="__codelineno-23-20" href="#__codelineno-23-20"></a>                    <span class="k">break</span>
+<a id="__codelineno-23-21" name="__codelineno-23-21" href="#__codelineno-23-21"></a>
+<a id="__codelineno-23-22" name="__codelineno-23-22" href="#__codelineno-23-22"></a><span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.sections", "navigation.expand", "navigation.top", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
