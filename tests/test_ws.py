@@ -40,7 +40,14 @@ from aiopikvm import (
     UnavailableError,
     WebSocketError,
 )
-from aiopikvm._ws import _PENDING_LIMIT, _STATE_MODELS, _Connector, _merge, _open
+from aiopikvm._ws import (
+    _PENDING_LIMIT,
+    _STATE_FIELDS,
+    _STATE_MODELS,
+    _Connector,
+    _merge,
+    _open,
+)
 from tests.fixtures import load_json, load_jsonl
 from tests.helpers import defaults
 
@@ -794,21 +801,41 @@ async def test_states_ignore_an_event_type_they_do_not_know() -> None:
     assert [state.updated async for state in ws.states()] == ["atx"]
 
 
-async def test_states_ignore_a_table_entry_with_no_field_to_land_in(
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_table_lands_in_the_fields_and_nowhere_else() -> None:
+    """`_STATE_FIELDS` is the set `states()` checks a table entry against.
+
+    Derived from the dataclass rather than listed, so the two cannot be
+    edited apart; equality in both directions is the contract. A subsystem
+    with no field is what #143 was filed over, and a field with no subsystem
+    means either a model nobody wrote or, like `clients`, a scalar with a
+    branch of its own that has to be excluded here.
+    """
+    assert set(_STATE_MODELS) == _STATE_FIELDS
+
+
+@pytest.mark.parametrize("event_type", ["quantum", "updated", "__class__"])
+async def test_states_ignore_a_table_entry_with_nowhere_to_land(
+    monkeypatch: pytest.MonkeyPatch, event_type: str
 ) -> None:
     """A table that outgrew the dataclass must not break the loop (#143).
 
-    `dataclasses.replace()` answers a keyword the dataclass does not have
+    `dataclasses.replace()` answers a keyword the dataclass has no field for
     with a bare `TypeError`, which is not a `PiKVMError`, on a socket that is
-    otherwise healthy. A contract test keeps the two lists together, so this
-    is about the build that shipped without it: the event is skipped like any
-    other this release cannot place.
+    otherwise healthy — and it answers a second `updated=` the same way. The
+    test above keeps the two lists together, so this is about the build that
+    shipped without it: the event is skipped like any other this release
+    cannot place.
+
+    `__class__` is there because `DeviceState` has plenty of attributes that
+    are not fields, and only a field is somewhere a subsystem can land.
+
+    Args:
+        event_type: Name to give the table entry that has nowhere to land.
     """
-    monkeypatch.setitem(_STATE_MODELS, "quantum", _STATE_MODELS["atx"])
+    monkeypatch.setitem(_STATE_MODELS, event_type, _STATE_MODELS["atx"])
     ws = socket()
     ws._connection = iterating(
-        json.dumps({**recorded("atx"), "event_type": "quantum"}),
+        json.dumps({**recorded("atx"), "event_type": event_type}),
         json.dumps(recorded("atx")),
     )
     assert [state.updated async for state in ws.states()] == ["atx"]

@@ -170,6 +170,24 @@ object, the way ``GET /api/hid/keymaps`` returns it. The ``ocr`` event is the
 other way round — the REST endpoint wraps it in ``ocr`` and the event does not.
 """
 
+_STATE_FIELDS = frozenset(
+    field.name for field in dataclasses.fields(DeviceState) if field.name != "updated"
+) - {"clients"}
+"""Where a subsystem event can land on [`DeviceState`][aiopikvm.DeviceState].
+
+Every key of `_STATE_MODELS` has to be one of these, and a test says so. The
+set is what `states()` checks against anyway, because the two live in
+different halves of one module and a build can ship with them apart: passing
+`replace()` a keyword the dataclass has no field for raises a bare
+`TypeError`, outside the hierarchy this package promises, and so does passing
+it `updated` a second time. Neither is a name kvmd broadcasts, which is why
+the check is against the fields rather than against `hasattr` — an attribute
+`DeviceState` merely has is not somewhere a subsystem can land (#143).
+
+`clients` is out because it is not a subsystem: kvmd sends a bare count and
+the branch above takes it.
+"""
+
 
 class _Finished(Exception):
     """Internal signal: the server closed the connection cleanly."""
@@ -816,8 +834,12 @@ class PiKVMWebSocket:
 
         Only the events that say something about the device produce a
         snapshot; ``loop`` and ``pong`` do not, and neither does an event type
-        this release does not know. The kvmd version the ``loop`` event
-        carries is on [`version`][aiopikvm.PiKVMWebSocket.version].
+        this release does not know. Nor does one it *does* know but has no
+        field to put on [`DeviceState`][aiopikvm.DeviceState] — the two are
+        meant to agree and a test says they do, so that shows up as a
+        subsystem which never arrives rather than as an exception. The kvmd
+        version the ``loop`` event carries is on
+        [`version`][aiopikvm.PiKVMWebSocket.version].
 
         Everything [`events()`][aiopikvm.PiKVMWebSocket.events] does about the
         connection applies here, and the two cannot be iterated over the same
@@ -853,13 +875,12 @@ class PiKVMWebSocket:
                 self._state = dataclasses.replace(
                     self._state, updated=event_type, clients=count
                 )
-            elif event_type in _STATE_MODELS and hasattr(self._state, event_type):
-                # The `hasattr` is for a table entry with no field to land in:
-                # `replace()` would raise a bare `TypeError` at the caller,
-                # outside the hierarchy this package promises. A contract test
-                # keeps the two lists together, so the guard is for the build
-                # that shipped without it — skipped like any other event this
-                # release cannot place (#143).
+            elif event_type in _STATE_MODELS and event_type in _STATE_FIELDS:
+                # The second test is for a table entry with nowhere to land,
+                # which `replace()` answers with a bare `TypeError` at the
+                # caller. A contract test keeps the two lists together, so
+                # this is for the build that shipped without it — skipped like
+                # any other event this release cannot place (#143).
                 #
                 # Merged as the event came off the buffer, so this is that
                 # subsystem's whole state and not only what just changed.

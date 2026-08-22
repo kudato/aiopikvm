@@ -593,11 +593,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `PiKVMWebSocket.states()` skips a subsystem this release knows a model for
   but has no field to put it in, instead of ending the iteration with a bare
-  `TypeError` — the one way an exception outside `PiKVMError` could still
-  reach a caller from a healthy socket. The two lists it needs to agree on
-  live in different halves of one module and were kept together by hand; a
-  test now holds them together, and the guard is for the build that ships
-  without it (#143).
+  `TypeError` — an exception outside `PiKVMError`, raised on a socket that is
+  otherwise healthy, so `except PiKVMError` around the loop does not catch it.
+  The table and the dataclass live in different halves of one module and were
+  kept together by hand; a test now holds them together, and the guard is for
+  the build that ships without it (#143).
 - `PiKVM.webrtc()`'s `ping_interval` and `ping_timeout` reach the signalling
   socket. `WebRTCSession` stored both and never passed them to the handshake,
   so the socket kept *websockets*' 20 s/20 s whatever was asked for, while the
