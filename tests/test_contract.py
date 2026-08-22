@@ -9,6 +9,7 @@ fact that the contract is now satisfied.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import Any, NamedTuple, get_args
 
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 
 from aiopikvm import (
     ATXState,
+    DeviceState,
     GPIOState,
     HIDKeymaps,
     HIDState,
@@ -249,6 +251,24 @@ def test_every_captured_event_parses_into_its_model() -> None:
     assert parsed == set(_STATE_MODELS), (
         "the capture must exercise every subsystem the states API types"
     )
+
+
+def test_every_typed_subsystem_has_a_field_to_land_in() -> None:
+    """The event table and the snapshot are two lists nothing cross-checked.
+
+    The test above pins the table against the capture; this pins it against
+    `DeviceState`, which is where a parsed subsystem actually goes. An entry
+    with no field of the same name reaches the caller as a bare
+    `TypeError: DeviceState.__init__() got an unexpected keyword argument` —
+    from `dataclasses.replace()`, on a healthy socket, and outside the
+    `PiKVMError` hierarchy every other failure in this library stays inside
+    (#143).
+    """
+    fields = {field.name for field in dataclasses.fields(DeviceState)}
+    assert set(_STATE_MODELS) <= fields
+    # `updated` names the event and `clients` is a bare count with no model,
+    # so the two lists are not equal and are not meant to be.
+    assert fields - set(_STATE_MODELS) == {"updated", "clients"}
 
 
 def test_key_names_match_the_device_table() -> None:
