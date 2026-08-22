@@ -1,6 +1,6 @@
 """Streamer models."""
 
-from typing import Any
+from pydantic import Field
 
 from aiopikvm.models._base import _Base
 
@@ -50,6 +50,40 @@ class SnapshotImage(_Base):
     timestamp: float | None = None
 
 
+class MJPEGFrame(_Base):
+    """One frame of the MJPEG stream, with what its part headers said.
+
+    ``data`` is a complete JPEG; the rest comes from the part headers, so a
+    field is set only when the header was there and could be read. Without
+    ``extra_headers=True`` only ``timestamp`` arrives — everything else is a
+    ``X-UStreamer-*`` header ustreamer sends on request. ``headers`` keeps the
+    raw part headers, including the timing ones this model does not name.
+
+    Attributes:
+        data: The JPEG bytes, empty when the stream was opened with
+            ``zero_data=True``.
+        timestamp: ``X-Timestamp``, a Unix time with microseconds.
+        online: Whether the frame is a picture of the host rather than the
+            "NO LIVE VIDEO" placeholder.
+        width: Frame width in pixels.
+        height: Frame height in pixels.
+        dropped: How many frames ustreamer dropped for this client so far.
+        client_fps: The rate ustreamer is sending this client.
+        latency: Seconds between grabbing the frame and sending it.
+        headers: Every part header, as received.
+    """
+
+    data: bytes
+    timestamp: float | None = None
+    online: bool | None = None
+    width: int | None = None
+    height: int | None = None
+    dropped: int | None = None
+    client_fps: int | None = None
+    latency: float | None = None
+    headers: dict[str, str] = Field(default_factory=dict)
+
+
 class StreamerH264(_Base):
     """H.264 encoder runtime state."""
 
@@ -72,11 +106,37 @@ class StreamerSinks(_Base):
     jpeg: StreamerSinkInfo
 
 
+class StreamerClientStat(_Base):
+    """One MJPEG client of the streamer, as ustreamer accounts for it.
+
+    Every field but ``fps`` echoes the query the client connected with, so a
+    caller that passed a ``key`` to
+    [`StreamerResource.mjpeg()`][aiopikvm.resources.streamer.StreamerResource.mjpeg]
+    can find its own row: the id these are keyed by is ustreamer's, assigned
+    at connect and not known to the client that owns it.
+
+    Attributes:
+        fps: Frames per second ustreamer is sending this client.
+        key: The ``key`` query parameter it connected with, ``""`` if none.
+        extra_headers: Whether it asked for the ``X-UStreamer-*`` part headers.
+        advance_headers: Whether it asked for the Chromium workaround.
+        dual_final_frames: Whether it asked for the Safari workaround.
+        zero_data: Whether it asked for part headers without the JPEG data.
+    """
+
+    fps: int
+    key: str = ""
+    extra_headers: bool = False
+    advance_headers: bool = False
+    dual_final_frames: bool = False
+    zero_data: bool = False
+
+
 class StreamerStream(_Base):
     """Stream connection statistics."""
 
     clients: int
-    clients_stat: dict[str, Any]
+    clients_stat: dict[str, StreamerClientStat]
     queued_fps: int
 
 

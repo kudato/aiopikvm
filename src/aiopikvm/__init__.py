@@ -15,6 +15,7 @@ from aiopikvm._exceptions import (
     UnavailableError,
     WebSocketError,
 )
+from aiopikvm._media_ws import MediaWebSocket
 from aiopikvm._tls import CertTypes, VerifyTypes
 from aiopikvm._totp import TOTP
 from aiopikvm._ws import DeviceState, KvmdVersion, PiKVMWebSocket
@@ -63,6 +64,13 @@ from aiopikvm.models.info import (
     InfoUptime,
     InfoUptimeParts,
 )
+from aiopikvm.models.media import (
+    MediaFrame,
+    MediaH264,
+    MediaJPEG,
+    MediaState,
+    MediaVideoFormats,
+)
 from aiopikvm.models.msd import (
     MSDDownload,
     MSDDrive,
@@ -74,12 +82,14 @@ from aiopikvm.models.msd import (
     MSDUpload,
 )
 from aiopikvm.models.streamer import (
+    MJPEGFrame,
     OCRInfo,
     OCRLangs,
     Resolution,
     SavedSnapshot,
     SnapshotImage,
     Streamer,
+    StreamerClientStat,
     StreamerEncoder,
     StreamerFeatures,
     StreamerH264,
@@ -176,6 +186,7 @@ __all__ = [
     "InfoUptime",
     "InfoUptimeParts",
     "KvmdVersion",
+    "MJPEGFrame",
     "MSDDownload",
     "MSDDrive",
     "MSDDriveImage",
@@ -184,6 +195,12 @@ __all__ = [
     "MSDState",
     "MSDStorage",
     "MSDUpload",
+    "MediaFrame",
+    "MediaH264",
+    "MediaJPEG",
+    "MediaState",
+    "MediaVideoFormats",
+    "MediaWebSocket",
     "OCRInfo",
     "OCRLangs",
     "PiKVM",
@@ -195,6 +212,7 @@ __all__ = [
     "SavedSnapshot",
     "SnapshotImage",
     "Streamer",
+    "StreamerClientStat",
     "StreamerEncoder",
     "StreamerFeatures",
     "StreamerH264",

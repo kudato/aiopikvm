@@ -64,7 +64,8 @@ asyncio.run(main())
 | **HID** | Keyboard and mouse input, text typing, keymaps |
 | **MSD** | Virtual mass storage drives, image upload |
 | **GPIO** | GPIO channel read/write control |
-| **Streamer** | Video snapshots, OCR |
+| **Streamer** | Video snapshots, OCR, the MJPEG stream |
+| **Media** | H.264 video frames off the `kvmd-media` daemon |
 | **Switch** | Multi-port KVM switching, EDID management |
 | **Redfish** | DMTF Redfish BMC compatibility interface |
 | **Prometheus** | Metrics export in Prometheus format |
@@ -79,6 +80,7 @@ asyncio.run(main())
 - External `httpx.AsyncClient` support for advanced use cases
 - TOTP two-factor authentication support
 - WebSocket client for realtime events and low-latency HID input
+- Live video: the MJPEG stream frame by frame, and H.264 over a WebSocket
 - Fully typed (PEP 561, mypy strict)
 
 ## Configuration

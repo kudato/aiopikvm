@@ -80,6 +80,7 @@ nav:
       - Mass Storage (MSD): guide/msd.md
       - GPIO Channels: guide/gpio.md
       - Streamer & OCR: guide/streamer.md
+      - Live Video: guide/video.md
       - KVM Switch: guide/switch.md
       - Redfish BMC: guide/redfish.md
       - Prometheus Metrics: guide/prometheus.md
@@ -89,6 +90,7 @@ nav:
   - API Reference:
       - PiKVM Client: reference/client.md
       - WebSocket: reference/ws.md
+      - Media WebSocket: reference/media-ws.md
       - Models: reference/models.md
       - Exceptions: reference/exceptions.md
       - Resources:
@@ -98,6 +100,7 @@ nav:
           - MSDResource: reference/resources/msd.md
           - GPIOResource: reference/resources/gpio.md
           - StreamerResource: reference/resources/streamer.md
+          - MediaResource: reference/resources/media.md
           - SwitchResource: reference/resources/switch.md
           - RedfishResource: reference/resources/redfish.md
           - PrometheusResource: reference/resources/prometheus.md

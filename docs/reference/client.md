@@ -9,6 +9,7 @@
         - request
         - stream
         - ws
+        - media_ws
         - aclose
         - auth
         - atx
@@ -16,6 +17,7 @@
         - msd
         - gpio
         - streamer
+        - media
         - switch
         - redfish
         - prometheus

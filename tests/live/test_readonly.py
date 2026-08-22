@@ -21,7 +21,7 @@ mean every socket opened here has a cost, so open as few as the check needs.
 import asyncio
 import contextlib
 import os
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 
 import pytest
@@ -440,3 +440,141 @@ async def test_redfish_insert_media_refuses_a_url(live: PiKVM) -> None:
     the handler validates a stored image name, so a URL never gets past it."""
     with pytest.raises(APIError):
         await live.redfish.insert_media("https://example.org/ubuntu.iso")
+
+
+# --- Live video ----------------------------------------------------------
+
+STREAM_TIMEOUT = 20.0
+"""How long to wait for the first frame of video.
+
+A streamer that was stopped comes up in about a second, and the media daemon
+holds every frame back until it has a keyframe to open with, which on a long
+group of pictures is a few seconds more.
+"""
+
+STREAM_KEY = "aiopikvm-live"
+"""What the MJPEG reader names itself, to find its own row in ``clients_stat``."""
+
+
+async def _wait_for_the_streamer(live: PiKVM) -> None:
+    """Wait until kvmd reports the streamer process as running.
+
+    Args:
+        live: The connected client.
+
+    Raises:
+        TimeoutError: The streamer did not come up.
+    """
+    async with asyncio.timeout(STREAM_TIMEOUT):
+        while (await live.streamer.get_state()).streamer is None:
+            await asyncio.sleep(0.5)
+
+
+@contextlib.asynccontextmanager
+async def watching(live: PiKVM) -> AsyncIterator[None]:
+    """Hold a session that asks kvmd for video, and keep reading it.
+
+    kvmd runs the streamer while at least one connected session asks for
+    video, so everything below needs one open. It also has to be *read*:
+    *websockets* stops reading the transport once its inbound queue fills, its
+    own keepalive pong then goes unread, and the connection is closed about
+    forty seconds in — taking the streamer with it (#126).
+
+    Args:
+        live: The connected client.
+
+    Yields:
+        Nothing; the streamer is running for the duration of the block.
+    """
+    async with live.ws(stream=True) as ws:
+
+        async def drain() -> None:
+            async for _ in ws.events():
+                pass
+
+        reader = asyncio.create_task(drain())
+        try:
+            await _wait_for_the_streamer(live)
+            yield
+        finally:
+            reader.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reader
+
+
+async def test_media_daemon_lists_a_video_format(live: PiKVM) -> None:
+    """The media daemon says what it can stream, and a model describes it."""
+    state = await live.media.get_state()
+    assert state.video.h264 is not None or state.video.jpeg is not None
+    assert undeclared_fields(state) == []
+
+
+async def test_media_socket_refuses_a_format_the_daemon_lacks(live: PiKVM) -> None:
+    """A format that does not exist is refused before the socket does.
+
+    No socket is opened here and the streamer is not needed: kvmd validates
+    the query during the upgrade and answers an ordinary HTTP 400.
+    """
+    with pytest.raises(APIError) as caught:
+        async with live.media_ws(video="aiopikvm-does-not-exist"):
+            pass
+    assert caught.value.status_code == 400
+    assert caught.value.error == "ValidatorError"
+
+
+async def test_ustreamer_stream_and_state_agree(live: PiKVM) -> None:
+    """ustreamer's own state, its MJPEG stream, and what kvmd relays (#84)."""
+    async with watching(live):
+        direct = await live.streamer.get_ustreamer_state()
+        relayed = (await live.streamer.get_state()).streamer
+        assert relayed is not None
+        assert undeclared_fields(direct) == []
+        # kvmd polls /state and hands the result through untouched, so these
+        # describe the same process; only the counters move between reads.
+        assert direct.encoder.type == relayed.encoder.type
+        assert direct.source.resolution == relayed.source.resolution
+
+        frames = []
+        async for frame in live.streamer.mjpeg(key=STREAM_KEY, extra_headers=True):
+            frames.append(frame)
+            if len(frames) < 2:
+                continue
+            # Read while the stream is still open: the row disappears with
+            # the connection.
+            stats = (await live.streamer.get_ustreamer_state()).stream.clients_stat
+            assert any(stat.key == STREAM_KEY for stat in stats.values())
+            assert all(stat.extra_headers for stat in stats.values() if stat.key)
+            break
+
+    assert all(frame.data[:2] == b"\xff\xd8" for frame in frames)
+    assert all(frame.width and frame.height for frame in frames)
+    assert all(frame.timestamp for frame in frames)
+
+
+async def test_media_socket_delivers_video(live: PiKVM) -> None:
+    """Both sockets carry frames, and only the regular one flags them (#84).
+
+    The two are checked in one test rather than two so that the device is
+    asked for a session, and a streamer, once.
+    """
+    async with watching(live):
+        async with live.media_ws() as pure:
+            await pure.request_keyframe()
+            assert pure.media is None
+            async with asyncio.timeout(STREAM_TIMEOUT):
+                async for frame in pure.frames():
+                    assert frame.data[:4] == b"\x00\x00\x00\x01"
+                    assert frame.key is None
+                    break
+
+        async with live.media_ws(video=None) as regular:
+            assert regular.media is not None
+            assert regular.media.video.h264 is not None
+            await regular.start()
+            await regular.request_keyframe()
+            async with asyncio.timeout(STREAM_TIMEOUT):
+                async for frame in regular.frames():
+                    assert frame.data[:4] == b"\x00\x00\x00\x01"
+                    # The daemon holds everything back until it has one.
+                    assert frame.key is True
+                    break

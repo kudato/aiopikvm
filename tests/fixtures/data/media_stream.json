@@ -1,0 +1,486 @@
+{
+  "description": "Live video, hand-recorded: ustreamer's own API under /streamer and the kvmd-media daemon under /api/media. The capture tool records neither — it only stores GETs that succeed, and half of what matters here is a refusal, a WebSocket or a stream that never ends. Frame payloads are deliberately absent; they are a picture of the attached host's screen.",
+  "recorded_with": "httpx and websockets by hand; every step carries what it did",
+  "steps": [
+    {
+      "name": "state_stopped",
+      "description": "ustreamer's own state with nobody watching. kvmd stops the process when no session asks for video, and nginx has nothing to proxy to, so this is an nginx page rather than a kvmd envelope.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/state"
+      },
+      "status": 502,
+      "content_type": "text/html; charset=utf-8",
+      "body_excerpt": "<head><title>502 Bad Gateway</title></head>"
+    },
+    {
+      "name": "state_idle",
+      "description": "The same read while a session is watching. The result is what kvmd relays verbatim into the `streamer` block of `GET /api/streamer` — it reads `/state` and hands the `result` through untouched.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/state"
+      },
+      "status": 200,
+      "content_type": "application/json",
+      "response": {
+        "ok": true,
+        "result": {
+          "instance_id": "",
+          "encoder": {
+            "type": "M2M-IMAGE",
+            "quality": 80
+          },
+          "h264": {
+            "bitrate": 15000,
+            "gop": 0,
+            "online": false,
+            "fps": 0
+          },
+          "sinks": {
+            "jpeg": {
+              "has_clients": false
+            },
+            "h264": {
+              "has_clients": false
+            }
+          },
+          "source": {
+            "resolution": {
+              "width": 1920,
+              "height": 1080
+            },
+            "online": true,
+            "desired_fps": 20,
+            "captured_fps": 60
+          },
+          "stream": {
+            "queued_fps": 0,
+            "clients": 0,
+            "clients_stat": {}
+          }
+        }
+      }
+    },
+    {
+      "name": "stream_plain",
+      "description": "Two parts of the MJPEG stream, default query. Only the part headers are recorded: the data is a picture of the attached host's screen, so its length and first four bytes (JPEG SOI plus an APP1 marker) stand in.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/stream"
+      },
+      "status": 200,
+      "content_type": "multipart/x-mixed-replace;boundary=boundarydonotcross",
+      "parts": [
+        {
+          "headers": {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "61750",
+            "X-Timestamp": "1787389614.327000"
+          },
+          "data_len": 61750,
+          "data_head": "ffd8ffe1"
+        },
+        {
+          "headers": {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "61750",
+            "X-Timestamp": "1787389615.838000"
+          },
+          "data_len": 61750,
+          "data_head": "ffd8ffe1"
+        }
+      ]
+    },
+    {
+      "name": "stream_extra_headers",
+      "description": "The same stream with `extra_headers=1`, which adds ustreamer's own annotations to every part.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/stream",
+        "params": {
+          "extra_headers": 1
+        }
+      },
+      "status": 200,
+      "content_type": "multipart/x-mixed-replace;boundary=boundarydonotcross",
+      "parts": [
+        {
+          "headers": {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "61750",
+            "X-Timestamp": "1787389615.972000",
+            "X-UStreamer-Online": "true",
+            "X-UStreamer-Dropped": "2",
+            "X-UStreamer-Width": "1920",
+            "X-UStreamer-Height": "1080",
+            "X-UStreamer-Client-FPS": "0",
+            "X-UStreamer-Grab-Begin-Time": "9619.979000",
+            "X-UStreamer-Grab-End-Time": "9619.996000",
+            "X-UStreamer-Encode-Begin-Time": "9619.996000",
+            "X-UStreamer-Encode-End-Time": "9620.017000",
+            "X-UStreamer-Expose-Begin-Time": "9620.163000",
+            "X-UStreamer-Expose-Cmp-Time": "9620.163000",
+            "X-UStreamer-Expose-End-Time": "9620.163000",
+            "X-UStreamer-Send-Time": "9620.163000",
+            "X-UStreamer-Latency": "0.184000"
+          },
+          "data_len": 61750,
+          "data_head": "ffd8ffe1"
+        },
+        {
+          "headers": {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "61750",
+            "X-Timestamp": "1787389617.423000",
+            "X-UStreamer-Online": "true",
+            "X-UStreamer-Dropped": "0",
+            "X-UStreamer-Width": "1920",
+            "X-UStreamer-Height": "1080",
+            "X-UStreamer-Client-FPS": "1",
+            "X-UStreamer-Grab-Begin-Time": "9621.564000",
+            "X-UStreamer-Grab-End-Time": "9621.581000",
+            "X-UStreamer-Encode-Begin-Time": "9621.581000",
+            "X-UStreamer-Encode-End-Time": "9621.602000",
+            "X-UStreamer-Expose-Begin-Time": "9621.615000",
+            "X-UStreamer-Expose-Cmp-Time": "9621.615000",
+            "X-UStreamer-Expose-End-Time": "9621.615000",
+            "X-UStreamer-Send-Time": "9621.615000",
+            "X-UStreamer-Latency": "0.051000"
+          },
+          "data_len": 61750,
+          "data_head": "ffd8ffe1"
+        }
+      ]
+    },
+    {
+      "name": "stream_zero_data",
+      "description": "`zero_data=1` keeps the part headers and drops the JPEG data, which is what makes a frame-timing reader cheap.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/stream",
+        "params": {
+          "zero_data": 1,
+          "extra_headers": 1
+        }
+      },
+      "status": 200,
+      "content_type": "multipart/x-mixed-replace;boundary=boundarydonotcross",
+      "parts": [
+        {
+          "headers": {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "0",
+            "X-Timestamp": "1787389617.640000",
+            "X-UStreamer-Online": "true",
+            "X-UStreamer-Dropped": "4",
+            "X-UStreamer-Width": "1920",
+            "X-UStreamer-Height": "1080",
+            "X-UStreamer-Client-FPS": "0",
+            "X-UStreamer-Grab-Begin-Time": "9621.564000",
+            "X-UStreamer-Grab-End-Time": "9621.581000",
+            "X-UStreamer-Encode-Begin-Time": "9621.581000",
+            "X-UStreamer-Encode-End-Time": "9621.602000",
+            "X-UStreamer-Expose-Begin-Time": "9621.832000",
+            "X-UStreamer-Expose-Cmp-Time": "9621.832000",
+            "X-UStreamer-Expose-End-Time": "9621.832000",
+            "X-UStreamer-Send-Time": "9621.832000",
+            "X-UStreamer-Latency": "0.268000"
+          },
+          "data_len": 0,
+          "data_head": ""
+        },
+        {
+          "headers": {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "0",
+            "X-Timestamp": "1787389618.992000",
+            "X-UStreamer-Online": "true",
+            "X-UStreamer-Dropped": "0",
+            "X-UStreamer-Width": "1920",
+            "X-UStreamer-Height": "1080",
+            "X-UStreamer-Client-FPS": "1",
+            "X-UStreamer-Grab-Begin-Time": "9623.132000",
+            "X-UStreamer-Grab-End-Time": "9623.150000",
+            "X-UStreamer-Encode-Begin-Time": "9623.150000",
+            "X-UStreamer-Encode-End-Time": "9623.170000",
+            "X-UStreamer-Expose-Begin-Time": "9623.183000",
+            "X-UStreamer-Expose-Cmp-Time": "9623.183000",
+            "X-UStreamer-Expose-End-Time": "9623.183000",
+            "X-UStreamer-Send-Time": "9623.183000",
+            "X-UStreamer-Latency": "0.051000"
+          },
+          "data_len": 0,
+          "data_head": ""
+        }
+      ]
+    },
+    {
+      "name": "stream_advance_headers",
+      "description": "`advance_headers=1` is a Chromium workaround: ustreamer sends the next part's boundary and headers as soon as the current part's data is out, before it has captured the frame they belong to. It cannot know the size or the statistics of a frame that does not exist yet, so the part headers lose `Content-Length` *and* every `X-UStreamer-*` header, even though `extra_headers=1` was asked for alongside. A reader that finds parts by their declared length cannot follow this stream at all, which is why the client does not offer the flag. Recorded with `zero_data=1` so that the bytes below are the framing and nothing of the host's screen.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/stream",
+        "params": {
+          "advance_headers": 1,
+          "extra_headers": 1,
+          "zero_data": 1
+        }
+      },
+      "status": 200,
+      "content_type": "multipart/x-mixed-replace;boundary=boundarydonotcross",
+      "raw": "--boundarydonotcross\r\nContent-Type: image/jpeg\r\nX-Timestamp: 1787389619.075000\r\n\r\n\r\n--boundarydonotcross\r\nContent-Type: image/jpeg\r\nX-Timestamp: 1787389619.075000\r\n\r\n\r\n--boundarydonotcross\r\nContent-Type: image/jpeg\r\nX-Timestamp: 1787389620.577000\r\n\r\n"
+    },
+    {
+      "name": "stream_dual_final_frames",
+      "description": "`dual_final_frames=1` is the Safari workaround, and the other flag the client does not offer. It keeps `Content-Length` and only repeats the last part of a series, so it parses fine — it just exists for a renderer this client does not have.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/stream",
+        "params": {
+          "dual_final_frames": 1,
+          "zero_data": 1
+        }
+      },
+      "status": 200,
+      "raw": "--boundarydonotcross\r\nContent-Type: image/jpeg\r\nContent-Length: 0\r\nX-Timestamp: 1787389620.643000\r\n\r\n\r\n--boundarydonotcross\r\n"
+    },
+    {
+      "name": "state_with_client",
+      "description": "The state again with one named stream client connected. `clients_stat` is keyed by an id ustreamer assigns, and each entry echoes the query the client connected with — `key` is what a caller passes to find its own row.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/state"
+      },
+      "status": 200,
+      "response": {
+        "ok": true,
+        "result": {
+          "instance_id": "",
+          "encoder": {
+            "type": "M2M-IMAGE",
+            "quality": 80
+          },
+          "h264": {
+            "bitrate": 15000,
+            "gop": 0,
+            "online": false,
+            "fps": 0
+          },
+          "sinks": {
+            "jpeg": {
+              "has_clients": false
+            },
+            "h264": {
+              "has_clients": false
+            }
+          },
+          "source": {
+            "resolution": {
+              "width": 1920,
+              "height": 1080
+            },
+            "online": true,
+            "desired_fps": 20,
+            "captured_fps": 60
+          },
+          "stream": {
+            "queued_fps": 1,
+            "clients": 1,
+            "clients_stat": {
+              "9860fd0d3f16c9f9": {
+                "fps": 1,
+                "extra_headers": true,
+                "advance_headers": false,
+                "dual_final_frames": false,
+                "zero_data": false,
+                "key": "aiopikvm-capture"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "stream_bad_flag",
+      "description": "ustreamer parses the flags itself and has no validator: a value it does not understand reads as off, and the stream starts anyway.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/stream",
+        "params": {
+          "extra_headers": "zzz"
+        }
+      },
+      "status": 200,
+      "content_type": "multipart/x-mixed-replace;boundary=boundarydonotcross",
+      "parts": [
+        {
+          "headers": {
+            "Content-Type": "image/jpeg",
+            "Content-Length": "61750",
+            "X-Timestamp": "1787389625.265000"
+          },
+          "data_len": 61750,
+          "data_head": "ffd8ffe1"
+        }
+      ]
+    },
+    {
+      "name": "not_found",
+      "description": "A path ustreamer does not serve. It answers 404 with an HTML page of its own — nothing under /streamer speaks the kvmd envelope on the way out, so an error here carries no `error` field to match on. The 502 in the first step is the other shape: that one is nginx with no upstream to reach.",
+      "request": {
+        "method": "GET",
+        "path": "/streamer/nope"
+      },
+      "status": 404,
+      "content_type": "text/html; charset=utf-8",
+      "body_excerpt": "<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1><p>The requested URL /nope was not found on this"
+    },
+    {
+      "name": "media_state",
+      "description": "What the kvmd-media daemon offers. `video` holds one entry per configured source; the recording device has H.264 only, and the metadata is the SDP `profile-level-id` kvmd hardcodes.",
+      "request": {
+        "method": "GET",
+        "path": "/api/media"
+      },
+      "status": 200,
+      "response": {
+        "ok": true,
+        "result": {
+          "media": {
+            "video": {
+              "h264": {
+                "profile_level_id": "42E01F"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "media_ws_pure",
+      "description": "The pure socket: `?video=<format>` starts the stream during the handshake and every binary message afterwards is one frame of raw video, with no operation byte and no JSON at all. The H.264 is Annex B — `00000001` start code, then the NAL header, `27` for the SPS that opens a keyframe and `21` for a delta frame. Payloads are not recorded: they are the host's screen.",
+      "request": {
+        "method": "GET",
+        "path": "/api/media/ws",
+        "params": {
+          "video": "h264"
+        }
+      },
+      "frames": [
+        {
+          "type": "binary",
+          "data_len": 31427,
+          "data_head": "0000000127"
+        },
+        {
+          "type": "binary",
+          "data_len": 19032,
+          "data_head": "0000000121"
+        },
+        {
+          "type": "binary",
+          "data_len": 33689,
+          "data_head": "0000000127"
+        },
+        {
+          "type": "binary",
+          "data_len": 22197,
+          "data_head": "0000000121"
+        }
+      ]
+    },
+    {
+      "name": "media_ws_regular",
+      "description": "The regular socket, which is what the web UI opens: no query, so the first thing it sends is the same `media` block `GET /api/media` returns, and nothing streams until a `start` event asks for a format. Frames then arrive under operation 1, with a keyframe flag byte before the data. Operation 0 is answered with operation 255. A `start` for a format the daemon does not have, an event type it has no handler for, and an operation number it has no handler for are all ignored in silence — the only frames after them are the video and the second pong.",
+      "request": {
+        "method": "GET",
+        "path": "/api/media/ws"
+      },
+      "frames": [
+        {
+          "type": "text",
+          "msg": {
+            "event_type": "media",
+            "event": {
+              "video": {
+                "h264": {
+                  "profile_level_id": "42E01F"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "binary",
+          "op": 255,
+          "data_len": 1,
+          "data_head": "ff"
+        },
+        {
+          "type": "binary",
+          "op": 1,
+          "data_len": 38184,
+          "data_head": "010100000001"
+        },
+        {
+          "type": "binary",
+          "op": 1,
+          "data_len": 355,
+          "data_head": "010000000001"
+        },
+        {
+          "type": "binary",
+          "op": 1,
+          "data_len": 38183,
+          "data_head": "010100000001"
+        },
+        {
+          "type": "binary",
+          "op": 255,
+          "data_len": 1,
+          "data_head": "ff"
+        }
+      ]
+    },
+    {
+      "name": "media_ws_jpeg",
+      "description": "`video=jpeg` names a format this daemon does not serve, so the upgrade is refused before the socket exists and the answer is an ordinary kvmd error envelope.",
+      "request": {
+        "method": "GET",
+        "path": "/api/media/ws",
+        "params": {
+          "video": "jpeg"
+        }
+      },
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "response": {
+        "ok": false,
+        "result": {
+          "error": "ValidatorError",
+          "error_msg": "Unsupported video type"
+        }
+      }
+    },
+    {
+      "name": "media_ws_unknown",
+      "description": "`video=zzz` names a format this daemon does not serve, so the upgrade is refused before the socket exists and the answer is an ordinary kvmd error envelope.",
+      "request": {
+        "method": "GET",
+        "path": "/api/media/ws",
+        "params": {
+          "video": "zzz"
+        }
+      },
+      "status": 400,
+      "content_type": "application/json; charset=utf-8",
+      "response": {
+        "ok": false,
+        "result": {
+          "error": "ValidatorError",
+          "error_msg": "Unsupported video type"
+        }
+      }
+    }
+  ]
+}

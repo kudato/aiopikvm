@@ -81,6 +81,18 @@ may buffer for [`events()`][aiopikvm.PiKVMWebSocket.events]."""
 _POLL_INTERVAL = 0.02
 """How often a waiting ping rechecks whether another reader took the socket."""
 
+_WS_MAX_SIZE = 2**20
+_WS_MAX_QUEUE = 16
+_WS_PING_INTERVAL = 20.0
+_WS_PING_TIMEOUT = 20.0
+"""*websockets*' own defaults, spelled out so that overriding one is a choice.
+
+They are named here rather than left implicit because the media socket
+overrides them: a video frame is bigger than a control event, and a consumer
+that falls behind on video is a normal thing that must not be mistaken for a
+dead link.
+"""
+
 
 class KvmdVersion(NamedTuple):
     """The kvmd protocol version from the ``loop`` event.
@@ -184,6 +196,10 @@ class _Connector(websockets.asyncio.client.connect):
         proxy: str | Literal[True] | None,
         open_timeout: float,
         close_timeout: float,
+        max_size: int | None = _WS_MAX_SIZE,
+        max_queue: int = _WS_MAX_QUEUE,
+        ping_interval: float | None = _WS_PING_INTERVAL,
+        ping_timeout: float | None = _WS_PING_TIMEOUT,
     ) -> None:
         """Prepare the handshake.
 
@@ -201,6 +217,11 @@ class _Connector(websockets.asyncio.client.connect):
                 directly.
             open_timeout: Seconds to wait for the handshake.
             close_timeout: Seconds to wait for the closing handshake.
+            max_size: Largest message to accept, or ``None`` for no limit.
+            max_queue: How many messages to buffer before pausing the read.
+            ping_interval: Seconds between keepalive pings, ``None`` for none.
+            ping_timeout: Seconds to wait for a keepalive pong, ``None`` to
+                wait forever.
         """
         self._follow_redirects = follow_redirects
         super().__init__(
@@ -210,6 +231,10 @@ class _Connector(websockets.asyncio.client.connect):
             proxy=proxy,
             open_timeout=open_timeout,
             close_timeout=close_timeout,
+            max_size=max_size,
+            max_queue=max_queue,
+            ping_interval=ping_interval,
+            ping_timeout=ping_timeout,
         )
 
     def process_redirect(self, exc: Exception) -> Exception | str:
@@ -312,18 +337,9 @@ class PiKVMWebSocket:
         Raises:
             ConfigurationError: If the URL scheme is not ``https`` or ``http``.
         """
-        parsed = urlparse(url)
-        scheme_map = {"https": "wss", "http": "ws"}
-        ws_scheme = scheme_map.get(parsed.scheme, "")
-        if not ws_scheme:
-            raise ConfigurationError(
-                f"Unsupported URL scheme {parsed.scheme!r}; the PiKVM URL must "
-                "start with https:// or http://"
-            )
-        ws_url = urlunparse(parsed._replace(scheme=ws_scheme))
         # kvmd reads the flag with valid_bool, which takes 1/true/yes and
         # 0/false/no and answers 400 to anything else.
-        self._url = f"{ws_url}/api/ws?stream={'1' if stream else '0'}"
+        self._url = f"{_ws_url(url)}/api/ws?stream={'1' if stream else '0'}"
         self._user = user
         self._passwd = passwd
         self._auth = auth
@@ -428,17 +444,9 @@ class PiKVMWebSocket:
         """Build the credential headers the upgrade request carries.
 
         Returns:
-            The headers for this socket's auth mode. The cookie goes in a
-            plain ``Cookie`` header — a WebSocket handshake is an ordinary
-            HTTP GET, and there is no jar here to keep it in.
+            The headers for this socket's auth mode.
         """
-        if self._auth == "cookie":
-            return {"Cookie": f"auth_token={self._token}"}
-        passwd = self._passwd() if callable(self._passwd) else self._passwd
-        if self._auth == "basic":
-            raw = f"{self._user}:{passwd}".encode()
-            return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
-        return {"X-KVMD-User": self._user, "X-KVMD-Passwd": passwd}
+        return _credential_headers(self._auth, self._user, self._passwd, self._token)
 
     @property
     def version(self) -> KvmdVersion | None:
@@ -1078,6 +1086,60 @@ class PiKVMWebSocket:
                     "squash": squash,
                 },
             )
+
+
+def _ws_url(url: str) -> str:
+    """Turn a PiKVM base URL into the one a WebSocket connects to.
+
+    Args:
+        url: The base URL the client was built with.
+
+    Returns:
+        The same URL with a WebSocket scheme, no trailing path added.
+
+    Raises:
+        ConfigurationError: The scheme is neither ``https`` nor ``http``.
+    """
+    parsed = urlparse(url)
+    scheme = {"https": "wss", "http": "ws"}.get(parsed.scheme, "")
+    if not scheme:
+        raise ConfigurationError(
+            f"Unsupported URL scheme {parsed.scheme!r}; the PiKVM URL must "
+            "start with https:// or http://"
+        )
+    return urlunparse(parsed._replace(scheme=scheme))
+
+
+def _credential_headers(
+    auth: AuthMode,
+    user: str,
+    passwd: str | Callable[[], str],
+    token: str,
+) -> dict[str, str]:
+    """Build the credential headers a WebSocket upgrade request carries.
+
+    Shared by every socket this client opens: the kvmd event socket and the
+    media socket go through the same auth chain a REST call does.
+
+    Args:
+        auth: Which credential to send.
+        user: kvmd user name, for ``"headers"`` and ``"basic"``.
+        passwd: Password, or a callable read at the moment of the handshake so
+            that a rotating TOTP code is the one current then.
+        token: Session token, for ``"cookie"``.
+
+    Returns:
+        The headers for that auth mode. The cookie goes in a plain ``Cookie``
+        header — a WebSocket handshake is an ordinary HTTP GET, and there is
+        no jar here to keep it in.
+    """
+    if auth == "cookie":
+        return {"Cookie": f"auth_token={token}"}
+    value = passwd() if callable(passwd) else passwd
+    if auth == "basic":
+        raw = f"{user}:{value}".encode()
+        return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
+    return {"X-KVMD-User": user, "X-KVMD-Passwd": value}
 
 
 def _merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:

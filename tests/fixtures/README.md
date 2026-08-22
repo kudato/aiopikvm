@@ -143,6 +143,31 @@ middle-button release. The socket was opened with `stream=0`, so the video
 pipeline was untouched. Nothing needs undoing afterwards, but re-recording it
 sends input to somebody's device, so ask first.
 
+`media_stream.json` is the live-video scenario, and the only one with a
+recorder of its own next to it — [`record_media.py`](record_media.py), run the
+same way the capture tool is:
+
+```bash
+PIKVM_URL=https://pikvm.local PIKVM_PASSWD=secret \
+    uv run python tests/fixtures/record_media.py
+```
+
+It is read-only, but it is not something the capture tool could ever produce:
+half of what matters here is a refusal, a WebSocket, or a stream that never
+ends. It holds ustreamer's own state with nobody watching (an nginx **502**, no
+kvmd envelope in sight), with a session watching, and with a named client in
+`clients_stat`; the MJPEG part headers plain, with `extra_headers`, with
+`zero_data`, and under the two browser workaround flags the client does not
+offer; ustreamer's own **404**; the media daemon's state; and both media
+sockets, pure and regular, with the two refused video formats.
+
+No frame payload is in it. An MJPEG part and an H.264 frame are a picture of
+whatever is on the attached host's screen, the same reason
+`/api/streamer/snapshot` is not captured — only each frame's length and first
+few bytes are recorded, which is what the framing tests need. Re-recording it
+holds an event socket open for about a minute and reads video; nothing needs
+undoing afterwards, but it is somebody's device, so ask first.
+
 `redfish_actions.json` is hand-recorded for the same reason: the capture tool
 only records GETs that succeed, and everything interesting about the Redfish
 actions is either an empty 204 or a refusal. It holds the one system id this

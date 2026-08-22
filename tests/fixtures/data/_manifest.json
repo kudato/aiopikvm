@@ -206,6 +206,10 @@
       "file": "hid_keys.json",
       "description": "Every key name kvmd accepts: the keys of its WEB_TO_EVDEV table, sorted. Read off the device rather than off the wire — no endpoint exposes the table — and kept verbatim, so re-running the command diffs clean: python3 -c 'import json; from kvmd.keyboard.mappings import WEB_TO_EVDEV; print(json.dumps({\"keys\": sorted(WEB_TO_EVDEV)}, indent=2))'"
     },
+    "media_stream": {
+      "file": "media_stream.json",
+      "description": "Live video from both surfaces kvmd proxies: ustreamer own API under /streamer and the kvmd-media daemon under /api/media. Holds the ustreamer state with nobody watching, with a session watching and with a named stream client in clients_stat; the MJPEG part headers plain, with extra_headers, with zero_data, and under the two browser workaround flags the client does not offer; the 404 and 502 shapes that carry no kvmd envelope; the media daemon state; and both media sockets, pure and regular, with the two refused video formats."
+    },
     "msd_downloading": {
       "file": "msd_downloading.json",
       "description": "GET /api/msd sampled while a stored image is being read back via GET /api/msd/read (storage.downloading is populated)."
