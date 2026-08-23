@@ -11,6 +11,9 @@ from aiopikvm.resources.switch import SwitchResource
 from tests.fixtures import load_json
 
 ROLES = ("inactive", "active", "flashing", "beacon", "bootloader")
+# The five the guide's converter reads, by name: one going missing would
+# break it just as surely as one changing type.
+COMPONENTS = ("red", "green", "blue", "brightness", "blink_ms")
 
 OK = {"ok": True, "result": {}}
 
@@ -218,7 +221,8 @@ def test_a_colour_read_and_a_colour_written_are_different_types() -> None:
     stringifies the model rather than refusing it, so `red=0 green=255 ...`
     goes out and kvmd answers 400 several layers from the call.
     """
-    assert {f.annotation for f in SwitchColor.model_fields.values()} == {int}
+    components = {name: f.annotation for name, f in SwitchColor.model_fields.items()}
+    assert components == dict.fromkeys(COMPONENTS, int)
     hints = get_type_hints(SwitchResource.set_colors)
     assert {hints[role] for role in ROLES} == {str | None}
 
