@@ -190,6 +190,29 @@ async def test_a_valueless_cookie_does_not_mask_the_token_beside_it(
     assert sum(c.name == "auth_token" for c in client.cookies.jar) == 1
 
 
+async def test_login_reads_the_session_cookie_and_not_a_neighbour(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """A cookie of another name is not the token, however late it lands (#169).
+
+    The walk takes the last match, and the jar orders by path, so anything a
+    proxy files under a longer one comes after kvmd's own.
+    """
+    entry = step("login_form_body")
+    mock_api.post("/api/auth/login").mock(
+        return_value=httpx.Response(
+            entry["status"],
+            json=entry["body"],
+            headers=[
+                ("set-cookie", f"auth_token={TOKEN}; Path=/"),
+                ("set-cookie", "session=decoy; Path=/api"),
+            ],
+        )
+    )
+
+    assert await client.auth.login("admin", "secret") == TOKEN
+
+
 async def test_cookie_mode_survives_two_session_cookies_it_never_asked_for(
     mock_api: respx.MockRouter,
 ) -> None:

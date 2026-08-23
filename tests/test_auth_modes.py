@@ -367,6 +367,38 @@ async def test_cookie_mode_keeps_its_session_past_a_valueless_cookie(
     assert (login.call_count, atx.call_count) == (1, 3)
 
 
+async def test_cookie_mode_reads_the_last_session_cookie_and_only_that_name(
+    mock_api: respx.MockRouter,
+) -> None:
+    """Which entry of a jar holding several is carried (#169).
+
+    A login collapses the jar to one, so this ordering arises only when a
+    later response files an `auth_token` of its own under another path — and
+    then the newer one, which the jar keeps last, is the one kvmd has just
+    handed out. A cookie of some other name is not a session token however
+    late it arrives.
+    """
+    _login_route(mock_api)
+    mock_api.get("/api/atx").mock(
+        return_value=httpx.Response(
+            200,
+            json=OK,
+            headers=[
+                ("set-cookie", f"auth_token={OTHER_TOKEN}; Path=/api"),
+                ("set-cookie", "session=decoy; Path=/api"),
+            ],
+        )
+    )
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        await kvm.request("GET", "/api/atx")
+        assert [(c.path, c.name) for c in kvm.cookies.jar] == [
+            ("/", _COOKIE),
+            ("/api", _COOKIE),
+            ("/api", "session"),
+        ]
+        assert kvm.ws()._credential_headers() == {"Cookie": f"auth_token={OTHER_TOKEN}"}
+
+
 async def test_websocket_carries_the_same_credential() -> None:
     async with PiKVM(URL, user="admin", passwd="secret") as kvm:
         assert kvm.ws()._credential_headers() == {
