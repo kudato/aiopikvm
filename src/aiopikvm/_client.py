@@ -239,6 +239,10 @@ class PiKVM:
         # session expires opens its own, and all but the last are orphaned
         # on the device until they time out.
         self._login_lock = asyncio.Lock()
+        # What a login found out about this device, which the jar cannot say
+        # on its own: an empty jar means either that nothing has logged in
+        # yet or that kvmd runs with authentication off and has none to give.
+        self._auth_off = False
 
     @property
     def _password(self) -> str:
@@ -507,12 +511,22 @@ class PiKVM:
     async def _ensure_session(self, *, refused: str | None = None) -> None:
         """Make sure the cookie jar holds a session token.
 
+        A device with authentication switched off hands out no token, and
+        its empty jar is not a session waiting to be opened. Logging in again
+        for every request would only double the round trips, so that outcome
+        is remembered and counts as a session that is open. A refusal takes
+        the question back: kvmd answering 401 or 403 is a device whose
+        authentication is on after all, and the refresh below logs in
+        whatever was remembered, so the fresh outcome replaces it.
+
         Args:
             refused: The token kvmd has just refused, when this call is a
                 refresh rather than a first login. It is compared with the jar
                 under the lock: a token that is no longer the one in the jar
                 has already been replaced by another task, and the replacement
-                has not been tried yet, so this call has nothing to do.
+                has not been tried yet, so this call has nothing to do. Against
+                a device with authentication off it is ``""``, which is what
+                the jar holds there, so the login does happen.
 
         Raises:
             AuthError: The credentials were refused.
@@ -520,7 +534,7 @@ class PiKVM:
         async with self._login_lock:
             stored = self._session_token()
             if refused is None:
-                if stored:
+                if stored or self._auth_off:
                     return
             elif stored != refused:
                 # Another task logged in while this one waited for the lock;
@@ -536,6 +550,20 @@ class PiKVM:
                 self._totp_code(),
                 expire=self._session_expire,
             )
+
+    def _record_login(self, token: str) -> None:
+        """Remember what a login just found out about this device.
+
+        Called by [`AuthResource.login()`][aiopikvm.resources.auth.AuthResource.login]
+        for every login this client makes, its own and the caller's alike, so
+        that an explicit login against a device with authentication off is
+        worth as much as the one a request makes for itself.
+
+        Args:
+            token: What kvmd handed out — ``""`` when it runs with
+                authentication switched off and has no session to give.
+        """
+        self._auth_off = not token
 
     def _session_token(self) -> str:
         """Return the session token in the jar, if any.
@@ -1058,9 +1086,11 @@ class PiKVM:
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
                 was built with has no usable scheme. Under ``auth="cookie"``
-                a missing session token is reported too, but only once the
+                nothing having logged in is reported too, but only once the
                 socket is entered: the token is read at the handshake, so one
-                minted in between is the one that goes out.
+                minted in between is the one that goes out. A device running
+                with authentication off hands out no token and is not that
+                case — the socket opens and carries nothing.
         """
         self._ws_usable()
         return PiKVMWebSocket(
@@ -1145,9 +1175,11 @@ class PiKVM:
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
                 was built with has no usable scheme. Under ``auth="cookie"``
-                a missing session token is reported too, but only once the
+                nothing having logged in is reported too, but only once the
                 socket is entered: the token is read at the handshake, so one
-                minted in between is the one that goes out.
+                minted in between is the one that goes out. A device running
+                with authentication off hands out no token and is not that
+                case — the socket opens and carries nothing.
         """
         self._ws_usable()
         return MediaWebSocket(
@@ -1240,10 +1272,12 @@ class PiKVM:
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
                 was built with has no usable scheme. The missing ``webrtc``
-                extra is reported here too, and so is a missing session token
-                under ``auth="cookie"`` — but both only once the session is
-                entered. The token is read at the handshake, so one minted in
-                between is the one that goes out.
+                extra is reported here too, and so is nothing having logged
+                in under ``auth="cookie"`` — but both only once the session
+                is entered. The token is read at the handshake, so one minted
+                in between is the one that goes out, and a device running
+                with authentication off, which hands out none, is carried
+                nothing at all.
         """
         self._ws_usable()
         return WebRTCSession(
@@ -1299,7 +1333,10 @@ class PiKVM:
                 message.
 
         Returns:
-            The token under ``auth="cookie"``, otherwise an empty string.
+            The token under ``auth="cookie"``, otherwise an empty string —
+            and an empty string there too once a login has found this device
+            running with authentication off, since a handshake carrying no
+            credential is what such a device accepts.
 
         Raises:
             ConfigurationError: This client has been closed, or it is using
@@ -1318,7 +1355,7 @@ class PiKVM:
                 f"kvm:' and open the {what} socket inside that block."
             )
         token = self._session_token()
-        if not token:
+        if not token and not self._auth_off:
             raise ConfigurationError(
                 f"auth='cookie' has no session token to open a WebSocket "
                 f"with. {what} cannot log in — it is not a coroutine — so "

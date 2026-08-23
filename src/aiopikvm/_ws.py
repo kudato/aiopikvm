@@ -566,13 +566,17 @@ class PiKVMWebSocket:
             This client, connected.
 
         Raises:
-            ConfigurationError: Under ``auth="cookie"``, there is no session
-                token to send. The credential is read here rather than when
-                the socket was built, so a session opened in between is the
-                one that goes out — and one that never was is reported here.
-                For a socket built by a [`PiKVM`][aiopikvm.PiKVM] client, so
-                is that client having been closed, or never entered, since
-                its cookie jar is where the token is read from.
+            ConfigurationError: Under ``auth="cookie"``, nothing has logged
+                in, so there is no session token to send. The credential is
+                read here rather than when the socket was built, so a session
+                opened in between is the one that goes out — and one that
+                never was is reported here. For a socket built by a
+                [`PiKVM`][aiopikvm.PiKVM] client, so is that client having
+                been closed, or never entered, since its cookie jar is where
+                the token is read from. A login that came back without a
+                token, kvmd running with authentication off, is not a session
+                that never was: the handshake then carries no credential,
+                which is what such a device accepts.
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
@@ -737,10 +741,11 @@ class PiKVMWebSocket:
             The headers for this socket's auth mode.
 
         Raises:
-            ConfigurationError: Under ``auth="cookie"``, there is no session
-                token to send. Only a socket built by
-                [`PiKVM.ws()`][aiopikvm.PiKVM.ws] can say that: one built
-                directly was handed whatever token it holds.
+            ConfigurationError: Under ``auth="cookie"``, nothing has logged
+                in, so there is no session token to send. Only a socket built
+                by [`PiKVM.ws()`][aiopikvm.PiKVM.ws] can say that: one built
+                directly was handed whatever token it holds, and sends no
+                credential header at all when that is empty.
         """
         return _credential_headers(self._auth, self._user, self._passwd, self._token)
 
@@ -1504,10 +1509,18 @@ def _credential_headers(
     Returns:
         The headers for that auth mode. The cookie goes in a plain ``Cookie``
         header — a WebSocket handshake is an ordinary HTTP GET, and there is
-        no jar here to keep it in.
+        no jar here to keep it in. No header at all when there is no token to
+        put in one, which is a device running with authentication off. kvmd
+        cannot tell the difference — its cookie check reads the value and
+        skips a falsy one, so ``auth_token=`` and no header alike fall
+        through to the next credential source — but a request made under the
+        same mode sends no ``Cookie`` either, httpx having nothing in the jar
+        to send, and a handshake that differs from it would be saying
+        something the REST path does not.
     """
     if auth == "cookie":
-        return {"Cookie": f"auth_token={token() if callable(token) else token}"}
+        value = token() if callable(token) else token
+        return {"Cookie": f"auth_token={value}"} if value else {}
     value = passwd() if callable(passwd) else passwd
     if auth == "basic":
         raw = f"{user}:{value}".encode()

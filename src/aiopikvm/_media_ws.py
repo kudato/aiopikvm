@@ -221,13 +221,17 @@ class MediaWebSocket:
             This client, connected.
 
         Raises:
-            ConfigurationError: Under ``auth="cookie"``, there is no session
-                token to send. The credential is read here rather than when
-                the socket was built, so a session opened in between is the
-                one that goes out — and one that never was is reported here.
-                For a socket built by a [`PiKVM`][aiopikvm.PiKVM] client, so
-                is that client having been closed, or never entered, since
-                its cookie jar is where the token is read from.
+            ConfigurationError: Under ``auth="cookie"``, nothing has logged
+                in, so there is no session token to send. The credential is
+                read here rather than when the socket was built, so a session
+                opened in between is the one that goes out — and one that
+                never was is reported here. For a socket built by a
+                [`PiKVM`][aiopikvm.PiKVM] client, so is that client having
+                been closed, or never entered, since its cookie jar is where
+                the token is read from. A login that came back without a
+                token, kvmd running with authentication off, is not a session
+                that never was: the handshake then carries no credential,
+                which is what such a device accepts.
             AuthError: kvmd refused the credentials during the upgrade — 401
                 when none reached it, 403 when the ones that did were
                 rejected.
@@ -275,10 +279,11 @@ class MediaWebSocket:
             The headers for this socket's auth mode.
 
         Raises:
-            ConfigurationError: Under ``auth="cookie"``, there is no session
-                token to send. Only a socket built by
-                [`PiKVM.media_ws()`][aiopikvm.PiKVM.media_ws] can say that:
-                one built directly was handed whatever token it holds.
+            ConfigurationError: Under ``auth="cookie"``, nothing has logged
+                in, so there is no session token to send. Only a socket built
+                by [`PiKVM.media_ws()`][aiopikvm.PiKVM.media_ws] can say
+                that: one built directly was handed whatever token it holds,
+                and sends no credential header at all when that is empty.
         """
         return _credential_headers(self._auth, self._user, self._passwd, self._token)
 
