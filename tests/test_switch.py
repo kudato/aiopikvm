@@ -1,11 +1,16 @@
 """SwitchResource tests."""
 
+from typing import get_type_hints
+
 import httpx
 import pytest
 import respx
 
-from aiopikvm import ConfigurationError, PiKVM, ResponseError
+from aiopikvm import ConfigurationError, PiKVM, ResponseError, SwitchColor
+from aiopikvm.resources.switch import SwitchResource
 from tests.fixtures import load_json
+
+ROLES = ("inactive", "active", "flashing", "beacon", "bootloader")
 
 OK = {"ok": True, "result": {}}
 
@@ -201,6 +206,21 @@ async def test_change_edid_without_changes(client: PiKVM) -> None:
 async def test_set_colors_without_roles(client: PiKVM) -> None:
     with pytest.raises(ConfigurationError, match="at least one role"):
         await client.switch.set_colors()
+
+
+def test_a_colour_read_and_a_colour_written_are_different_types() -> None:
+    """What the guide's colour converter rests on (#148).
+
+    `state.colors` holds integer components while `set_colors()` takes
+    `RRGGBB:BB:IIII` strings, so a colour read from the state cannot be handed
+    back to the setter unchanged — which is why `switch.md` reformats it. The
+    mistake that section warns about costs a round trip to find: httpx
+    stringifies the model rather than refusing it, so `red=0 green=255 ...`
+    goes out and kvmd answers 400 several layers from the call.
+    """
+    assert {f.annotation for f in SwitchColor.model_fields.values()} == {int}
+    hints = get_type_hints(SwitchResource.set_colors)
+    assert {hints[role] for role in ROLES} == {str | None}
 
 
 async def test_set_port_params(mock_api: respx.MockRouter, client: PiKVM) -> None:

@@ -56,8 +56,8 @@ Everything is empty on a PiKVM with no switch attached.
 ## Switch active port
 
 Ports are addressed by number, counting from `0` across the whole chain. On a
-multi-unit chain the `unit.port` form selects the same ports. The `id` strings
-from the state are display labels and are not accepted here:
+multi-unit chain the `unit.port` form selects the same ports, and it is 1-based
+in both halves:
 
 ```python
 await kvm.switch.set_active(1)
@@ -65,6 +65,11 @@ await kvm.switch.set_active(1)
 # On a chain: unit 1, port 3
 await kvm.switch.set_active(1.3)
 ```
+
+The `id` in the state is that same 1-based label. On a chain `float(port.id)`
+therefore addresses the port it belongs to, but on a single unit `id` is one
+greater than the port's index — `"3"` is `model.ports[2]` — so a position taken
+from `model.ports` is the form that means the same thing on both.
 
 ## EDID management
 
@@ -102,7 +107,16 @@ await kvm.switch.set_port_params(0, edid_id=edid_id)
 ```python
 await kvm.switch.change_edid(edid_id, name="Renamed")
 await kvm.switch.change_edid(edid_id, data="00FFFFFFFFFFFF00...")
+
+await kvm.switch.change_edid(edid_id)   # ConfigurationError
 ```
+
+A call with neither is refused here rather than sent: kvmd answers it with
+success and changes nothing. It raises
+[`ConfigurationError`](error-handling.md), which is **not** an `APIError` —
+nothing was sent, so there is no status to carry — and an `except APIError`
+around device calls does not catch it. `set_beacon()` and `set_colors()` below
+have a refusal of their own.
 
 ### Remove an EDID
 
@@ -136,7 +150,18 @@ await kvm.switch.set_beacon(False, port=3)
 
 # The uplink beacon of unit 1
 await kvm.switch.set_beacon(True, uplink=1)
+
+# The downlink beacon of unit 1
+await kvm.switch.set_beacon(True, downlink=1)
+
+await kvm.switch.set_beacon(True)              # ConfigurationError
+await kvm.switch.set_beacon(True, port=3, uplink=1)   # ConfigurationError
 ```
+
+Not exactly one target is refused before anything is sent. kvmd checks the
+three in the order `port`, `uplink`, `downlink` and falls through to
+`downlink` when none is present, which answers 400 — so the call that names
+two would silently act on the first of them.
 
 ## Indicator colours
 
@@ -151,8 +176,34 @@ await kvm.switch.set_colors(
 )
 ```
 
-Roles left out keep their current colour. The current ones are in
-`state.colors`.
+Roles left out keep their current colour, and a call with no role at all is
+refused before anything is sent:
+
+```python
+await kvm.switch.set_colors()   # ConfigurationError
+```
+
+The current ones are in `state.colors`, as `SwitchColor` models with integer
+components rather than as the strings this call takes — so a read cannot be
+handed back to it unchanged. Formatting one:
+
+```python
+from aiopikvm import SwitchColor
+
+
+def as_param(colour: SwitchColor) -> str:
+    return (
+        f"{colour.red:02X}{colour.green:02X}{colour.blue:02X}"
+        f":{colour.brightness:02X}:{colour.blink_ms:04X}"
+    )
+
+state = await kvm.switch.get_state()
+await kvm.switch.set_colors(active=as_param(state.colors.beacon))
+```
+
+Passing the model itself raises nothing locally — httpx stringifies it and
+sends `red=0 green=255 …` — and comes back as an HTTP 400 `ValidatorError`
+several layers away from the mistake.
 
 ## Port configuration
 
