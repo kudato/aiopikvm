@@ -435,9 +435,11 @@ apply to the binary encoding:
 
 It is off by default because JSON is what this client has always sent, and it
 is the encoding a packet capture can be read in. The binary channel is verified
-against kvmd 4.206: every frame this client builds was sent to that device and
-accepted by it. The `ws_binary` fixture holds three more that were sent and
-refused, which is how the refusals below are known to be silent.
+against kvmd 4.206: every frame in the `ws_binary` fixture was sent to that
+device and what became of it recorded. Ten were accepted. Three were not — a
+key name kvmd's validator refuses, which this client sends as given, and two
+malformed frames that record the shape of a bug rather than anything the client
+builds — and that is how the refusals below are known to be silent.
 
 Whichever encoding you use, kvmd drops what it cannot decode without telling
 the client: a key name its validator refuses, a frame too short to unpack, an
