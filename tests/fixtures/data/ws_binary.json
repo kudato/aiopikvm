@@ -140,7 +140,7 @@
       "inactivity_after": 7,
       "accepted": false,
       "expected_accepted": false,
-      "note": "three bytes where struct.unpack wants five: dropped the same silent way. Kept as documentation, not as a mock: send_mouse_move() packs two shorts every time, so this is the shape of a bug rather than a frame this client can build"
+      "note": "three bytes where a whole frame is five: struct.unpack gets two where it wants four, and it is dropped the same silent way. Kept as documentation, not as a mock: send_mouse_move() packs two shorts every time, so this is the shape of a bug rather than a frame this client can build"
     },
     {
       "name": "delta_batch_odd_length",
@@ -149,7 +149,7 @@
       "inactivity_after": 11,
       "accepted": false,
       "expected_accepted": false,
-      "note": "a pair and a half: struct.unpack fails on the last two bytes and the whole batch is dropped. Kept as documentation, not as a mock: the delta batches are packed a pair at a time, so an odd tail is the shape of a bug rather than a frame this client can build"
+      "note": "half a pair: struct.unpack wants two bytes where the frame has one, and the whole batch is dropped. Kept as documentation, not as a mock: the delta batches are packed a pair at a time, so an odd tail is the shape of a bug rather than a frame this client can build"
     },
     {
       "name": "hid_baseline",
