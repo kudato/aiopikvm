@@ -733,10 +733,11 @@ async def test_mjpeg_ignores_unparsable_headers(
     assert frames[0].width is None
 
 
+@pytest.mark.parametrize("chunk_size", [65536, 8])
 async def test_mjpeg_drops_what_the_close_delimiter_ends(
-    mock_api: respx.MockRouter, client: PiKVM
+    mock_api: respx.MockRouter, client: PiKVM, chunk_size: int
 ) -> None:
-    """The close delimiter discards the rest of the buffer it arrived in.
+    """The close delimiter ends the stream, wherever the reads fall.
 
     `multipart()` leaves the next part's boundary on the wire, the way a
     stream that never ends does. Closing it means `--<boundary>--`, which is
@@ -747,13 +748,12 @@ async def test_mjpeg_drops_what_the_close_delimiter_ends(
     two apart: it is dropped here, and read as a third frame if the branch
     goes (#144).
 
-    Dropped, not ignored: `_take()` empties the buffer and the reader carries
-    on, so a part arriving in a *later* read is parsed like any other. These
-    bytes reach `feed()` together at the default `chunk_size`, which is why
-    the epilogue is inside the buffer being discarded; handing the reader
-    `closed` and then `epilogue` as two reads yields three frames. What this
-    pins is the branch, then, not an end to the iteration — the reader does
-    not latch closed, which is its own defect and not this test's to settle.
+    The two chunk sizes are the same bytes cut differently. At the default
+    the delimiter and the epilogue reach `feed()` together and emptying the
+    buffer was enough; at eight they arrive in separate reads, and the reader
+    used to parse the epilogue like any other part — so whether RFC 2046
+    §5.1.1 was honoured came down to where a socket read happened to fall
+    (#176).
     """
     (body, content_type) = multipart("stream_plain")
     boundary = content_type.partition("boundary=")[2].encode()
@@ -770,8 +770,8 @@ async def test_mjpeg_drops_what_the_close_delimiter_ends(
     )
     # ustreamer never ends its stream, so this only turns up when something
     # else finished the body for it — and it is not a missing Content-Length.
-    frames = [frame async for frame in client.streamer.mjpeg()]
-    assert len(frames) == 2
+    frames = [frame async for frame in client.streamer.mjpeg(chunk_size=chunk_size)]
+    assert [frame.data[:4] for frame in frames] == [b"\xff\xd8\xff\xe1"] * 2
 
 
 async def test_the_safari_workaround_stream_still_parses(

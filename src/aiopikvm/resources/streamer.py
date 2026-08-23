@@ -513,7 +513,7 @@ class _MultipartReader:
     does not offer.
     """
 
-    __slots__ = ("_buf", "_marker")
+    __slots__ = ("_buf", "_closed", "_marker")
 
     def __init__(self, boundary: bytes) -> None:
         """Prepare a reader.
@@ -523,6 +523,18 @@ class _MultipartReader:
         """
         self._marker = b"--" + boundary
         self._buf = b""
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Whether the close delimiter has been seen.
+
+        Returns:
+            ``True`` once the body has ended, which is for good: RFC 2046
+            §5.1.1 says everything after the close delimiter is to be
+            ignored.
+        """
+        return self._closed
 
     def feed(self, chunk: bytes) -> Iterator[tuple[dict[str, str], bytes]]:
         """Add bytes to the buffer and hand back whatever completed a part.
@@ -531,12 +543,17 @@ class _MultipartReader:
             chunk: The bytes as they came off the socket.
 
         Yields:
-            Each whole part as its headers and its data.
+            Each whole part as its headers and its data. Nothing at all once
+            the close delimiter has been seen — an epilogue is not a part,
+            and whether it shared a read with the delimiter is not something
+            it should depend on (#176).
 
         Raises:
             ResponseError: A part arrived with no ``Content-Length``, so there
                 is no way to tell where its data ends.
         """
+        if self._closed:
+            return
         self._buf += chunk
         while True:
             part = self._take()
@@ -548,11 +565,14 @@ class _MultipartReader:
         """Take the next whole part out of the buffer.
 
         Returns:
-            The part, or ``None`` while the buffer does not hold one yet.
+            The part, or ``None`` while the buffer does not hold one yet —
+            and for good once the close delimiter has been read.
 
         Raises:
             ResponseError: A part arrived with no ``Content-Length``.
         """
+        if self._closed:
+            return None
         start = self._buf.find(self._marker)
         if start < 0:
             # Nothing but preamble so far. Keep only enough of it to
@@ -563,8 +583,13 @@ class _MultipartReader:
             self._buf = self._buf[start:]
         if self._buf[len(self._marker) : len(self._marker) + 2] == b"--":
             # The closing boundary. ustreamer's stream has no end, so this
-            # only turns up when something else finished the body for it.
+            # only turns up when something else finished the body for it —
+            # which is when trailing bytes are least worth trusting. Latched
+            # rather than merely emptied: whatever follows was ignored only
+            # when it happened to arrive in the same read as the delimiter,
+            # and came back as a frame when it did not (#176).
             self._buf = b""
+            self._closed = True
             return None
         head_end = self._buf.find(b"\r\n\r\n", len(self._marker))
         if head_end < 0:
