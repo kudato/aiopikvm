@@ -1,0 +1,2199 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Async Python client for PiKVM API">
+      
+      
+      
+        <link rel="canonical" href="https://kudato.github.io/aiopikvm/guide/redfish/">
+      
+      
+        <link rel="prev" href="../switch/">
+      
+      
+        <link rel="next" href="../prometheus/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Redfish BMC - aiopikvm</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#redfish-bmc" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="aiopikvm" class="md-header__button md-logo" aria-label="aiopikvm" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            aiopikvm
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Redfish BMC
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="deep-purple"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/kudato/aiopikvm" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    kudato/aiopikvm
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="aiopikvm" class="md-nav__button md-logo" aria-label="aiopikvm" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    aiopikvm
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/kudato/aiopikvm" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    kudato/aiopikvm
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../atx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ATX Power Control
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HID Keyboard & Mouse
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../msd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mass Storage (MSD)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gpio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPIO Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../streamer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Streamer & OCR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../video/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Live Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../webrtc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebRTC Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../switch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    KVM Switch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Redfish BMC
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Redfish BMC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#service-root" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service root
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Systems
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Systems">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system-ids" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System ids
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update system
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reset
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reset-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reset types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#virtual-media" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Virtual media
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Virtual media">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#insert-and-eject" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Insert and eject
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-kvmd-defects-on-this-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two kvmd defects on this path
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full example
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../prometheus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Prometheus Metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    System Info & Logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../websocket/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebSocket
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../error-handling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Error Handling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/client/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PiKVM Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/ws/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebSocket
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/media-ws/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Media WebSocket
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/webrtc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    WebRTC Session
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/exceptions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exceptions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Resources
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/auth/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AuthResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/atx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ATXResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/hid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    HIDResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/msd/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MSDResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/gpio/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GPIOResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/streamer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    StreamerResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/media/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MediaResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/switch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SwitchResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/redfish/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RedfishResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/prometheus/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PrometheusResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/resources/system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SystemResource
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#service-root" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Service root
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Systems
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Systems">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system-ids" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System ids
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#update-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Update system
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reset" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reset
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reset">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reset-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reset types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#managers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Managers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#virtual-media" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Virtual media
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Virtual media">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#insert-and-eject" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Insert and eject
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-kvmd-defects-on-this-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two kvmd defects on this path
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#full-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full example
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="redfish-bmc">Redfish BMC<a class="headerlink" href="#redfish-bmc" title="Permanent link">&para;</a></h1>
+<p>kvmd implements enough of the DMTF Redfish schema for generic BMC tooling to
+read a machine's power state and change it. It is a subset in two directions:
+<code>ComputerSystem</code> exposes power and nothing else, and the documents are plain
+Redfish JSON rather than the <code>{"ok": true, "result": ...}</code> envelope the rest of
+the API uses.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Failures still arrive in the kvmd envelope, so they reach you as the usual
+<a class="autorefs autorefs-internal" href="../../reference/exceptions/#aiopikvm.APIError"><code>APIError</code></a> and friends — only the successful bodies
+are plain Redfish.</p>
+</div>
+<h2 id="service-root">Service root<a class="headerlink" href="#service-root" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="n">root</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_root</span><span class="p">()</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">root</span><span class="p">[</span><span class="s2">&quot;RedfishVersion&quot;</span><span class="p">])</span>  <span class="c1"># &quot;1.6.0&quot;</span>
+</code></pre></div>
+<h2 id="systems">Systems<a class="headerlink" href="#systems" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">systems</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_systems</span><span class="p">()</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nb">print</span><span class="p">(</span><span class="n">systems</span><span class="p">[</span><span class="s2">&quot;Members@odata.count&quot;</span><span class="p">])</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">system</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_system</span><span class="p">()</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">system</span><span class="p">[</span><span class="s2">&quot;PowerState&quot;</span><span class="p">])</span>  <span class="c1"># &quot;On&quot; / &quot;Off&quot;</span>
+</code></pre></div>
+<p><code>Members</code> is a list of links, not of ids:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="s2">&quot;Members&quot;</span><span class="p">:</span> <span class="p">[{</span><span class="s2">&quot;@odata.id&quot;</span><span class="p">:</span> <span class="s2">&quot;/redfish/v1/Systems/0&quot;</span><span class="p">},</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>             <span class="p">{</span><span class="s2">&quot;@odata.id&quot;</span><span class="p">:</span> <span class="s2">&quot;/redfish/v1/Systems/SwitchPort0&quot;</span><span class="p">},</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>             <span class="p">{</span><span class="s2">&quot;@odata.id&quot;</span><span class="p">:</span> <span class="s2">&quot;/redfish/v1/Systems/SwitchPort1&quot;</span><span class="p">},</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>             <span class="p">{</span><span class="s2">&quot;@odata.id&quot;</span><span class="p">:</span> <span class="s2">&quot;/redfish/v1/Systems/SwitchPort2&quot;</span><span class="p">},</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>             <span class="p">{</span><span class="s2">&quot;@odata.id&quot;</span><span class="p">:</span> <span class="s2">&quot;/redfish/v1/Systems/SwitchPort3&quot;</span><span class="p">}]}</span>
+</code></pre></div>
+<p>There is one for <code>"0"</code> when the ATX subsystem is enabled, and one per port of
+an attached PiKVM Switch — four per switch unit, so the port count goes 4, 8,
+12 and not 1, 2, 3. To feed them back to <code>get_system()</code>, take the tail of
+each path:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">systems</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_systems</span><span class="p">()</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="n">member</span><span class="p">[</span><span class="s2">&quot;@odata.id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">member</span> <span class="ow">in</span> <span class="n">systems</span><span class="p">[</span><span class="s2">&quot;Members&quot;</span><span class="p">]]</span>
+</code></pre></div>
+<p>On a device with ATX disabled and no switch the collection is <strong>empty</strong> while
+<code>Systems/0</code> still resolves — the collection lists what can be powered, not what
+can be read.</p>
+<h3 id="system-ids">System ids<a class="headerlink" href="#system-ids" title="Permanent link">&para;</a></h3>
+<p>kvmd validates the id as a string and accepts exactly two forms:</p>
+<table>
+<thead>
+<tr>
+<th>Id</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"0"</code></td>
+<td>the machine PiKVM itself is wired to</td>
+</tr>
+<tr>
+<td><code>"SwitchPort&lt;N&gt;"</code></td>
+<td>port <em>N</em> of an attached PiKVM Switch, counted from 0</td>
+</tr>
+</tbody>
+</table>
+<p>Redfish numbers the ports from 0 while the switch's own <code>id</code> starts at 1, so
+the port labelled "1" in the switch UI is <code>SwitchPort0</code>.</p>
+<p>Everything else is refused with HTTP 400 — <code>"1"</code> and <code>"00"</code> included, because
+<code>"00"</code> is not the string <code>"0"</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_system</span><span class="p">(</span><span class="s2">&quot;1&quot;</span><span class="p">)</span>  <span class="c1"># APIError: Missing or invalid Server ID</span>
+</code></pre></div>
+<p>A well-formed port id on a device with no switch attached gets its own
+message, <code>Non-existent Switch Port ID</code>.</p>
+<h2 id="update-system">Update system<a class="headerlink" href="#update-system" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">update_system</span><span class="p">(</span><span class="n">IndicatorLED</span><span class="o">=</span><span class="s2">&quot;Lit&quot;</span><span class="p">)</span>
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>kvmd accepts this and does nothing. The handler is a stub that answers
+HTTP 204, ignores the body and does not even look at the system id; it
+exists so that BMC tooling which PATCHes a system as part of its normal
+flow does not fail. A read straight afterwards returns exactly what it
+returned before, which is why the call returns <code>None</code>.</p>
+</div>
+<h2 id="reset">Reset<a class="headerlink" href="#reset" title="Permanent link">&para;</a></h2>
+<p><code>ComputerSystem.Reset</code> is the Redfish spelling of the ATX calls, and it acts on
+real hardware.</p>
+<div class="admonition danger">
+<p class="admonition-title">Danger</p>
+<p>The default is <code>"ForceRestart"</code>, a press of the host's reset switch: no
+clean shutdown, no chance to flush anything to disk. Pass the reset type
+you mean.</p>
+</div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="s2">&quot;GracefulShutdown&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="s2">&quot;ForceOff&quot;</span><span class="p">,</span> <span class="s2">&quot;SwitchPort0&quot;</span><span class="p">)</span>  <span class="c1"># a port of the switch</span>
+</code></pre></div>
+<p>The call returns <code>None</code>. kvmd answers HTTP 204 with an empty body, and the
+action is asynchronous besides — read the outcome from <code>PowerState</code>, or from
+<a class="autorefs autorefs-internal" title="get_state()
+
+  
+      async
+  " href="../../reference/resources/atx/#aiopikvm.resources.atx.ATXResource.get_state"><code>atx.get_state()</code></a>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="s2">&quot;On&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">await</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nb">print</span><span class="p">((</span><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_system</span><span class="p">())[</span><span class="s2">&quot;PowerState&quot;</span><span class="p">])</span>
+</code></pre></div>
+<p>With the ATX subsystem disabled in the kvmd config, a reset of <code>"0"</code> still
+answers 204 and does nothing at all, so there is no error to catch — check
+<code>ATXState.enabled</code> first where that matters.</p>
+<div class="admonition danger">
+<p class="admonition-title">Danger</p>
+<p>A switch port is <strong>not</strong> covered by that. kvmd checks <code>enabled</code> only on the
+<code>"0"</code> branch; a <code>"SwitchPort&lt;N&gt;"</code> reset goes straight to the switch and
+acts on the port whatever <code>atx.type</code> is set to. On a device with the ATX
+plugin disabled <em>and</em> a switch attached — a normal configuration — the two
+ids behave completely differently.</p>
+<p>A reset also does <strong>not</strong> bounds-check the port: kvmd validates the form
+of the id and then drops a command for a port that does not exist, so
+<code>reset("ForceOff", "SwitchPort9")</code> on a four-port switch answers 204 and
+does nothing. <code>get_system("SwitchPort9")</code> does answer 400 — use it to
+check an id you did not build yourself. A port that is busy with an
+earlier click on the same line drops the command silently too, where <code>"0"</code>
+would raise <code>BusyError</code>. kvmd holds the power line and the reset line
+independently, so a <code>ForceRestart</code> is not blocked by a running power
+click.</p>
+</div>
+<h3 id="reset-types">Reset types<a class="headerlink" href="#reset-types" title="Permanent link">&para;</a></h3>
+<p>kvmd accepts these six, matched <strong>case-sensitively</strong> — unlike the output,
+button and compression names elsewhere in this client, which it lowercases
+first. <code>reset()</code> takes them as the <code>ResetType</code> type, so a name from the wider
+DMTF schema is caught by the type checker instead of only at runtime, where
+kvmd answers HTTP 400 — the alias is a <code>Literal</code> and enforces nothing itself.
+<code>RESET_TYPES</code> is the same list to check against for a name that is not known
+until then:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">aiopikvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">RESET_TYPES</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">RESET_TYPES</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># (&quot;On&quot;, &quot;ForceOn&quot;, &quot;ForceOff&quot;, &quot;GracefulShutdown&quot;,</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1">#  &quot;ForceRestart&quot;, &quot;PushPowerButton&quot;)</span>
+</code></pre></div>
+<p>Each one presses a front-panel switch, and all but the last are conditional on
+the host's current power state:</p>
+<table>
+<thead>
+<tr>
+<th>ResetType</th>
+<th>What kvmd does</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>On</code></td>
+<td>short power click</td>
+<td>only if the host is off</td>
+</tr>
+<tr>
+<td><code>ForceOn</code></td>
+<td>the same call as <code>On</code></td>
+<td>only if the host is off</td>
+</tr>
+<tr>
+<td><code>ForceOff</code></td>
+<td>power switch held down (5.5 s by default)</td>
+<td>only if the host is on</td>
+</tr>
+<tr>
+<td><code>GracefulShutdown</code></td>
+<td>short power click, for the OS to act on</td>
+<td>only if the host is on</td>
+</tr>
+<tr>
+<td><code>ForceRestart</code></td>
+<td>click on the <strong>reset</strong> switch</td>
+<td>only if the host is on</td>
+</tr>
+<tr>
+<td><code>PushPowerButton</code></td>
+<td>short power click</td>
+<td>no power-state condition</td>
+</tr>
+</tbody>
+</table>
+<p>Every click duration is configurable: <code>atx.click_delay</code> (0.1 s) and
+<code>atx.long_click_delay</code> (5.5 s) for the machine PiKVM is wired to, per-port
+settings for a switch. A switch's long click defaults to the same 5.5 s; its
+short click and reset click default to 0.5 s rather than 0.1 s.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>ForceRestart</code> does not cut the power — it is the reset line. And the
+conditional types check the power state kvmd reads from the host's <strong>power
+LED</strong>, the same source as <code>PowerState</code>, so <code>reset("ForceRestart")</code> against
+a host kvmd believes to be off does nothing at all and still answers 204.
+Where that LED is miswired or unread, the conditional types become
+unpredictable — compare <code>PowerState</code> against reality before relying on
+them. The switch-port branch gates on the same LED, read per port.</p>
+</div>
+<p>The DMTF schema defines more — <code>GracefulRestart</code>, <code>Nmi</code>, <code>PowerCycle</code> — and
+kvmd refuses all of them with HTTP 400 before taking any action, as it does a
+wrong case such as <code>"forceoff"</code>. The live list is in every system document
+under <code>Actions["#ComputerSystem.Reset"]["ResetType@Redfish.AllowableValues"]</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Every system document also advertises <code>#ComputerSystem.SetDefaultBootOrder</code>,
+which kvmd does not implement: POSTing to it answers a plain-text HTTP 404.</p>
+</div>
+<h2 id="managers">Managers<a class="headerlink" href="#managers" title="Permanent link">&para;</a></h2>
+<p>The other half of kvmd's Redfish tree is the BMC itself — PiKVM — and the
+virtual media it offers the host.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="n">managers</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_managers</span><span class="p">()</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="c1"># {&quot;Members&quot;: [{&quot;@odata.id&quot;: &quot;/redfish/v1/Managers/BMC&quot;}], ...}</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="n">manager</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_manager</span><span class="p">()</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">manager</span><span class="p">[</span><span class="s2">&quot;Id&quot;</span><span class="p">])</span>  <span class="c1"># &quot;BMC&quot;</span>
+</code></pre></div>
+<p>There is exactly one, and kvmd writes its path into the route table as a
+literal rather than a parameter — which is why <code>get_manager()</code> takes no id,
+unlike <code>get_system()</code>. The collection exists for a client that walks the tree.</p>
+<h2 id="virtual-media">Virtual media<a class="headerlink" href="#virtual-media" title="Permanent link">&para;</a></h2>
+<p><code>VirtualMedia/MSD</code> is the Redfish view of the mass storage drive, and a
+narrower one than <a class="autorefs autorefs-internal" title="get_state()
+
+  
+      async
+  " href="../../reference/resources/msd/#aiopikvm.resources.msd.MSDResource.get_state"><code>msd.get_state()</code></a>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">collection</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_virtual_media_collection</span><span class="p">()</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="c1"># {&quot;Members&quot;: [{&quot;@odata.id&quot;: &quot;/redfish/v1/Managers/BMC/VirtualMedia/MSD&quot;}], ...}</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="n">media</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_virtual_media</span><span class="p">()</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="nb">print</span><span class="p">(</span><span class="n">media</span><span class="p">[</span><span class="s2">&quot;ImageName&quot;</span><span class="p">],</span> <span class="n">media</span><span class="p">[</span><span class="s2">&quot;Inserted&quot;</span><span class="p">],</span> <span class="n">media</span><span class="p">[</span><span class="s2">&quot;WriteProtected&quot;</span><span class="p">])</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="nb">print</span><span class="p">(</span><span class="n">media</span><span class="p">[</span><span class="s2">&quot;Oem&quot;</span><span class="p">][</span><span class="s2">&quot;PiKVM&quot;</span><span class="p">])</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># {&quot;MsdEnabled&quot;: true, &quot;MsdOnline&quot;: false, &quot;MsdBusy&quot;: false, &quot;DriveOptical&quot;: null}</span>
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>kvmd reads the drive fields only while the drive is <strong>online</strong>, so on an
+offline MSD every one of them is <code>null</code> — <code>Inserted: null</code> means "not
+known", not "no". <code>Oem.PiKVM.MsdOnline</code> is what tells the two apart, and
+the only field worth branching on before the rest are read.</p>
+</div>
+<h3 id="insert-and-eject">Insert and eject<a class="headerlink" href="#insert-and-eject" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">insert_media</span><span class="p">(</span><span class="s2">&quot;ubuntu.iso&quot;</span><span class="p">)</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">eject_media</span><span class="p">()</span>
+</code></pre></div>
+<p><code>insert_media()</code> ejects whatever is connected, selects the image and connects
+the drive again; <code>eject_media()</code> disconnects it and clears the selection. Both
+answer HTTP 204 with an empty body and return <code>None</code> — read the result back
+from <code>get_virtual_media()</code>.</p>
+<div class="admonition danger">
+<p class="admonition-title">Danger</p>
+<p>Despite the <code>Image@Redfish.AllowableValues: ["URI"]</code> in the document,
+kvmd reads <code>Image</code> as the name of an <strong>image already in MSD storage</strong> —
+the same name
+<a class="autorefs autorefs-internal" title="set_params(*, image=None, cdrom=None, rw=None)
+
+  
+      async
+  " href="../../reference/resources/msd/#aiopikvm.resources.msd.MSDResource.set_params"><code>msd.set_params()</code></a>
+takes — and hands it straight to that call. A URL is not refused for
+being one: kvmd's validator splits the argument on <code>/</code> and checks each
+part as a filename, so a URL passes as a multi-part path and reaches the
+MSD as a name nothing matches. Upload the image first, or use
+<a class="autorefs autorefs-internal" title="upload_remote(url, *, name=None, prefix=None, insecure=None, remove_incomplete=None, connect_timeout=None, timeout=None)
+
+  
+      async
+  " href="../../reference/resources/msd/#aiopikvm.resources.msd.MSDResource.upload_remote"><code>msd.upload_remote()</code></a>.</p>
+</div>
+<p><code>inserted=False</code> selects the image and leaves the drive disconnected, and
+<code>write_protected</code> is Redfish's spelling of the inverse of kvmd's <code>rw</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">insert_media</span><span class="p">(</span><span class="s2">&quot;win.img&quot;</span><span class="p">,</span> <span class="n">inserted</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">write_protected</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="two-kvmd-defects-on-this-path">Two kvmd defects on this path<a class="headerlink" href="#two-kvmd-defects-on-this-path" title="Permanent link">&para;</a></h3>
+<p>Both were recorded from a device running kvmd 4.206, and both matter enough to
+route around rather than discover in production.</p>
+<p><strong>An inserted <code>.iso</code> is not a CD-ROM.</strong> kvmd picks the drive type with
+<code>name.lower().startswith(".iso")</code> — <code>startswith</code>, not <code>endswith</code>. No ordinary
+filename begins with a file extension, so this branch always mounts a flash
+drive, whatever the image is called. Where the host needs an optical drive, go
+through the MSD API instead:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">msd</span><span class="o">.</span><span class="n">set_params</span><span class="p">(</span><span class="n">image</span><span class="o">=</span><span class="s2">&quot;ubuntu.iso&quot;</span><span class="p">,</span> <span class="n">cdrom</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">msd</span><span class="o">.</span><span class="n">set_connected</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+<p><strong>An offline MSD answers HTTP 500 with an empty error block.</strong> kvmd reads
+<code>state.get("drive", {}).get("connected")</code> before it checks <code>online</code>, and an
+offline MSD reports <code>drive</code> as <code>null</code> — the key is present, so the default
+never applies and the attribute lookup raises. The failure carries no error
+name and no message, so nothing in it says which subsystem broke:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">media</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_virtual_media</span><span class="p">()</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="k">if</span> <span class="ow">not</span> <span class="n">media</span><span class="p">[</span><span class="s2">&quot;Oem&quot;</span><span class="p">][</span><span class="s2">&quot;PiKVM&quot;</span><span class="p">][</span><span class="s2">&quot;MsdOnline&quot;</span><span class="p">]:</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>    <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s2">&quot;MSD is not set up on this device&quot;</span><span class="p">)</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">insert_media</span><span class="p">(</span><span class="s2">&quot;ubuntu.iso&quot;</span><span class="p">)</span>
+</code></pre></div>
+<p><code>eject_media()</code> is not affected — it reaches kvmd's own MSD plugin and comes
+back as a proper HTTP 400 <code>MsdOfflineError</code>.</p>
+<h2 id="full-example">Full example<a class="headerlink" href="#full-example" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>
+<a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">aiopikvm</span><span class="w"> </span><span class="kn">import</span> <span class="n">PiKVM</span>
+<a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>
+<a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>
+<a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">PiKVM</span><span class="p">(</span><span class="s2">&quot;https://pikvm.local&quot;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s2">&quot;admin&quot;</span><span class="p">,</span> <span class="n">passwd</span><span class="o">=</span><span class="s2">&quot;admin&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">kvm</span><span class="p">:</span>
+<a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>        <span class="n">systems</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_systems</span><span class="p">()</span>
+<a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a>        <span class="k">for</span> <span class="n">member</span> <span class="ow">in</span> <span class="n">systems</span><span class="p">[</span><span class="s2">&quot;Members&quot;</span><span class="p">]:</span>
+<a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a>            <span class="n">system_id</span> <span class="o">=</span> <span class="n">member</span><span class="p">[</span><span class="s2">&quot;@odata.id&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">&quot;/&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+<a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a>            <span class="n">system</span> <span class="o">=</span> <span class="k">await</span> <span class="n">kvm</span><span class="o">.</span><span class="n">redfish</span><span class="o">.</span><span class="n">get_system</span><span class="p">(</span><span class="n">system_id</span><span class="p">)</span>
+<a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a>            <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">system_id</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">system</span><span class="p">[</span><span class="s1">&#39;PowerState&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a>
+<a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>        <span class="c1"># Uncomment to act on the host — this shuts somebody&#39;s machine down.</span>
+<a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a>        <span class="c1"># await kvm.redfish.reset(&quot;GracefulShutdown&quot;)</span>
+<a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a>        <span class="c1"># await asyncio.sleep(10)</span>
+<a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a>        <span class="c1"># print((await kvm.redfish.get_system())[&quot;PowerState&quot;])</span>
+<a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a>
+<a id="__codelineno-15-19" name="__codelineno-15-19" href="#__codelineno-15-19"></a>
+<a id="__codelineno-15-20" name="__codelineno-15-20" href="#__codelineno-15-20"></a><span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.sections", "navigation.expand", "navigation.top", "toc.follow", "search.suggest", "search.highlight"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
