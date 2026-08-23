@@ -601,10 +601,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   login was refused, the retry read the 403 as a lapsed session and opened a
   second one that landed in the same place, and the call failed with a
   password that was never wrong. An IPv6 literal base URL — `https://[::1]`
-  — was broken the same way, the jar keeping the brackets the URL strips.
-  The scope is now read off `http.cookiejar` itself rather than restated, so
-  the two cannot disagree; a dotted name and an IPv4 address are filed as
-  before (#178).
+  — was broken the same way, the jar keeping the brackets the URL strips. A
+  dotted name and an IPv4 address are filed as before, and a base URL
+  carrying userinfo no longer files the password as part of the cookie's
+  domain, where anything printing `PiKVM.cookies` would print it too. A base
+  URL naming no host at all — one written without a scheme, or an external
+  `http_client` built without a `base_url` — is now a `ConfigurationError`
+  raised before the jar is touched, rather than a session cookie scoped to
+  nothing and offered to every server the client talks to (#178).
 - `auth="cookie"` against a kvmd running with authentication switched off
   logs in once instead of before every request, and can open a WebSocket.
   Such a device hands out no token, so the jar stayed empty and the client,
