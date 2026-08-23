@@ -80,21 +80,31 @@ def page(name: str) -> str:
 
 
 @pytest.mark.parametrize(
-    "name",
-    ["docs/getting-started/quickstart.md", "docs/getting-started/configuration.md"],
+    ("name", "entry"),
+    [
+        ("docs/getting-started/quickstart.md", "| `kvm.{0}` |"),
+        ("docs/getting-started/configuration.md", "{0} = kvm.{0}"),
+    ],
 )
-def test_the_pages_that_list_every_resource_do(name: str) -> None:
+def test_the_pages_that_list_every_resource_do(name: str, entry: str) -> None:
     """Two lists that present themselves as complete, and were not (#149).
 
     The quickstart's table had ten of the eleven and the configuration
     example nine — `media` and `system`, the two most recently added, which
     is what a list maintained by hand loses.
 
+    Matched against the list's own shape, a table row or an assignment,
+    rather than a bare ``kvm.<name>`` anywhere on the page: three of the
+    eleven are also demonstrated in the quickstart's prose and two in the
+    configuration's, so a looser search stays green for exactly those rows
+    when they go missing.
+
     Args:
         name: Path of the page, relative to the repository root.
+        entry: How that page writes one entry, with ``{0}`` for the name.
     """
     text = page(name)
-    assert [n for n in _RESOURCE_NAMES if f"kvm.{n}" not in text] == []
+    assert [n for n in _RESOURCE_NAMES if entry.format(n) not in text] == []
 
 
 def test_the_client_reference_lists_every_public_member() -> None:
