@@ -54,6 +54,12 @@ def _token_in(cookies: httpx.Cookies) -> str:
     paths. Should there be more than one anyway, the last in jar order wins,
     which is the rule the client's own jar is read by.
 
+    A valueless entry is passed over rather than counted as the last word.
+    The jar drops a cookie cleared the way a server clears one — with
+    ``Max-Age=0`` or an expiry in the past — so an empty ``auth_token`` that
+    survives to be read here carries no instruction, and letting it win
+    would hide a real token behind it.
+
     Args:
         cookies: Jar to read: a response's, or the client's.
 
@@ -62,8 +68,8 @@ def _token_in(cookies: httpx.Cookies) -> str:
     """
     token = ""
     for cookie in cookies.jar:
-        if cookie.name == _COOKIE:
-            token = cookie.value or ""
+        if cookie.name == _COOKIE and cookie.value:
+            token = cookie.value
     return token
 
 
