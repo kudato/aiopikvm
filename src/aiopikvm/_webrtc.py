@@ -596,10 +596,11 @@ class WebRTCSession:
             The headers for this session's auth mode.
 
         Raises:
-            ConfigurationError: Under ``auth="cookie"``, there is no session
-                token to send. Only a session built by
-                [`PiKVM.webrtc()`][aiopikvm.PiKVM.webrtc] can say that: one
-                built directly was handed whatever token it holds.
+            ConfigurationError: Under ``auth="cookie"``, nothing has logged
+                in, so there is no session token to send. Only a session
+                built by [`PiKVM.webrtc()`][aiopikvm.PiKVM.webrtc] can say
+                that: one built directly was handed whatever token it holds,
+                and sends no credential header at all when that is empty.
         """
         return _credential_headers(self._auth, self._user, self._passwd, self._token)
 

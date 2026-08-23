@@ -279,10 +279,11 @@ class MediaWebSocket:
             The headers for this socket's auth mode.
 
         Raises:
-            ConfigurationError: Under ``auth="cookie"``, there is no session
-                token to send. Only a socket built by
-                [`PiKVM.media_ws()`][aiopikvm.PiKVM.media_ws] can say that:
-                one built directly was handed whatever token it holds.
+            ConfigurationError: Under ``auth="cookie"``, nothing has logged
+                in, so there is no session token to send. Only a socket built
+                by [`PiKVM.media_ws()`][aiopikvm.PiKVM.media_ws] can say
+                that: one built directly was handed whatever token it holds,
+                and sends no credential header at all when that is empty.
         """
         return _credential_headers(self._auth, self._user, self._passwd, self._token)
 
