@@ -612,6 +612,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `http_client` built without a `base_url` — is now a `ConfigurationError`
   raised before the jar is touched, rather than a session cookie scoped to
   nothing and offered to every server the client talks to (#178).
+- `PiKVMWebSocket`, `MediaWebSocket` and `WebRTCSession` built by hand accept
+  a base URL with a trailing slash, as `PiKVM` always has. The path each one
+  appends brings its own leading slash, so `https://pikvm.local/` dialled
+  `wss://pikvm.local//api/ws` — and nothing on the way normalises that: the
+  request line carries the double slash verbatim, and kvmd's aiohttp answers
+  it with 404. A stock device hides the fault, nginx merging slashes in front
+  of kvmd; anything reaching kvmd another way failed the handshake. A prefix
+  the device is served under keeps its own separator (#172).
 - `auth="cookie"` against a kvmd running with authentication switched off
   logs in once instead of before every request, and can open a WebSocket.
   Such a device hands out no token, so the jar stayed empty and the client,

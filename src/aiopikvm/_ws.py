@@ -1467,11 +1467,26 @@ class PiKVMWebSocket:
 def _ws_url(url: str) -> str:
     """Turn a PiKVM base URL into the one a WebSocket connects to.
 
+    Every caller appends a path beginning with ``/`` to what comes back, so a
+    trailing slash on the input becomes a second one on the wire —
+    ``wss://pikvm.local//api/ws``. A stock device hides that, nginx merging
+    slashes in front of kvmd, but the path goes out unmerged and kvmd's own
+    aiohttp answers ``//api/ws`` with 404: a socket built straight from
+    ``https://pikvm.local/`` fails its handshake where `PiKVM`, which strips
+    the slash in its constructor, connects (#172). Stripping it here covers
+    all three socket classes, since all three come through this function.
+
+    The slashes come off ``urlparse().path``, which is where a trailing slash
+    lands whether or not a query or a fragment follows it in the URL. A
+    prefix a reverse proxy serves kvmd under keeps its own separator: what
+    goes is the end of the path, not the path.
+
     Args:
         url: The base URL the client was built with.
 
     Returns:
-        The same URL with a WebSocket scheme, no trailing path added.
+        The same URL with a WebSocket scheme and no trailing slash, no
+        trailing path added.
 
     Raises:
         ConfigurationError: The scheme is neither ``https`` nor ``http``.
@@ -1483,7 +1498,7 @@ def _ws_url(url: str) -> str:
             f"Unsupported URL scheme {parsed.scheme!r}; the PiKVM URL must "
             "start with https:// or http://"
         )
-    return urlunparse(parsed._replace(scheme=scheme))
+    return urlunparse(parsed._replace(scheme=scheme, path=parsed.path.rstrip("/")))
 
 
 def _credential_headers(
