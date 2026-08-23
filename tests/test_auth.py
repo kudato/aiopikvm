@@ -373,14 +373,21 @@ def test_the_cookie_scope_is_the_one_the_standard_library_computes(host: str) ->
     assert _cookie_host(url) == effective
 
 
-async def test_login_files_no_credential_from_a_userinfo_url() -> None:
-    """The scope comes off the parsed URL, which has dropped the userinfo.
+async def test_login_leaves_no_password_in_the_jar_from_a_userinfo_url() -> None:
+    """A credential in the base URL must not become a cookie's domain.
 
-    ``eff_request_host()`` would not have: it takes the whole netloc, so a
-    base URL written ``https://admin:s3cret@pikvm.local`` files the password
-    as part of the cookie's domain, and `PiKVM.cookies` is public — anything
-    that prints the jar, `http.cookiejar.MozillaCookieJar.save()` included,
-    prints the password with it.
+    httpx sends the userinfo, so the jar asks about
+    ``admin:s3cret@pikvm.local`` and files kvmd's ``Set-Cookie`` under that
+    by itself, before this resource sees the response. Scoping the token
+    afresh is what takes it back out — `PiKVM.cookies` is public, and
+    anything that prints the jar prints a domain in full, a ``repr()`` or
+    `http.cookiejar.MozillaCookieJar.save()` included.
+
+    A session for a device addressed this way then does not work at all: the
+    jar will not answer ``admin:s3cret@pikvm.local`` with a cookie scoped to
+    ``pikvm.local``. That is how it was before #178 and how it still is —
+    there is no domain here that is both safe and matched — and it is not
+    asserted below, so that fixing it does not have to fight a test.
     """
     base = "https://admin:s3cret@pikvm.local"
     with respx.mock(base_url="https://pikvm.local") as router:

@@ -88,12 +88,18 @@ def _cookie_host(url: httpx.URL) -> str:
 
     The rule is spelled out rather than borrowed. ``eff_request_host()`` is
     not part of what ``http.cookiejar`` declares, so calling it is untyped,
-    and it reads the whole netloc: a base URL carrying userinfo would put the
-    password in the cookie's domain, where `PiKVM.cookies` hands it to
-    anything that prints the jar. `httpx.URL.raw_host` is the wire form with
-    the userinfo and the port already gone. What is left is pinned against
-    the standard library by ``test_auth.py``, against the URL httpx sends
-    rather than the one that was typed, so the two cannot drift.
+    and it returns the whole netloc. `httpx.URL.raw_host` is the wire form
+    with the port and any userinfo already gone. What is left is pinned
+    against the standard library by ``test_auth.py``, against the URL httpx
+    sends rather than the one that was typed, so the two cannot drift.
+
+    Userinfo is the one shape where dropping it is not enough to make the
+    cookie work, and nothing here can be. httpx sends the credentials in the
+    URL, so the jar asks about ``admin:s3cret@pikvm.local``: the only domain
+    it would answer to is one with the password in it, which `PiKVM.cookies`
+    hands to anything that prints the jar. Scoping to the bare host keeps the
+    password out and leaves a session the device never sends back — as it was
+    before #178, which changed nothing here either way.
 
     Args:
         url: URL of the device the cookie belongs to.
