@@ -612,6 +612,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `http_client` built without a `base_url` — is now a `ConfigurationError`
   raised before the jar is touched, rather than a session cookie scoped to
   nothing and offered to every server the client talks to (#178).
+- `StreamerResource.mjpeg()` ignores everything after a multipart body's
+  close delimiter, and ends its iteration there instead of waiting on a
+  stream the far end has finished. The reader emptied its buffer at the
+  delimiter and recorded nothing, so it went on parsing whatever arrived
+  next: an epilogue was discarded when it shared a socket read with the
+  delimiter and came back as an `MJPEGFrame` when it did not — the same bytes
+  gave two frames read whole and three read eight at a time. RFC 2046 §5.1.1
+  leaves nothing after the delimiter to read, and ustreamer never sends one,
+  so it turns up only when a proxy or the device's nginx finished the body —
+  which is when trailing bytes are least worth trusting and a caller cannot
+  tell such a frame from a real one (#176).
 - `PiKVMWebSocket`, `MediaWebSocket` and `WebRTCSession` built by hand accept
   a base URL with a trailing slash, as `PiKVM` always has. The path each one
   appends brings its own leading slash, so `https://pikvm.local/` dialled

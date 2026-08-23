@@ -1,7 +1,7 @@
 """StreamerResource tests."""
 
 import copy
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import httpx
@@ -15,6 +15,7 @@ from aiopikvm import (
     ResponseError,
     UnavailableError,
 )
+from aiopikvm.resources.streamer import _MultipartReader
 from tests.fixtures import load_json
 
 OK = {"ok": True, "result": {}}
@@ -772,6 +773,64 @@ async def test_mjpeg_drops_what_the_close_delimiter_ends(
     # else finished the body for it — and it is not a missing Content-Length.
     frames = [frame async for frame in client.streamer.mjpeg(chunk_size=chunk_size)]
     assert [frame.data[:4] for frame in frames] == [b"\xff\xd8\xff\xe1"] * 2
+
+
+def test_the_reader_takes_nothing_from_bytes_fed_after_the_close() -> None:
+    """The reader's own contract, which `mjpeg()` stops short of exercising.
+
+    `mjpeg()` leaves the loop as soon as the reader says it is closed, so
+    nothing above ever feeds it again. The rule is the reader's all the same,
+    and the buffer is why it is spelled as one: bytes handed to a reader that
+    has ended are not kept, so nothing that goes on feeding one can grow it
+    without end (#176).
+    """
+    (body, content_type) = multipart("stream_plain")
+    boundary = content_type.partition("boundary=")[2].encode()
+    reader = _MultipartReader(boundary)
+    assert len(list(reader.feed(body.removesuffix(b"\r\n") + b"--\r\n"))) == 2
+    assert reader.closed is True
+    epilogue = (
+        b"--"
+        + boundary
+        + b"\r\nContent-Type: image/jpeg\r\nContent-Length: 4\r\n\r\nJUNK\r\n"
+    )
+    assert list(reader.feed(epilogue)) == []
+    assert reader.closed is True
+
+
+async def test_mjpeg_stops_reading_once_the_body_says_it_has_ended(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """A body that ended is not one to keep waiting on (#176).
+
+    Nothing else here would notice: a body that stops arriving ends the
+    iteration on its own. This one does not stop — the close delimiter is
+    followed by more of it — which is the case where a stream the far end
+    finished used to hold the loop open for as long as the connection did.
+    The second chunk is never asked for, so the epilogue's bytes are not what
+    proves it: the socket is what is not read again.
+    """
+    (body, content_type) = multipart("stream_plain")
+    boundary = content_type.partition("boundary=")[2].encode()
+    asked_again = []
+
+    async def sending() -> AsyncIterator[bytes]:
+        yield body.removesuffix(b"\r\n") + b"--\r\n"
+        asked_again.append(True)
+        yield (
+            b"--"
+            + boundary
+            + b"\r\nContent-Type: image/jpeg\r\nContent-Length: 4\r\n\r\nJUNK\r\n"
+        )
+
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200, content=sending(), headers={"Content-Type": content_type}
+        )
+    )
+    frames = [frame async for frame in client.streamer.mjpeg(chunk_size=8)]
+    assert len(frames) == 2
+    assert asked_again == []
 
 
 async def test_the_safari_workaround_stream_still_parses(

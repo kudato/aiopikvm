@@ -103,12 +103,14 @@ class StreamerResource(BaseResource):
         equivalent: ``GET /api/streamer/snapshot`` gives one frame per
         request, and this gives them as ustreamer encodes them.
 
-        The iteration ends only when the far end stops sending, so it is a
-        loop to be left with a ``break`` or cancelled from outside. The
-        streamer has to be running for there to be anything to read, and kvmd
-        runs it while at least one session asks for video — so open a
-        [`ws()`][aiopikvm.PiKVM.ws] around this, or the stream dies under
-        this loop.
+        The iteration ends when the far end stops sending or says it has
+        stopped — a multipart body's close delimiter, after which RFC 2046
+        §5.1.1 leaves nothing to read. ustreamer never sends one, so in
+        practice this is a loop to be left with a ``break`` or cancelled from
+        outside. The streamer has to be running for there to be anything to
+        read, and kvmd runs it while at least one session asks for video — so
+        open a [`ws()`][aiopikvm.PiKVM.ws] around this, or the stream dies
+        under this loop.
 
         Two of ustreamer's flags are deliberately missing. ``advance_headers``
         sends each part's headers before the frame they describe exists, which
@@ -166,6 +168,11 @@ class StreamerResource(BaseResource):
                     payload: dict[str, Any] = {"data": data, "headers": headers}
                     payload.update(_meta_from_headers(headers, _FRAME_HEADERS))
                     yield self._validate(MJPEGFrame, payload, "/streamer/stream")
+                if reader.closed:
+                    # The body said it had ended. Reading on would be waiting
+                    # for a stream that is over — and anything that did
+                    # arrive is epilogue the reader now drops anyway.
+                    break
 
     async def set_params(
         self,
@@ -553,6 +560,8 @@ class _MultipartReader:
                 is no way to tell where its data ends.
         """
         if self._closed:
+            # Not merely nothing to yield: the bytes are not buffered either,
+            # so feeding a reader that has ended cannot grow it without end.
             return
         self._buf += chunk
         while True:
@@ -566,13 +575,12 @@ class _MultipartReader:
 
         Returns:
             The part, or ``None`` while the buffer does not hold one yet —
-            and for good once the close delimiter has been read.
+            including the read that ends the body, which latches the reader
+            closed on the way out.
 
         Raises:
             ResponseError: A part arrived with no ``Content-Length``.
         """
-        if self._closed:
-            return None
         start = self._buf.find(self._marker)
         if start < 0:
             # Nothing but preamble so far. Keep only enough of it to
