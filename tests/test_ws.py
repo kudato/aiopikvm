@@ -1264,6 +1264,21 @@ async def test_binary_ping_frame() -> None:
     assert binary_step("pong_binary")["received"] == "ff"
 
 
+async def test_json_ping_event_matches_the_recorded_one() -> None:
+    """The same exchange over the channel a client gets without asking (#177).
+
+    The recorded session holds both halves of it. kvmd answers this one with
+    a ``pong`` event rather than a frame, which the ping tests below read out
+    of the event stream; this is what goes out to earn it.
+    """
+    ws = socket()
+    conn = iterating()
+    ws._connection = conn
+    with pytest.raises(WebSocketError, match="closed before kvmd answered"):
+        await ws.ping(timeout=1)
+    assert sent(conn) == binary_step("ping_json")["sent"]
+
+
 @pytest.mark.parametrize("key", ["", "KeyÄ", "K" * 33])
 async def test_binary_key_names_kvmd_could_not_read(key: str) -> None:
     """kvmd decodes ASCII out of 32 bytes and drops what it cannot map."""
@@ -1285,6 +1300,28 @@ async def test_binary_key_name_of_the_full_length_is_sent() -> None:
     ws, conn = connected(binary=True)
     await ws.send_key("K" * 32, state=True)
     assert sent_bytes(conn) == bytes([1, 1]) + b"K" * 32
+
+
+async def test_binary_key_name_kvmd_cannot_map_goes_out_as_given() -> None:
+    """Encodable is what is checked here, not known to kvmd (#177).
+
+    ``KEY_NAMES`` is a copy of a table no endpoint exposes, and nothing in
+    this client enforces it — the HID guide says so and hands the caller the
+    check. What happens to a name outside it is on the recording: kvmd
+    decoded the frame, ``valid_hid_key`` refused the name inside the handler,
+    and the inactivity counter kept running because the HID never saw it. So
+    the frame is not built here, and there is no answer of any kind to tell
+    this from a keystroke that landed.
+
+    ``frame()`` is deliberately not used: it is for a frame the device
+    accepted, and this is one it refused.
+    """
+    ws, conn = connected(binary=True)
+    await ws.send_key("NoSuchKey", state=True)
+
+    recorded_step = binary_step("key_unknown_name")
+    assert recorded_step["accepted"] is recorded_step["expected_accepted"] is False
+    assert sent_bytes(conn) == bytes.fromhex(recorded_step["frame"])
 
 
 @pytest.mark.parametrize(

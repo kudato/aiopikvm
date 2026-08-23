@@ -134,7 +134,7 @@
       "name": "reset_type_missing",
       "method": "POST",
       "path": "/api/redfish/v1/Systems/0/Actions/ComputerSystem.Reset",
-      "note": "a body with no ResetType. An entirely absent body was sent too and refused identically, before any action is dispatched; only this one is recorded",
+      "note": "a body with no ResetType. An entirely absent body was sent too and refused identically, before any action is dispatched; only this one is recorded. Kept as documentation, not as a mock: reset() types reset_type as a Literal and always sends the field, so this is not a body this client can build",
       "request_body": {},
       "status": 400,
       "content_type": "application/json; charset=utf-8",

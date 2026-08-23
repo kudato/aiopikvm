@@ -33,7 +33,7 @@
       "sent": "c8",
       "received": null,
       "events_before_it": 6,
-      "note": "an operation kvmd has no handler for: nothing comes back, and it logs 'Unknown websocket binary event' on its own side"
+      "note": "an operation kvmd has no handler for: nothing comes back, and it logs 'Unknown websocket binary event' on its own side. Kept as documentation, not as a mock: the client sends only the operations it implements, and an empty recording is a claim about the device with nothing in it to replay"
     },
     {
       "name": "key_press",
@@ -140,7 +140,7 @@
       "inactivity_after": 2,
       "accepted": false,
       "expected_accepted": false,
-      "note": "three bytes where struct.unpack wants five: dropped the same silent way"
+      "note": "three bytes where struct.unpack wants five: dropped the same silent way. Kept as documentation, not as a mock: send_mouse_move() packs two shorts every time, so this is the shape of a bug rather than a frame this client can build"
     },
     {
       "name": "delta_batch_odd_length",
@@ -149,7 +149,7 @@
       "inactivity_after": 2,
       "accepted": false,
       "expected_accepted": false,
-      "note": "a pair and a half: struct.unpack fails on the last two bytes and the whole batch is dropped"
+      "note": "a pair and a half: struct.unpack fails on the last two bytes and the whole batch is dropped. Kept as documentation, not as a mock: the delta batches are packed a pair at a time, so an odd tail is the shape of a bug rather than a frame this client can build"
     },
     {
       "name": "hid_baseline",
@@ -161,7 +161,7 @@
         "interval": 60
       },
       "inactivity": 4547,
-      "note": "what the HID looked like while this was recorded: a gadget with no host attached, and the jiggler enabled but idle"
+      "note": "what the HID looked like while this was recorded: a gadget with no host attached, and the jiggler enabled but idle. Kept as documentation, not as a mock: it is the state the session ran against rather than an exchange, and it is what makes the inactivity counter readable — with no host attached, kvmd bumping it is the only evidence that a frame was decoded"
     }
   ]
 }
