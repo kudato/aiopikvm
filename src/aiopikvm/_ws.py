@@ -231,8 +231,9 @@ class _Connector(websockets.asyncio.client.connect):
 
     *websockets* follows up to ten redirects on its own, resending the
     credential headers to wherever each one points. The REST client refuses
-    to do that unless asked, and the WebSocket carries the same password, so
-    it defaults to the same refusal.
+    to do that unless asked, and the WebSocket carries the same credential —
+    the password, or the session token under ``auth="cookie"`` — so it
+    defaults to the same refusal.
     """
 
     def __init__(
@@ -374,7 +375,7 @@ async def _open(
         AuthError: The credentials were refused during the upgrade — 401 when
             none reached the server, 403 when the ones that did were rejected.
         RedirectError: The upgrade was redirected and *follow_redirects* is
-            off. Following it would resend the password to the target.
+            off. Following it would resend the credential to the target.
         APIError: The upgrade was rejected for another reason, such as a query
             parameter the validators do not accept, or a proxy in front of the
             server answering instead.
@@ -494,7 +495,8 @@ class PiKVMWebSocket:
                 was verified against kvmd 4.206.
             follow_redirects: Follow a redirected handshake instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default: the
-                upgrade carries the password in a header, and following the
+                upgrade carries the credential in a header — the password, or
+                the session token under ``auth="cookie"`` — and following the
                 redirect hands it to whatever the redirect points at.
             open_timeout: Seconds to wait for the handshake.
             close_timeout: Seconds to wait for the closing handshake.
@@ -575,7 +577,7 @@ class PiKVMWebSocket:
                 when none reached it, 403 when the ones that did were
                 rejected.
             RedirectError: The upgrade was redirected and *follow_redirects*
-                is off. Following it would resend the password to the target.
+                is off. Following it would resend the credential to the target.
             APIError: kvmd rejected the upgrade for another reason, such as a
                 query parameter its validators do not accept, or a proxy in
                 front of it answered instead.

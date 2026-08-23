@@ -144,7 +144,8 @@ class MediaWebSocket:
                 [`MediaResource.get_state()`][aiopikvm.resources.media.MediaResource.get_state].
             follow_redirects: Follow a redirected handshake instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default: the
-                upgrade carries the password in a header.
+                upgrade carries the credential in a header — the password,
+                or the session token under ``auth="cookie"``.
             open_timeout: Seconds to wait for the handshake, and for the
                 daemon's opening announcement on a regular socket.
             close_timeout: Seconds to wait for the closing handshake.
@@ -231,7 +232,7 @@ class MediaWebSocket:
                 when none reached it, 403 when the ones that did were
                 rejected.
             RedirectError: The upgrade was redirected and *follow_redirects*
-                is off. Following it would resend the password to the target.
+                is off. Following it would resend the credential to the target.
             APIError: The upgrade was rejected for another reason. Asking for
                 a format the daemon does not serve is this one — HTTP 400
                 with ``ValidatorError``, refused before the socket exists.

@@ -226,7 +226,8 @@ class WebRTCSession:
                 drops a session silent for sixty.
             follow_redirects: Follow a redirected handshake instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default: the
-                upgrade carries the password in a header.
+                upgrade carries the credential in a header — the password,
+                or the session token under ``auth="cookie"``.
             open_timeout: Seconds to wait for the handshake, and for each
                 individual Janus message to be acknowledged.
             close_timeout: Seconds to wait for the closing handshake.
@@ -342,7 +343,7 @@ class WebRTCSession:
                 when none reached it, 403 when the ones that did were
                 rejected.
             RedirectError: The upgrade was redirected and *follow_redirects*
-                is off. Following it would resend the password to the target.
+                is off. Following it would resend the credential to the target.
             APIError: The upgrade was rejected for another reason.
             ResponseError: Janus or the plugin answered with a shape this
                 release cannot read.

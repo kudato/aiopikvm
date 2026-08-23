@@ -191,13 +191,33 @@ class PiKVM:
                 rest, for a client that must reach the device directly.
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
-                [`RedirectError`][aiopikvm.RedirectError]. Off by default: a
-                redirect resends the credential headers to whatever it points
-                at, and the usual cause — an ``http://`` base URL that nginx
-                redirects to ``https://`` — has already exposed the password
-                in cleartext by then.
-            http_client: Pre-built httpx client. When given, this client
-                does not close it and the arguments above are ignored.
+                [`RedirectError`][aiopikvm.RedirectError]. Off by default,
+                because following one can hand the credential to the target,
+                by rules that differ per transport and are not worth relying
+                on. A socket follows one only within its own ``ws``/``wss``
+                scheme, and there it repeats its handshake headers verbatim,
+                so it carries whatever the mode sends; every other redirect
+                is refused before anything is resent — the absolute
+                ``https://`` a real server sends included. Over HTTP the
+                ``X-KVMD-*`` pair travels anywhere, ``Authorization`` is
+                dropped when the origin changes except on a plain
+                ``http``→``https`` upgrade of the same host, and the session
+                token travels as far as its cookie scope reaches — which
+                covers the device's subdomains and its other ports, and for a
+                token set by hand is every host. Treat all of it as reachable
+                by whatever the redirect points at. The usual cause — an
+                ``http://`` base URL that nginx redirects to ``https://`` —
+                has in any case already put the credential on the wire in
+                cleartext.
+            http_client: Pre-built httpx client. When given, this client does
+                not close it, and over HTTP the arguments above are ignored
+                — except under ``auth="cookie"``, which still logs in through
+                that client with the *user*, *passwd*, *totp* and
+                *session_expire* from here. The sockets do not go through
+                httpx at all: they read the URL and every transport argument
+                from this constructor, and their credential from the mode —
+                the password from here, or under ``auth="cookie"`` the
+                session token out of that client's jar.
         """
         self._url = url.rstrip("/")
         self._user = user
@@ -348,23 +368,41 @@ class PiKVM:
         leaves kvmd's ``auth_token`` here, and every later request sends it
         back.
 
-        Putting a token here is not enough to authenticate by session,
-        though. kvmd tries the ``X-KVMD-*`` headers first and, once it sees a
-        non-empty ``X-KVMD-User``, either accepts that pair or refuses the
-        request outright — it never falls through to the cookie. Since this
-        client always sends the header, the token is only ever the credential
-        for an `httpx.AsyncClient` passed in as *http_client* without
-        those headers:
+        Whether the token is the credential depends on the *auth* mode
+        ([`AuthMode`][aiopikvm.AuthMode]). kvmd reads the ``X-KVMD-*``
+        headers, then this cookie, then HTTP Basic, and the first source
+        *present* decides the request — a token it does not know is refused
+        outright rather than retried against what comes after it. So which
+        mode this client is in settles what the jar is for.
+
+        Under ``auth="headers"`` the pair goes out with every request and is
+        read first, so a token here decides nothing. It is then only ever
+        what authenticates an `httpx.AsyncClient` passed in as *http_client*
+        without a credential of its own:
 
             async with httpx.AsyncClient(base_url=url, verify=False) as http:
                 http.cookies.set("auth_token", saved_token)
                 async with PiKVM(url, http_client=http) as kvm:
                     ...
 
-        [`ws()`][aiopikvm.PiKVM.ws] does not take part in this. The WebSocket
-        authenticates with the *user* and *passwd* this client was built with,
-        which are the defaults when an *http_client* carries the credentials
-        instead.
+        Under ``auth="basic"`` there is no ``X-KVMD-User``, so kvmd reaches
+        this cookie *before* the Basic credential: a token left here by
+        [`AuthResource.login()`][aiopikvm.resources.auth.AuthResource.login]
+        authenticates every later request instead, and once it expires those
+        requests fail although the password is good — this mode opens no
+        session of its own to replace it. Drop the cookie to go back to the
+        password.
+
+        Under ``auth="cookie"`` the token is the credential: this client
+        sends no ``X-KVMD-User`` at all, and what is in this jar is what
+        every request and every socket handshake carries. The first request
+        logs in on its own; [`ws()`][aiopikvm.PiKVM.ws] is not a coroutine
+        and cannot, so opening a socket before anything else has authenticated
+        raises rather than dialling with nothing.
+
+        The other two modes hand [`ws()`][aiopikvm.PiKVM.ws] the *user* and
+        *passwd* this client was built with, which are the defaults when an
+        *http_client* carries the credentials instead.
 
         Returns:
             The live cookie jar — mutating it affects subsequent requests.
@@ -1008,9 +1046,11 @@ class PiKVM:
 
         Returns:
             A *PiKVMWebSocket* async context manager. It inherits this
-            client's *verify_ssl* and *follow_redirects*; with an external
-            *http_client* it still uses the credentials and URL passed to
-            this constructor, since it does not go through httpx at all.
+            client's *verify_ssl* and *follow_redirects*. It does not go
+            through httpx, so with an external *http_client* it still dials
+            the URL passed to this constructor — but under ``auth="cookie"``
+            its credential is the session token in that client's jar, not
+            anything from here.
 
         Raises:
             ConfigurationError: If this client has been closed, or the URL it

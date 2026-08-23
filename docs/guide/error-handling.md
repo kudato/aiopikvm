@@ -81,8 +81,16 @@ for attempt in range(5):
 
 ## Redirects
 
-A redirect is reported instead of being followed, because following it resends
-the `X-KVMD-User` / `X-KVMD-Passwd` headers to wherever it points:
+A redirect is reported instead of being followed, because following one can
+hand the credential to the target. A socket follows one only within its own
+`ws`/`wss` scheme, and there it repeats its handshake headers verbatim, so it
+carries whatever the `auth` mode sends; every other redirect is refused before
+anything is resent — the absolute `https://` a real server sends included.
+Over HTTP the `X-KVMD-User` / `X-KVMD-Passwd` pair travels anywhere,
+`Authorization` is dropped when the origin changes except on a plain
+`http`→`https` upgrade of the same host, and the session token travels as far
+as its cookie scope reaches: the device's subdomains and its other ports, and
+for a token set by hand every host.
 
 ```python
 from aiopikvm import RedirectError
@@ -94,9 +102,10 @@ except RedirectError as exc:
 ```
 
 The usual cause is an `http://` base URL that PiKVM's nginx redirects to
-`https://` — by which point the password has already gone out in cleartext, so
-fix the URL rather than the symptom. Pass `follow_redirects=True` to the
-client if you have a proxy that legitimately redirects.
+`https://` — by which point the password or the token has already gone out in
+cleartext, so fix the URL rather than the symptom. Pass
+`follow_redirects=True` to the client if you have a proxy that legitimately
+redirects.
 
 ## Values the type checker catches
 

@@ -467,7 +467,12 @@ async def test_refusal_with_a_json_body_that_is_not_an_envelope() -> None:
 
 
 async def test_redirect_is_reported_instead_of_followed() -> None:
-    """Following it would hand the password to whatever the redirect points at."""
+    """Following it hands the credential to whatever the redirect points at.
+
+    Whichever the `auth` mode sends: the password, or the session token under
+    `auth="cookie"`. *websockets* repeats the handshake headers verbatim, so
+    the target gets them as the device would have.
+    """
     async with serving() as (target, target_seen):
         location = f"ws{target[4:]}/api/ws"
         async with serving(response(302, "Found", Location=location)) as (url, _):
