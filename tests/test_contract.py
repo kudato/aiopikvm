@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from pathlib import Path
 from typing import Any, NamedTuple, get_args
 
 import pytest
@@ -179,6 +180,56 @@ def test_the_recorders_write_where_the_loader_reads(
     # directory goes through __file__, and neither recorder needs it for
     # anything else.
     assert "__file__" not in source
+
+
+_DOCUMENTATION_ONLY = {
+    ("media_stream", "stream_bad_flag"),
+    ("janus_session", "session_events"),
+    ("janus_session", "after_stop"),
+}
+"""Recorded steps no test replays, and cannot: one describes a request this
+client has no way to make, and two recorded that the device sent nothing at
+all. Everything else in these two scenarios is a mock waiting to be used, and
+a step nobody loads is a claim nobody checks (#144)."""
+
+
+@pytest.mark.parametrize("scenario", ["media_stream", "janus_session"])
+def test_every_recorded_step_is_used_or_says_why_not(scenario: str) -> None:
+    """A step with no consumer is documentation, and has to admit it (#144).
+
+    Seven steps of these two scenarios had drifted into that state
+    unannounced, one carrying the executable-sounding claim that it "parses
+    fine" — which nothing executed. The other five scenario files are not
+    checked here: their steps carry ``note`` rather than ``description``, and
+    some of them are orphaned too, which is its own cleanup and not this
+    test's.
+
+    A step counts as used when some test names it as a string literal, which
+    is how every one of them is loaded — and which is a lint, not proof: a
+    step sharing its name with a protocol verb, the way ``keepalive`` does,
+    is "used" by any assertion that mentions the verb. It also reads the
+    manifest, so it notices a consumerless step and not a stepless consumer;
+    the consumer's own ``KeyError`` covers that direction. This file is left
+    out of the search so the exemptions above do not stand in for the
+    consumers they excuse — at the price that its own loads do not count
+    either, and every step it loads needs a consumer elsewhere.
+
+    Args:
+        scenario: Manifest key of the hand-recorded scenario to check.
+    """
+    here = Path(__file__)
+    suite = "".join(
+        path.read_text(encoding="utf-8")
+        for path in here.parent.glob("*.py")
+        if path != here
+    )
+    steps = {
+        step["name"]: str(step["description"]) for step in load_json(scenario)["steps"]
+    }
+    unused = {name for name in steps if f'"{name}"' not in suite}
+    assert unused == {name for scen, name in _DOCUMENTATION_ONLY if scen == scenario}
+    for name in unused:
+        assert "documentation" in steps[name], f"{name} does not say it is unused"
 
 
 def test_manifest_device_matches_the_info_capture() -> None:

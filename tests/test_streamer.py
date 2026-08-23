@@ -733,16 +733,96 @@ async def test_mjpeg_ignores_unparsable_headers(
     assert frames[0].width is None
 
 
-async def test_mjpeg_stops_at_a_closing_boundary(
+async def test_mjpeg_drops_what_the_close_delimiter_ends(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
+    """The close delimiter discards the rest of the buffer it arrived in.
+
+    `multipart()` leaves the next part's boundary on the wire, the way a
+    stream that never ends does. Closing it means `--<boundary>--`, which is
+    what RFC 2046 calls the close delimiter and what the reader looks for —
+    appending `--` after the whole line, as this test used to, is a boundary
+    followed by rubbish, and the reader stops on that for the ordinary reason
+    that the body ran out. A whole part after the delimiter is what tells the
+    two apart: it is dropped here, and read as a third frame if the branch
+    goes (#144).
+
+    Dropped, not ignored: `_take()` empties the buffer and the reader carries
+    on, so a part arriving in a *later* read is parsed like any other. These
+    bytes reach `feed()` together at the default `chunk_size`, which is why
+    the epilogue is inside the buffer being discarded; handing the reader
+    `closed` and then `epilogue` as two reads yields three frames. What this
+    pins is the branch, then, not an end to the iteration — the reader does
+    not latch closed, which is its own defect and not this test's to settle.
+    """
     (body, content_type) = multipart("stream_plain")
+    boundary = content_type.partition("boundary=")[2].encode()
+    closed = body.removesuffix(b"\r\n") + b"--\r\n"
+    epilogue = (
+        b"--"
+        + boundary
+        + b"\r\nContent-Type: image/jpeg\r\nContent-Length: 4\r\n\r\nJUNK\r\n"
+    )
     mock_api.get("/streamer/stream").mock(
         return_value=httpx.Response(
-            200, content=body + b"--\r\n", headers={"Content-Type": content_type}
+            200, content=closed + epilogue, headers={"Content-Type": content_type}
         )
     )
     # ustreamer never ends its stream, so this only turns up when something
     # else finished the body for it — and it is not a missing Content-Length.
     frames = [frame async for frame in client.streamer.mjpeg()]
     assert len(frames) == 2
+
+
+async def test_the_safari_workaround_stream_still_parses(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """`dual_final_frames=1` is a flag this client does not offer (#144).
+
+    The recorded step says it "parses fine", which was a claim nothing ran:
+    ustreamer keeps `Content-Length` under it and only repeats the last part
+    of a series, so the framing is ordinary and the reader has no reason to
+    care. Recorded whole rather than part by part, so the body is the bytes
+    as they came off the socket — the header is not: this is the one stream
+    step recorded without its `Content-Type`, so the fake borrows the one
+    every sibling step recorded, boundary included.
+    """
+    recorded = stream_step("stream_dual_final_frames")
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200,
+            content=str(recorded["raw"]).encode(),
+            headers={"Content-Type": str(stream_step("stream_plain")["content_type"])},
+        )
+    )
+    frames = [frame async for frame in client.streamer.mjpeg()]
+    assert len(frames) == 1
+    # `zero_data=1` was on beside it, which is what makes the part empty.
+    assert frames[0].data == b""
+    assert frames[0].headers["Content-Length"] == "0"
+
+
+async def test_a_streamer_error_carries_no_kvmd_envelope(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Nothing under `/streamer` answers in kvmd's envelope (#144).
+
+    ustreamer serves its own HTML for a path it does not have, so an error
+    from it has no `error` field to match on — unlike every kvmd endpoint,
+    where a caller can branch on the name. The recorded body is ustreamer's
+    404; the path it was recorded at is not one this client requests, which
+    is why the response is replayed at one that is.
+    """
+    recorded = stream_step("not_found")
+    mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            recorded["status"],
+            text=str(recorded["body_excerpt"]),
+            headers={"Content-Type": recorded["content_type"]},
+        )
+    )
+    with pytest.raises(APIError) as info:
+        [frame async for frame in client.streamer.mjpeg()]
+    assert info.value.status_code == 404
+    assert info.value.error == ""
+    assert info.value.error_msg == ""

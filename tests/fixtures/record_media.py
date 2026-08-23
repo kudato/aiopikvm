@@ -330,7 +330,10 @@ async def main() -> int:
                     description=(
                         "ustreamer parses the flags itself and has no "
                         "validator: a value it does not understand reads as "
-                        "off, and the stream starts anyway."
+                        "off, and the stream starts anyway. Kept as "
+                        "documentation, not as a mock: mjpeg() types every "
+                        "flag as a bool, so there is no way through this "
+                        "client to send one a value like this."
                     ),
                     request={
                         "method": "GET",
