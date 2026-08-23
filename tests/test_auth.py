@@ -195,9 +195,9 @@ async def test_login_reads_the_session_cookie_and_not_a_neighbour(
 ) -> None:
     """A cookie of another name is not the token, however late it lands (#169).
 
-    The walk takes the last match, and the jar keeps cookies in the order
-    their ``Set-Cookie`` headers arrived — path length reorders nothing — so
-    the decoy is last here by being named second.
+    The walk takes the last match, and the jar groups cookies by path in the
+    order the paths first appear — length is not what orders them — so the
+    decoy is last here by having the second path named.
     """
     entry = step("login_form_body")
     mock_api.post("/api/auth/login").mock(
