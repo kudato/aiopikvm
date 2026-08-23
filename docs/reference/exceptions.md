@@ -59,10 +59,10 @@ PiKVMError
     options:
       show_bases: true
 
-::: aiopikvm.WebSocketError
+::: aiopikvm.WebRTCError
     options:
       show_bases: true
 
-::: aiopikvm.WebRTCError
+::: aiopikvm.WebSocketError
     options:
       show_bases: true
