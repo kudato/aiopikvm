@@ -224,10 +224,29 @@ async def test_an_id_the_path_cannot_carry_is_reported_as_configuration(
 
     `RedfishResource.get_system()` interpolates what it is given, and its
     docstring promises `APIError` for an id kvmd does not know — a raw httpx
-    failure is neither that nor anything the package documents.
+    failure is neither that nor anything the package documents. Redfish is
+    also the resource that calls `PiKVM.request()` directly rather than
+    through `BaseResource`, so this is the client's own translation and
+    nothing else's.
     """
     with pytest.raises(ConfigurationError, match="Cannot build a URL"):
         await client.redfish.get_system("bad\nid")
+
+
+async def test_a_query_parameter_httpx_refuses_is_reported_the_same_way(
+    client: PiKVM,
+) -> None:
+    """The other place a caller's value lands, where the path is a constant.
+
+    httpx measures each URL component against its own limit, so an EDID blob
+    past it fails to parse exactly as a bad path does — through
+    `BaseResource`, and with a path this library wrote. The message says
+    which call it was and leaves the accusation to httpx, which names the
+    component.
+    """
+    with pytest.raises(ConfigurationError, match="query") as info:
+        await client.switch.create_edid("mine", "0" * 70000)
+    assert "/api/switch/edids/create" in str(info.value)
 
 
 async def test_non_ascii_credentials() -> None:
