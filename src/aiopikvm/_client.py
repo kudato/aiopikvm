@@ -192,25 +192,26 @@ class PiKVM:
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default,
-                because following one resends the credential, and how far it
-                then travels depends on the transport. A socket hands
-                whatever the mode sends — the ``X-KVMD-*`` pair,
-                ``Authorization``, or the session token — to wherever the
-                redirect points, *websockets* repeating the handshake headers
-                verbatim. httpx is stricter but not strict: it drops
-                ``Authorization`` off-origin, while the ``X-KVMD-*`` pair
-                travels anywhere and the token travels as far as its cookie
-                scope reaches — for one
-                [`AuthResource.login()`][aiopikvm.resources.auth.AuthResource.login]
-                filed, the device domain, its subdomains and other ports
-                included; for one set by hand, every host. Whichever travels,
-                the usual cause — an ``http://`` base URL that nginx
-                redirects to ``https://`` — has already put it on the wire in
-                cleartext by then.
-            http_client: Pre-built httpx client. When given, this client
-                does not close it and the arguments above are ignored —
-                except *follow_redirects*, which the sockets read from here
-                rather than from the client they do not use.
+                because following one can hand the credential to the target,
+                by rules that differ per transport and are not worth relying
+                on. A socket repeats its handshake headers verbatim, so it
+                carries whatever the mode sends — unless the redirect also
+                drops TLS, which *websockets* refuses outright. Over HTTP the
+                ``X-KVMD-*`` pair travels anywhere, ``Authorization`` is
+                dropped when the origin changes except on a plain
+                ``http``→``https`` upgrade of the same host, and the session
+                token travels as far as its cookie scope reaches — which
+                covers the device's subdomains and its other ports, and for a
+                token set by hand is every host. Treat all of it as reachable
+                by whatever the redirect points at. The usual cause — an
+                ``http://`` base URL that nginx redirects to ``https://`` —
+                has in any case already put the credential on the wire in
+                cleartext.
+            http_client: Pre-built httpx client. When given, this client does
+                not close it and the arguments above are ignored — over HTTP.
+                The sockets have no httpx client to take anything from, so
+                they still read the URL, the credentials and every transport
+                argument from this constructor.
         """
         self._url = url.rstrip("/")
         self._user = user
