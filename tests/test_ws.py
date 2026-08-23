@@ -265,11 +265,12 @@ def test_a_trailing_slash_does_not_become_a_second_one(base: str) -> None:
 
 
 def test_a_base_path_survives_the_stripping() -> None:
-    """Only the trailing slash goes; a device behind a path keeps it.
+    """Only the tail of the path goes; a device behind a prefix keeps it.
 
     kvmd is reached through a prefix often enough — a reverse proxy serving
-    several devices — and a rule written against the double slash rather than
-    the end of the URL would eat that prefix's own separator.
+    several devices — and every other case here has an empty path, so a rule
+    that took the path rather than trimming its end would look right in all
+    of them.
     """
     assert (
         socket("https://pikvm.local/kvm/")._url

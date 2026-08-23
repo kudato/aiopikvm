@@ -1476,10 +1476,10 @@ def _ws_url(url: str) -> str:
     the slash in its constructor, connects (#172). Stripping it here covers
     all three socket classes, since all three come through this function.
 
-    The slashes come off the path rather than off the string, so what the
-    rule can reach is path and nothing else — a prefix a reverse proxy serves
-    kvmd under keeps its own separator, and the authority is not something
-    the stripping can walk back into.
+    The slashes come off ``urlparse().path``, which is where a trailing slash
+    lands whether or not a query or a fragment follows it in the URL. A
+    prefix a reverse proxy serves kvmd under keeps its own separator: what
+    goes is the end of the path, not the path.
 
     Args:
         url: The base URL the client was built with.
