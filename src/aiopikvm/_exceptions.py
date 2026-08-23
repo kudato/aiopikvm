@@ -115,19 +115,26 @@ class WebSocketError(PiKVMError):
 
 
 class WebRTCError(PiKVMError):
-    """The Janus gateway or its ustreamer plugin refused, or the media failed.
+    """A WebRTC failure, with no HTTP status to carry.
 
-    Everything under ``/janus/ws`` is Janus's own protocol rather than kvmd's,
-    so a failure there has neither an HTTP status nor a kvmd error class to
-    report. This carries Janus's numbering instead: a top-level error, where
-    Janus itself refused — an unknown session, a handle that is gone — or a
-    plugin error, where the request reached the ustreamer plugin and it said
-    no. It also reports a negotiation that never completed.
+    Once the upgrade is through, ``/janus/ws`` speaks Janus's own protocol
+    rather than kvmd's, so a failure there has neither an HTTP status nor a
+    kvmd error class to report. This carries Janus's numbering instead: a
+    top-level error, where Janus itself refused — an unknown session, a
+    handle that is gone — or a plugin error, where the request reached the
+    ustreamer plugin and it said no. A negotiation that never completed and a
+    session used while it is not open — before its ``async with`` block, or
+    after it — report the same way, with no code to carry.
+
+    The upgrade itself is not this: kvmd's auth chain sits in front of Janus,
+    so a refused handshake raises ``AuthError``/``APIError`` like any
+    request, and the signalling socket failing raises ``WebSocketError``.
 
     Attributes:
         code: Janus's own error code, or the plugin's. ``0`` when the failure
-            had no code — a negotiation that timed out, or an answer whose
-            shape this release does not recognise.
+            had no code — a negotiation that timed out, a session that was
+            not open, or an answer whose shape this release does not
+            recognise.
         reason: The text Janus or the plugin sent beside that code. Empty when
             there was none.
     """

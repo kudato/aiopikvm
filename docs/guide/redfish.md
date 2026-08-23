@@ -138,8 +138,10 @@ answers 204 and does nothing at all, so there is no error to catch — check
 kvmd accepts these six, matched **case-sensitively** — unlike the output,
 button and compression names elsewhere in this client, which it lowercases
 first. `reset()` takes them as the `ResetType` type, so a name from the wider
-DMTF schema is a type error rather than an HTTP 400, and `RESET_TYPES` is the
-same list to check against at runtime:
+DMTF schema is caught by the type checker instead of only at runtime, where
+kvmd answers HTTP 400 — the alias is a `Literal` and enforces nothing itself.
+`RESET_TYPES` is the same list to check against for a name that is not known
+until then:
 
 ```python
 from aiopikvm import RESET_TYPES
