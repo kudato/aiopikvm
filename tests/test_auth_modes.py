@@ -342,6 +342,63 @@ async def test_cookie_mode_reuses_a_token_put_there_by_hand(
     assert f"auth_token={OTHER_TOKEN}" in mock_api.calls[-1].request.headers["Cookie"]
 
 
+async def test_cookie_mode_keeps_its_session_past_a_valueless_cookie(
+    mock_api: respx.MockRouter,
+) -> None:
+    """A later response filing an empty `auth_token` must not lose it (#169).
+
+    The jar is any response's to write, not the login's alone, and it drops
+    the cookies a server clears properly — with ``Max-Age=0`` or a past
+    expiry — so an empty one that survives to be read carries no
+    instruction. Reading it as no token opens a fresh session for every
+    request and leaves a socket refusing to open, both advising a login that
+    has already happened.
+    """
+    login = _login_route(mock_api)
+    atx = mock_api.get("/api/atx").mock(
+        return_value=httpx.Response(
+            200, json=OK, headers={"Set-Cookie": "auth_token=; Path=/api"}
+        )
+    )
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        for _ in range(3):
+            await kvm.request("GET", "/api/atx")
+        assert kvm.ws()._credential_headers() == {"Cookie": f"auth_token={TOKEN}"}
+    assert (login.call_count, atx.call_count) == (1, 3)
+
+
+async def test_cookie_mode_reads_the_last_session_cookie_and_only_that_name(
+    mock_api: respx.MockRouter,
+) -> None:
+    """Which entry of a jar holding several is carried (#169).
+
+    A login collapses the jar to one, so this ordering arises only when a
+    later response files an `auth_token` of its own under another path — and
+    then the newer one, which the jar keeps last, is the one kvmd has just
+    handed out. A cookie of some other name is not a session token however
+    late it arrives.
+    """
+    _login_route(mock_api)
+    mock_api.get("/api/atx").mock(
+        return_value=httpx.Response(
+            200,
+            json=OK,
+            headers=[
+                ("set-cookie", f"auth_token={OTHER_TOKEN}; Path=/api"),
+                ("set-cookie", "session=decoy; Path=/api"),
+            ],
+        )
+    )
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        await kvm.request("GET", "/api/atx")
+        assert [(c.path, c.name) for c in kvm.cookies.jar] == [
+            ("/", _COOKIE),
+            ("/api", _COOKIE),
+            ("/api", "session"),
+        ]
+        assert kvm.ws()._credential_headers() == {"Cookie": f"auth_token={OTHER_TOKEN}"}
+
+
 async def test_websocket_carries_the_same_credential() -> None:
     async with PiKVM(URL, user="admin", passwd="secret") as kvm:
         assert kvm.ws()._credential_headers() == {

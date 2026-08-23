@@ -128,6 +128,121 @@ async def test_login_over_a_restored_session_does_not_trip_httpx(
     assert sum(c.name == "auth_token" for c in client.cookies.jar) == 1
 
 
+def _two_cookie_login(first: str, second: str) -> httpx.Response:
+    """Build the recorded login success with two session cookies on it.
+
+    Only the ``Set-Cookie`` pair is invented: the status and body are the
+    recorded ones, and no device this project can record from puts two of
+    them there — a proxy in front of kvmd setting its own under another path
+    is what does.
+
+    Args:
+        first: Value of the cookie under ``Path=/``.
+        second: Value of the cookie under ``Path=/api``, which the jar keeps
+            last and httpx sends first.
+
+    Returns:
+        The response, carrying both under the one name.
+    """
+    entry = step("login_form_body")
+    return httpx.Response(
+        entry["status"],
+        json=entry["body"],
+        headers=[
+            ("set-cookie", f"auth_token={first}; Path=/"),
+            ("set-cookie", f"auth_token={second}; Path=/api"),
+        ],
+    )
+
+
+async def test_login_survives_two_session_cookies_on_one_response(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Two `auth_token` cookies on one response must not escape as httpx's (#169).
+
+    `httpx.Cookies.get` raises `CookieConflict` on that, which is outside the
+    PiKVMError hierarchy — the rule CLAUDE.md states without qualification.
+    The jar is walked instead, the last entry winning, which is how the
+    client's own jar is already read.
+    """
+    mock_api.post("/api/auth/login").mock(
+        return_value=_two_cookie_login("a" * 64, TOKEN)
+    )
+
+    assert await client.auth.login("admin", "secret") == TOKEN
+    assert sum(c.name == "auth_token" for c in client.cookies.jar) == 1
+
+
+async def test_a_valueless_cookie_does_not_mask_the_token_beside_it(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """An empty `auth_token` read last must not read as no token at all (#169).
+
+    A cookie still in the jar was not cleared — the jar drops the ones a
+    server clears, with ``Max-Age=0`` or an expiry in the past. Letting an
+    empty one have the last word returns ``""``, which `login()` documents
+    as kvmd running with authentication switched off, for a response that
+    just opened a session.
+    """
+    mock_api.post("/api/auth/login").mock(return_value=_two_cookie_login(TOKEN, ""))
+
+    assert await client.auth.login("admin", "secret") == TOKEN
+    assert sum(c.name == "auth_token" for c in client.cookies.jar) == 1
+
+
+async def test_login_reads_the_session_cookie_and_not_a_neighbour(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """A cookie of another name is not the token, however late it lands (#169).
+
+    The walk takes the last match, and the jar groups cookies by path in the
+    order the paths first appear — length is not what orders them — so the
+    decoy is last here by having the second path named.
+    """
+    entry = step("login_form_body")
+    mock_api.post("/api/auth/login").mock(
+        return_value=httpx.Response(
+            entry["status"],
+            json=entry["body"],
+            headers=[
+                ("set-cookie", f"auth_token={TOKEN}; Path=/"),
+                ("set-cookie", "session=decoy; Path=/api"),
+            ],
+        )
+    )
+
+    assert await client.auth.login("admin", "secret") == TOKEN
+
+
+async def test_cookie_mode_survives_two_session_cookies_it_never_asked_for(
+    mock_api: respx.MockRouter,
+) -> None:
+    """The same conflict, reached without the caller calling `login()` (#169).
+
+    Under `auth="cookie"` the first request opens the session itself, so
+    `request()` walks into `_ensure_session()` and into `login()`. What
+    escaped was httpx's exception, out of a call the caller never made —
+    which is why this path is worth its own test rather than being covered
+    by the one above.
+    """
+    login = mock_api.post("/api/auth/login").mock(
+        return_value=_two_cookie_login("a" * 64, TOKEN)
+    )
+    atx = mock_api.get("/api/atx").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+    )
+
+    async with PiKVM(
+        "https://pikvm.local", user="admin", passwd="secret", auth="cookie"
+    ) as kvm:
+        await kvm.request("GET", "/api/atx")
+
+    # Compared whole, not searched: both cookies reaching the wire would
+    # contain this one and say nothing about which was chosen.
+    assert (login.call_count, atx.call_count) == (1, 1)
+    assert atx.calls[-1].request.headers["Cookie"] == f"auth_token={TOKEN}"
+
+
 async def test_login_returns_this_response_token_not_a_stale_one(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:

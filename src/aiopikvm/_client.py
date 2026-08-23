@@ -543,15 +543,18 @@ class PiKVM:
         Walks the jar rather than calling ``httpx.Cookies.get``, which raises
         ``CookieConflict`` — outside the
         [`PiKVMError`][aiopikvm.PiKVMError] hierarchy — when two cookies
-        share a name under different domains.
+        share a name under different domains or paths. A valueless entry is
+        passed over, so one filed after the real cookie cannot hide it; see
+        `aiopikvm.resources.auth._token_in`, which reads a response's jar by
+        the same two rules.
 
         Returns:
             The token, or ``""`` when there is none.
         """
         token = ""
         for cookie in self._ensure_client().cookies.jar:
-            if cookie.name == _COOKIE:
-                token = cookie.value or ""
+            if cookie.name == _COOKIE and cookie.value:
+                token = cookie.value
         return token
 
     async def _send(

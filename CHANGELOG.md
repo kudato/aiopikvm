@@ -592,6 +592,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `AuthResource.login()` reads its session token by walking the response's
+  cookie jar rather than asking `httpx.Cookies.get` for it, which raises
+  `CookieConflict` — outside `PiKVMError` — when the response carries two
+  `auth_token` cookies under different paths or domains. Unusual but valid
+  HTTP: a proxy in front of kvmd setting its own is enough. Under
+  `auth="cookie"` it escaped from calls that never mentioned logging in, the
+  first request of a session opening one itself. The last cookie wins, and a
+  valueless one is passed over. Walking is how the client's own jar was
+  already read — the same hazard was fixed there and this response-side one
+  was left (#169).
+- The client reads its own jar past a valueless `auth_token` instead of
+  stopping at it. The jar drops a cookie a server clears properly — with
+  `Max-Age=0` or an expiry in the past — so an empty one that survives to be
+  read carries no instruction, and letting it have the last word lost the
+  real token beside it: `auth="cookie"` opened a new session for every
+  request, and every socket refused to open on the advice of a login that
+  had already happened (#169).
 - `PiKVMWebSocket.states()` skips a subsystem this release knows a model for
   but cannot place on `DeviceState`, instead of ending the iteration with a
   bare `TypeError` — an exception outside `PiKVMError`, raised on a socket
