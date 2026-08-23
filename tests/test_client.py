@@ -67,6 +67,60 @@ def test_every_resource_module_is_reachable_from_the_client() -> None:
     assert modules == set(_RESOURCE_NAMES)
 
 
+def page(name: str) -> str:
+    """Read a documentation page.
+
+    Args:
+        name: Path of the page, relative to the repository root.
+
+    Returns:
+        The whole page as text.
+    """
+    return (Path(__file__).parents[1] / name).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("name", "entry"),
+    [
+        ("docs/getting-started/quickstart.md", "| `kvm.{0}` |"),
+        ("docs/getting-started/configuration.md", "{0} = kvm.{0}"),
+    ],
+)
+def test_the_pages_that_list_every_resource_do(name: str, entry: str) -> None:
+    """Two lists that present themselves as complete, and were not (#149).
+
+    The quickstart's table had ten of the eleven and the configuration
+    example nine — `media` and `system`, the two most recently added, which
+    is what a list maintained by hand loses.
+
+    Matched against the list's own shape, a table row or an assignment,
+    rather than a bare ``kvm.<name>`` anywhere on the page: three of the
+    eleven are also demonstrated in the quickstart's prose and two in the
+    configuration's, so a looser search stays green for exactly those rows
+    when they go missing.
+
+    Args:
+        name: Path of the page, relative to the repository root.
+        entry: How that page writes one entry, with ``{0}`` for the name.
+    """
+    text = page(name)
+    assert [n for n in _RESOURCE_NAMES if entry.format(n) not in text] == []
+
+
+def test_the_client_reference_lists_every_public_member() -> None:
+    """`docs/reference/client.md` pins its member list, so a name missing
+    from it renders nowhere on the site — which is what `base_url`, the one
+    public member it dropped, did (#149).
+    """
+    listed = {
+        line.strip().removeprefix("- ")
+        for line in page("docs/reference/client.md").splitlines()
+        if line.strip().startswith("- ")
+    }
+    public = {name for name in vars(PiKVM) if not name.startswith("_")}
+    assert public - listed == set()
+
+
 async def test_auth_headers(mock_api: respx.MockRouter) -> None:
     # Asserted on the request rather than the client: the credentials are
     # built per call, so that a rotating TOTP code is the current one.
@@ -97,7 +151,7 @@ async def test_ws_factory(mock_api: respx.MockRouter) -> None:
 async def test_ws_inherits_follow_redirects(
     mock_api: respx.MockRouter, follow: bool
 ) -> None:
-    """A followed redirect resends the password, so the socket must not decide."""
+    """A followed redirect resends the credential, so the socket must not decide."""
     async with PiKVM("https://pikvm.local", follow_redirects=follow) as client:
         assert client.ws()._follow_redirects is follow
 
