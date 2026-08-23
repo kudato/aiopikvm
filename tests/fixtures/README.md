@@ -130,15 +130,19 @@ device diffs clean and any difference is a real one. What happens to a name
 that is *not* in it is recorded on the other side, in `ws_binary.json` below.
 
 `ws_binary.json` is the other half of that socket: kvmd's binary channel, where
-the first byte of a frame is an operation number rather than JSON. Every frame
-in it is one this client built and sent, and every one is recorded with
-`/api/hid/inactivity` read before and after — kvmd resets that counter from
-inside the handler and it counts seconds from there, so a counter that came
-down is the device confirming it decoded the frame, and one that did not come
-down is it dropping one its validators refused. Neither side is a fixed number:
-an accepted frame reads back as 0 or 1 and a refused one either sits where it
-was or ticks on, depending on where the second boundary fell between the two
-reads. The verdict is the drop, not the value.
+the first byte of a frame is an operation number rather than JSON. Most of what
+it holds this client builds, down to the byte the tests compare against — the
+refused key name included, since nothing in the client checks a name against
+that table. Three frames it cannot build: an operation it does not implement,
+and two frames truncated below the width its packers emit, which are here to
+record the shape of a bug rather than anything a caller can reach. Each input
+frame is recorded with `/api/hid/inactivity` read before and after — kvmd
+resets that counter from inside the handler and it counts seconds from there,
+so a counter that came down is the device confirming it decoded the frame, and
+one that did not come down is it dropping one its validators refused. Neither
+side is a fixed number: an accepted frame reads back as 0 or 1 and a refused
+one either sits where it was or ticks on, depending on where the second
+boundary fell between the two reads. The verdict is the drop, not the value.
 Alongside the input frames it holds both ping exchanges (the JSON `pong` event
 and binary op `255`), and an operation kvmd has no handler for, which it
 answers with nothing at all.

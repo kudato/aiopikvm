@@ -1142,7 +1142,7 @@ async def test_send_on_a_broken_connection() -> None:
 #
 # A frame checked against `frame(...)` was sent to a real device and accepted
 # by it: the ws_binary scenario records each one with kvmd's inactivity
-# counter read before and after, and kvmd only bumps that counter for a frame
+# counter read before and after, and kvmd only resets that counter for a frame
 # it decoded. A test that spells the bytes out instead is checking this file's
 # idea of the layout against itself, which is worth knowing when one fails.
 
