@@ -123,8 +123,8 @@ class WebRTCError(PiKVMError):
     top-level error, where Janus itself refused — an unknown session, a
     handle that is gone — or a plugin error, where the request reached the
     ustreamer plugin and it said no. A negotiation that never completed and a
-    session used before it is opened report the same way, with no code to
-    carry.
+    session used while it is not open — before its ``async with`` block, or
+    after it — report the same way, with no code to carry.
 
     The upgrade itself is not this: kvmd's auth chain sits in front of Janus,
     so a refused handshake raises ``AuthError``/``APIError`` like any

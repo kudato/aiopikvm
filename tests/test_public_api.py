@@ -78,8 +78,10 @@ def drawn_tree(diagram: str) -> tuple[list[str], set[tuple[str, str]]]:
     """Parse a box-drawing tree into its names and its edges.
 
     Depth is what the indentation says: a branch glyph at column 0 is a child
-    of the root, at column 4 a grandchild, and so on — which is the meaning a
-    reader takes from the picture, so it is the meaning that gets checked.
+    of the root, at column 4 a grandchild, and so on. A glyph off that grid
+    is refused rather than rounded, because rounding is a second reading — a
+    glyph at column 3 parses as a sibling while a reader sees a child, which
+    is the drift this parser exists to catch.
 
     Args:
         diagram: The fenced block's text.
@@ -87,6 +89,9 @@ def drawn_tree(diagram: str) -> tuple[list[str], set[tuple[str, str]]]:
     Returns:
         Every name top-down as drawn, and a ``(child, parent)`` edge per
         drawn attachment.
+
+    Raises:
+        AssertionError: A branch glyph sits off the 4-column grid.
     """
     names: list[str] = []
     edges: set[tuple[str, str]] = set()
@@ -96,7 +101,12 @@ def drawn_tree(diagram: str) -> tuple[list[str], set[tuple[str, str]]]:
             continue
         name = line.split()[-1]
         marker = max(line.find("├"), line.find("└"))
-        depth = 0 if marker < 0 else marker // 4 + 1
+        if marker < 0:
+            depth = 0
+        else:
+            depth, off_grid = divmod(marker, 4)
+            assert not off_grid, f"branch glyph off the 4-column grid: {line!r}"
+            depth += 1
         stack[depth:] = [name]
         names.append(name)
         if depth:
