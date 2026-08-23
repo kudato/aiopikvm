@@ -130,9 +130,12 @@ that is *not* in it is recorded on the other side, in `ws_binary.json` below.
 `ws_binary.json` is the other half of that socket: kvmd's binary channel, where
 the first byte of a frame is an operation number rather than JSON. Every frame
 in it is one this client built and sent, and every one is recorded with
-`/api/hid/inactivity` read before and after — kvmd bumps that counter from
-inside the handler, so a reset to 0 is the device confirming it decoded the
-frame, and an unchanged counter is it dropping one its validators refused.
+`/api/hid/inactivity` read before and after — kvmd resets that counter from
+inside the handler and it counts seconds from there, so a counter that came
+down is the device confirming it decoded the frame, and one that kept climbing
+is it dropping one its validators refused. An accepted frame reads back as 0 or
+1 depending on where the second boundary fell, which is why the verdict is the
+drop rather than the value.
 Alongside the input frames it holds both ping exchanges (the JSON `pong` event
 and binary op `255`), and an operation kvmd has no handler for, which it
 answers with nothing at all.
@@ -145,18 +148,24 @@ being in the wrong mode. Recording them as movement would mean switching
 
 Input frames reach the HID, and this one was recorded with the USB gadget
 attached to a host — `keyboard.online` and `mouse.online` both `true` — so
-every frame kvmd accepted reached the machine behind it as well. Most are inert
-wherever they land: a lone `ControlLeft` press and release, a wheel of zero, a
-move to the centre of the screen, a middle-button release. One is not —
-`key_press_finish_ordinary` presses `KeyA`, which types a character on the
-attached host. `ControlLeft` is one of the nine keys kvmd exempts from the
-release the finish bit asks for, so it is still down when the last step ends and
-the recording sends a plain release for it; `KeyA` kvmd releases itself. The
+every frame kvmd accepted reached the machine behind it as well, and not all of
+them are inert there. `ControlLeft` is one of the nine keys kvmd exempts from
+the release the finish bit asks for, so from `key_press_finish` onward it stays
+down until the recording sends a plain release for it at the end, and every
+frame in between lands with that modifier held. `key_press_finish_ordinary`
+presses `KeyA` inside that window, which the attached host reads as Ctrl+A
+rather than as a character; `KeyA` kvmd releases itself.
+`mouse_wheel_batch_squashed` is a real scroll of two steps rather than the wheel
+of zero its neighbour sends, and it lands with `ControlLeft` held as well. The
+inert ones are the `ControlLeft` press and release that open the run, the
+pointer move to the centre of the screen, the wheel of zero, the middle-button
+release with no press before it, and the two relative frames, which kvmd
+decodes and its mouse device then drops for being in an absolute mode. The
 socket was opened with `stream=0`, so the video pipeline was untouched, and the
 jiggler was enabled but idle throughout — it moves the same counter these steps
 are judged by, so a run with it active could not tell an accepted frame from a
-jiggle. Nothing else needs undoing, but re-recording it sends input to somebody's
-device and to whatever is attached to it, so ask first.
+jiggle. Nothing on the device needs undoing, but re-recording it sends input to
+somebody's device and to whatever is attached to it, so ask first.
 
 `media_stream.json` is the live-video scenario, and the only one with a
 recorder of its own next to it — [`record_media.py`](record_media.py), run the

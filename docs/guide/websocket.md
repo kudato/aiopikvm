@@ -444,8 +444,11 @@ operation it has no handler for. It writes a line to its own log — `Unknown
 websocket binary event: b'\xc8'` for an operation, `Unknown websocket event`
 for a JSON one — and the sender hears nothing either way. Nothing about the
 input path is acknowledged, so a caller that needs to know an event landed has
-to look at the device: `kvm.hid.get_inactivity()` returns to 0 for every event
-kvmd accepted, and keeps counting for one it dropped.
+to look at the device: kvmd resets the counter behind
+`kvm.hid.get_inactivity()` for every event it accepted, and leaves it alone for
+one it dropped. The counter is in seconds and starts climbing again from the
+reset, so what marks an accepted event is the value coming *down* between two
+reads rather than a 0 you are guaranteed to catch.
 
 ## Ping
 
