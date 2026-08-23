@@ -192,11 +192,13 @@ class PiKVM:
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default: a
-                redirect resends whatever credential this client carries —
-                the headers, or the session cookie — to whatever it points
-                at, and the usual cause, an ``http://`` base URL that nginx
-                redirects to ``https://``, has already put the password or
-                the token on the wire in cleartext by then.
+                redirect that leaves the device still carries the
+                ``X-KVMD-*`` headers, which httpx copies to wherever it
+                points; the session cookie is scoped to the device host and
+                stays behind, so it follows one only within it. Either way
+                the usual cause, an ``http://`` base URL that nginx redirects
+                to ``https://``, has already put the password or the token on
+                the wire in cleartext by then.
             http_client: Pre-built httpx client. When given, this client
                 does not close it and the arguments above are ignored.
         """
@@ -349,20 +351,30 @@ class PiKVM:
         leaves kvmd's ``auth_token`` here, and every later request sends it
         back.
 
-        Whether the token is the credential depends on the *auth* mode.
-        kvmd tries the ``X-KVMD-*`` headers first and, once it sees a
-        non-empty ``X-KVMD-User``, either accepts that pair or refuses the
-        request outright — it never falls through to the cookie. Under
-        ``auth="headers"`` this client always sends that pair, so the token
-        decides nothing, and under ``auth="basic"`` the credential is in the
-        request as well. In both, a token here is only ever what
-        authenticates an `httpx.AsyncClient` passed in as *http_client*
+        Whether the token is the credential depends on the *auth* mode
+        ([`AuthMode`][aiopikvm.AuthMode]). kvmd reads the ``X-KVMD-*``
+        headers, then this cookie, then HTTP Basic, and the first source
+        *present* decides the request — a token it does not know is refused
+        outright rather than retried against what comes after it. So which
+        mode this client is in settles what the jar is for.
+
+        Under ``auth="headers"`` the pair goes out with every request and is
+        read first, so a token here decides nothing. It is then only ever
+        what authenticates an `httpx.AsyncClient` passed in as *http_client*
         without a credential of its own:
 
             async with httpx.AsyncClient(base_url=url, verify=False) as http:
                 http.cookies.set("auth_token", saved_token)
                 async with PiKVM(url, http_client=http) as kvm:
                     ...
+
+        Under ``auth="basic"`` there is no ``X-KVMD-User``, so kvmd reaches
+        this cookie *before* the Basic credential: a token left here by
+        [`AuthResource.login()`][aiopikvm.resources.auth.AuthResource.login]
+        authenticates every later request instead, and once it expires those
+        requests fail although the password is good — this mode opens no
+        session of its own to replace it. Drop the cookie to go back to the
+        password.
 
         Under ``auth="cookie"`` the token is the credential: this client
         sends no ``X-KVMD-User`` at all, and what is in this jar is what

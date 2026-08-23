@@ -81,9 +81,10 @@ for attempt in range(5):
 
 ## Redirects
 
-A redirect is reported instead of being followed, because following it resends
-whatever credential the client carries — the `X-KVMD-User` / `X-KVMD-Passwd`
-headers, or the session cookie under `auth="cookie"` — to wherever it points:
+A redirect is reported instead of being followed, because following one that
+leaves the device hands the `X-KVMD-User` / `X-KVMD-Passwd` headers to
+wherever it points. The session token under `auth="cookie"` is scoped to the
+device host and stays behind, so it follows a redirect only within it:
 
 ```python
 from aiopikvm import RedirectError

@@ -70,6 +70,34 @@ async def test_basic_mode_sends_authorization_and_nothing_else(
     assert "X-KVMD-Passwd" not in request.headers
 
 
+async def test_basic_mode_hands_kvmd_a_session_token_it_will_prefer(
+    mock_api: respx.MockRouter,
+) -> None:
+    """A token in the jar outranks the Basic credential beside it (#147).
+
+    kvmd reads the cookie before Basic, and `auth="basic"` sends no
+    `X-KVMD-User` to stop it getting that far — so a session opened by
+    `login()` decides every later request, not the password. That the jar
+    goes out alongside `Authorization` is this test's half of it; what makes
+    it matter is the ordering the module docstring states.
+
+    Nothing renews such a token either: a refusal is reported as it comes,
+    with no session opened to retry under, which `auth="cookie"` does do.
+    """
+    _login_route(mock_api)
+    atx = mock_api.get("/api/atx").mock(
+        return_value=httpx.Response(403, json={"ok": False, "result": {}})
+    )
+    async with PiKVM(URL, user="admin", passwd="secret", auth="basic") as kvm:
+        await kvm.auth.login("admin", "secret")
+        with pytest.raises(AuthError):
+            await kvm.request("GET", "/api/atx")
+    request = mock_api.calls[-1].request
+    assert f"{_COOKIE}={TOKEN}" in request.headers["Cookie"]
+    assert "Authorization" in request.headers
+    assert atx.call_count == 1
+
+
 async def test_basic_mode_appends_the_totp_code(
     mock_api: respx.MockRouter,
 ) -> None:

@@ -6,10 +6,12 @@ Basic, and the unix socket peer. The first one that is *present* decides the
 request — a non-empty ``X-KVMD-User`` with the wrong password is refused
 rather than retried against the cookie.
 
-[`aiopikvm.PiKVM`][aiopikvm.PiKVM] always sends those headers, so the sessions
-opened here are for other consumers: a browser, another tool, or an
-`httpx.AsyncClient` passed in as *http_client* that sends no credential
-headers of its own.
+Which source [`aiopikvm.PiKVM`][aiopikvm.PiKVM] leaves for a session token
+depends on its *auth* mode: ``"headers"`` sends that pair with every request
+and is never authenticated by a session opened here, while ``"basic"`` and
+``"cookie"`` send no ``X-KVMD-User`` and are. A session is also for consumers
+other than this client — a browser, another tool, or an `httpx.AsyncClient`
+passed in as *http_client* that sends no credential of its own.
 """
 
 import re
@@ -58,9 +60,12 @@ class AuthResource(BaseResource):
         The token is also stored in [`PiKVM.cookies`][aiopikvm.PiKVM.cookies],
         scoped to the host it came from, and sent with every later request.
         Under ``auth="cookie"`` it is what those requests are authenticated
-        by, and what a socket handshake carries; under the other two modes it
-        decides nothing, because the credential in the request itself is read
-        first. See [`PiKVM.cookies`][aiopikvm.PiKVM.cookies] for what a
+        by, and what a socket handshake carries. Under ``auth="basic"`` it
+        takes over as well — kvmd reads the cookie before the Basic
+        credential — and nothing renews it, so a client that outlives the
+        session starts failing with a password that is still good. Only
+        ``auth="headers"`` leaves it deciding nothing, that pair being read
+        first; see [`PiKVM.cookies`][aiopikvm.PiKVM.cookies] for what a
         session token is good for in that case.
 
         A token already in the jar is replaced. The session it belonged to

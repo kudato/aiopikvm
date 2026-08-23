@@ -196,8 +196,10 @@ for a caller that would rather switch on it than re-read everything:
 The merge is the point of it. kvmd sends a subsystem in full once and then only
 the parts of it that change, so validating a later event on its own fails —
 most of the model is simply not in it. `info` is merged the same way and typed
-like the rest: kvmd sends one submanager per event, so `state.info.health` is
-`None` until the `health` one has arrived, and so is every other field on it.
+like the rest: it is `None` until the first `info` event, and because kvmd
+sends one submanager per event, each field on it — `state.info.health` and the
+others — is `None` until that submanager has arrived. Guard the outer one the
+way the example above does before reaching through it.
 
 `loop` and `pong` produce no snapshot, since neither says anything about the
 device; the version the `loop` event carries is on `ws.version`. A payload that
