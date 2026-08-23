@@ -620,6 +620,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   it with 404. A stock device hides the fault, nginx merging slashes in front
   of kvmd; anything reaching kvmd another way failed the handshake. A prefix
   the device is served under keeps its own separator (#172).
+- A URL httpx will not parse — a path carrying a control character or a
+  bracket literal with no closing bracket, a query parameter past the length
+  httpx allows a component — is reported as `ConfigurationError` naming the
+  call it came from, rather than as a bare `httpx.InvalidURL`. httpx derives
+  that one straight from `Exception`, so none of the clauses translating its
+  failures covered it, and it is raised inside the block they wrap: the URL
+  is parsed on the way into the send. Both `request()` and `stream()` leaked
+  it, and with them every call that puts a caller's value into a URL —
+  `RedfishResource.get_system()` with an id read from a config file, or
+  `SwitchResource.create_edid()` with an over-long blob (#171).
 - `auth="cookie"` against a kvmd running with authentication switched off
   logs in once instead of before every request, and can open a WebSocket.
   Such a device hands out no token, so the jar stayed empty and the client,

@@ -198,6 +198,57 @@ async def test_url_without_scheme() -> None:
             await kvm.atx.get_state()
 
 
+async def test_unparsable_path_stays_in_the_hierarchy(client: PiKVM) -> None:
+    """httpx derives InvalidURL from Exception, and parses before it sends.
+
+    So no clause of the translation covered it and it escaped from inside
+    the block, where a malformed base URL — caught while the client is
+    built — can no longer be the cause (#171).
+    """
+    with pytest.raises(ConfigurationError, match=re.escape(r"/api/\x00x")):
+        await client.request("GET", "/api/\x00x")
+
+
+async def test_unparsable_path_while_streaming() -> None:
+    """The same gap on the streaming path, which shares the translation."""
+    async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
+        with pytest.raises(ConfigurationError, match="Cannot build a URL"):
+            async with kvm.stream("GET", "/api/\x00x"):
+                pass  # pragma: no cover - the URL never parses
+
+
+async def test_an_id_the_path_cannot_carry_is_reported_as_configuration(
+    client: PiKVM,
+) -> None:
+    """How a caller meets this: an id from a config file, put into a path.
+
+    `RedfishResource.get_system()` interpolates what it is given, and its
+    docstring promises `APIError` for an id kvmd does not know — a raw httpx
+    failure is neither that nor anything the package documents. Redfish is
+    also the resource that calls `PiKVM.request()` directly rather than
+    through `BaseResource`, so this is the client's own translation and
+    nothing else's.
+    """
+    with pytest.raises(ConfigurationError, match="Cannot build a URL"):
+        await client.redfish.get_system("bad\nid")
+
+
+async def test_a_query_parameter_httpx_refuses_is_reported_the_same_way(
+    client: PiKVM,
+) -> None:
+    """The other place a caller's value lands, where the path is a constant.
+
+    httpx measures each URL component against its own limit, so an EDID blob
+    past it fails to parse exactly as a bad path does — through
+    `BaseResource`, and with a path this library wrote. The message says
+    which call it was and leaves the accusation to httpx, which names the
+    component.
+    """
+    with pytest.raises(ConfigurationError, match="query") as info:
+        await client.switch.create_edid("mine", "0" * 70000)
+    assert "/api/switch/edids/create" in str(info.value)
+
+
 async def test_non_ascii_credentials() -> None:
     with pytest.raises(ConfigurationError, match="ASCII"):
         async with PiKVM("https://pikvm.local", user="admin", passwd="паролü"):

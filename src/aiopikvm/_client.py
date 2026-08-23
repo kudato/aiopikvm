@@ -65,12 +65,21 @@ _COOKIE = "auth_token"
 
 
 @contextmanager
-def _httpx_errors_translated() -> Iterator[None]:
+def _httpx_errors_translated(path: str) -> Iterator[None]:
     """Report httpx's failures as this library's own.
 
     Both halves of the client send through httpx and have the same set of
     failures to rename, so the mapping lives here rather than in two copies
     that drift.
+
+    Args:
+        path: What the block is sending to. It goes into the failure httpx
+            raises for a URL it will not parse, which names a character and
+            a position, or a component, and no URL at all — so without it a
+            caller cannot tell which call of theirs it came out of. It is
+            context and not blame: the query is as good a place for a bad
+            value to arrive, and the path is then a constant of this
+            library's own.
 
     Yields:
         Nothing. The block runs, and whatever httpx raises out of it comes
@@ -81,7 +90,8 @@ def _httpx_errors_translated() -> Iterator[None]:
         RedirectError: The redirects formed a loop, which only happens with
             ``follow_redirects=True``.
         ResponseError: The body did not survive its ``Content-Encoding``.
-        ConfigurationError: The URL has no usable scheme.
+        ConfigurationError: The URL has no usable scheme, or the one this
+            call builds is something httpx will not parse.
         ConnectError: Anything else that went wrong on the wire.
     """
     try:
@@ -106,6 +116,19 @@ def _httpx_errors_translated() -> Iterator[None]:
     except httpx.UnsupportedProtocol as exc:
         raise ConfigurationError(
             f"{exc} Pass the scheme in the PiKVM URL, e.g. https://pikvm.local."
+        ) from exc
+    except httpx.InvalidURL as exc:
+        # httpx derives this straight from Exception, so the clauses around
+        # it cover nothing of it, and it is raised inside the block rather
+        # than before it: the URL is parsed on the way into the send. A
+        # malformed base URL is caught while the client is built, so what
+        # fails here is what the call added to it — an id with a newline in
+        # it interpolated into the path, or a query parameter past the length
+        # httpx allows a component (#171).
+        raise ConfigurationError(
+            f"Cannot build a URL for {path!r}: {str(exc).rstrip('.')}. httpx "
+            "names the part it refused; a value of yours in the path or the "
+            "query is the usual way one gets there."
         ) from exc
     except httpx.TransportError as exc:
         # Covers ConnectError, ReadError/WriteError and the
@@ -452,7 +475,8 @@ class PiKVM:
             The *httpx.Response* object.
 
         Raises:
-            ConfigurationError: The base URL has no usable scheme, or the
+            ConfigurationError: The base URL has no usable scheme, the URL
+                this call builds is one httpx will not parse, or the
                 credential is not ASCII — which for a TOTP code produced by a
                 callable is only known here.
             ConnectError: Connection to PiKVM failed or broke mid-request.
@@ -613,7 +637,8 @@ class PiKVM:
             The response, once its status has been checked.
 
         Raises:
-            ConfigurationError: The base URL has no usable scheme, or the
+            ConfigurationError: The base URL has no usable scheme, the URL
+                this call builds is one httpx will not parse, or the
                 credential is not ASCII.
             ConnectError: The connection failed or broke mid-request.
             ConnectionTimeoutError: The request timed out.
@@ -622,7 +647,7 @@ class PiKVM:
             APIError: Any other error status, and its subclasses.
         """
         client = self._ensure_client()
-        with _httpx_errors_translated():
+        with _httpx_errors_translated(path):
             response = await client.request(
                 method,
                 path,
@@ -744,7 +769,8 @@ class PiKVM:
             The *httpx.Response* with an unconsumed body.
 
         Raises:
-            ConfigurationError: The base URL has no usable scheme, or the
+            ConfigurationError: The base URL has no usable scheme, the URL
+                this call builds is one httpx will not parse, or the
                 credential is not ASCII.
             ConnectError: Connection to PiKVM failed or broke mid-request.
             ConnectionTimeoutError: Request timed out.
@@ -759,7 +785,7 @@ class PiKVM:
                 translation covers the whole block, including the ``yield``.
             APIError: Server returned any other error status (>= 400).
         """
-        with _httpx_errors_translated():
+        with _httpx_errors_translated(path):
             if self._needs_session(path):
                 await self._ensure_session()
                 carried = self._session_token()
