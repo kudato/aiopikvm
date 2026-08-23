@@ -13,6 +13,7 @@ PiKVMError
 ├── ConfigurationError
 ├── ConnectError
 ├── ConnectionTimeoutError
+├── WebRTCError
 └── WebSocketError
 ```
 
