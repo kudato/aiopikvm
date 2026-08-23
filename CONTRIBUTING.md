@@ -35,7 +35,7 @@ All checks must pass before submitting a pull request. Ruff handles both linting
 ## Tests
 
 The suite runs offline: HTTP is mocked with `respx`, and the payloads come from
-`tests/fixtures/data` — responses captured from a real PiKVM (kvmd 4.186)
+`tests/fixtures/data` — responses captured from a real PiKVM (kvmd 4.206)
 rather than hand-written dictionaries, because hand-written ones are how the
 library ended up with models that no real response could satisfy. Use them in
 new tests:

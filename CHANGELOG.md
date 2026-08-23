@@ -385,11 +385,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that basis would reject calls that work. The floor is stated in the README,
   the installation guide and `pyproject.toml`, and the documentation no longer
   describes the behaviour of versions below it (#114).
-- Every fixture is re-captured from kvmd 4.206 (was 4.186), and the capture
-  tool now reproduces the corpus rather than whatever the device happened to
-  be doing: it asks for video so the streamer is running, pings so a `pong` is
-  recorded, listens long enough for a partial event, and refuses to write a
-  capture missing any of the three. The previous corpus had all three by
+- Every fixture the capture tool produces is re-captured from kvmd 4.206 (was
+  4.186), and the capture tool now reproduces the corpus rather than whatever
+  the device happened to be doing: it asks for video so the streamer is
+  running, pings so a `pong` is recorded, listens long enough for a partial
+  event, and refuses to write a capture missing any of the three. The
+  previous corpus had all three by
   luck, and a re-run silently dropped them — six tests kept passing against a
   corpus that no longer proved what they read (#114).
 - **Breaking:** the parameters those literal types cover are no longer `str`:
@@ -580,6 +581,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   before it looks anything up, but from the caller's side the login still
   failed on the credentials. `AuthError` derives from `APIError`, so existing
   handlers keep working (#34).
+- The four fixtures the capture tool cannot produce — `auth_roundtrip`,
+  `ws_handshake`, `ws_binary` and `msd_write` — are re-recorded against kvmd
+  4.206, which every other file in `tests/fixtures/data` already came from.
+  They were the last of the corpus still recorded on 4.186, and a file nothing
+  re-runs is the kind that drifts unnoticed. `ws_handshake` and
+  `auth_roundtrip` came back byte for byte the same; `ws_binary`'s counters and
+  latencies moved but every accept-or-drop verdict in it held; `msd_write`
+  found the one real change, kvmd's URL validator naming its schemes
+  `HTTP|HTTPS` where it used to say `HTTPS|HTTP`. Three things the notes beside
+  them claimed are corrected with them: `otg.devices.msd` has no `enabled` key
+  on 4.206, `start` being the whole of that switch; the addresses in
+  `msd_write` are ones the device resolved on its own loopback rather than
+  something the sanitizer rewrote; and `ws_binary` was recorded with the USB
+  gadget attached this time, so its safety note says what the one non-inert
+  frame in it does to the host behind the device. `CONTRIBUTING.md` named 4.186
+  as well, and the claim that *every* fixture came from the 4.206 re-capture is
+  narrowed to the ones the capture tool produces: the four `msd_*` scenarios
+  are hand-recorded too, no pass has reached them since 4.186, and the fixtures
+  README now says so rather than leaving the table row to imply otherwise
+  (#145).
 
 ### Removed
 

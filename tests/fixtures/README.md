@@ -73,9 +73,11 @@ listed in the file) rather than by the capture tool, which stays read-only —
 the sequence logs in and out and would invalidate a session.
 
 The four `msd_*` scenarios were recorded the same way, and needed the device
-reconfigured for the duration: `otg.devices.msd` is `enabled: false` on the
-capture device, so `/api/msd` reports `drive: null, storage: null` and shows
-nothing of the online shape. With `enabled` and `start` turned on and kvmd
+reconfigured for the duration: `otg.devices.msd` does not start on the capture
+device, so `/api/msd` reports `drive: null, storage: null` and shows nothing of
+the online shape. `start: false` is the whole of that switch on kvmd 4.206 —
+there is no `enabled` beside it, and the `enabled` `/api/msd` reports is about
+the MSD plugin rather than the gadget. With `start` turned on and kvmd
 restarted, they cover a drive holding an image (`msd_image`), an empty drive
 with an image in storage (`msd_online`), and both transfer counters mid-flight
 (`msd_uploading`, `msd_downloading`, sampled while a temporary image was being
@@ -83,6 +85,11 @@ written and read back). The temporary images were removed and the OTG profile
 restored afterwards. Reproducing them means changing somebody's device, so ask
 first — and note that toggling the MSD recreates the USB gadget, which briefly
 disconnects the keyboard, mouse and audio the target host sees.
+
+These four are the corpus's last recordings from kvmd 4.186: the re-capture
+pass that moved everything else to 4.206 runs the capture tool, and the tool
+cannot produce them. Nothing in them has been shown to have drifted — they are
+simply older than the row at the top of this file.
 
 `msd_write.json` was recorded in the same reconfigured state, and needed one
 more thing the storage does not normally have: an `isos` directory, so that
@@ -95,10 +102,11 @@ records — and every refusal kvmd makes before it starts streaming.
 
 The remote downloads went to a throttled HTTP server running on the device's
 own loopback and serving generated zeros, so nothing was fetched from the
-internet; the sanitizer rewrote that origin's address wherever kvmd echoed it
-back in an error message. Every image was removed afterwards, the `isos`
-directory taken out again and the OTG profile restored. Re-recording it means
-writing to somebody's SD card, so ask first.
+internet and nothing in the file needed sanitizing: every address it carries,
+including the ones kvmd echoes back out of a failed connection, is one the
+device resolved on its own loopback. Every image was removed afterwards, the
+`isos` directory taken out again and the OTG profile restored. Re-recording it
+means writing to somebody's storage — the eMMC on a v3 board — so ask first.
 
 `ws_handshake.json` was recorded by hand too, with the `websockets` client
 opening `GET /api/ws` once per refusal — a bad `stream` value, a wrong
@@ -135,13 +143,20 @@ them and bumps the counter, and its mouse device then drops the report for
 being in the wrong mode. Recording them as movement would mean switching
 `mouse_output` on somebody's device, which recreates the USB gadget.
 
-Input frames reach the HID, so this one was recorded with the USB gadget not
-attached to any host — `keyboard.online` and `mouse.online` both `false` — and
-with frames that do nothing even where a host is listening: a lone `ControlLeft`
-press and release, a wheel of zero, a move to the centre of the screen, a
-middle-button release. The socket was opened with `stream=0`, so the video
-pipeline was untouched. Nothing needs undoing afterwards, but re-recording it
-sends input to somebody's device, so ask first.
+Input frames reach the HID, and this one was recorded with the USB gadget
+attached to a host — `keyboard.online` and `mouse.online` both `true` — so
+every frame kvmd accepted reached the machine behind it as well. Most are inert
+wherever they land: a lone `ControlLeft` press and release, a wheel of zero, a
+move to the centre of the screen, a middle-button release. One is not —
+`key_press_finish_ordinary` presses `KeyA`, which types a character on the
+attached host. `ControlLeft` is one of the nine keys kvmd exempts from the
+release the finish bit asks for, so it is still down when the last step ends and
+the recording sends a plain release for it; `KeyA` kvmd releases itself. The
+socket was opened with `stream=0`, so the video pipeline was untouched, and the
+jiggler was enabled but idle throughout — it moves the same counter these steps
+are judged by, so a run with it active could not tell an accepted frame from a
+jiggle. Nothing else needs undoing, but re-recording it sends input to somebody's
+device and to whatever is attached to it, so ask first.
 
 `media_stream.json` is the live-video scenario, and the only one with a
 recorder of its own next to it — [`record_media.py`](record_media.py), run the
