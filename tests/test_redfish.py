@@ -413,6 +413,12 @@ async def test_insert_media_does_not_take_the_url_the_document_advertises(
     # device answered both the URL and an unknown name with the same thing,
     # which is what "not refused" means here. A 500 on its own is satisfied by
     # any failure at all, and that is all this test used to check (#144).
+    #
+    # It is the two recordings being compared, not two responses this client
+    # produced, and `body` is the parsed envelope rather than bytes. What they
+    # agree on is kvmd's contentless crash envelope, which any unhandled
+    # exception in any handler produces — so this says the URL was not refused
+    # and got a crash, not that it crashed in the same place.
     for key in ("status", "content_type", "body"):
         assert step("insert_a_url")[key] == step("insert_unknown_image")[key]
 

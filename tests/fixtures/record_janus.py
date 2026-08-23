@@ -348,11 +348,12 @@ async def record_refusals() -> None:
                 "Authenticated, but the handshake does not ask for "
                 f"`{SUBPROTOCOL}`. Janus serves its WebSocket transport only "
                 "under that subprotocol, so a client that does not name it "
-                "gets no usable socket. Kept as documentation, not as a mock: "
-                "this records the exception the handshake raised rather than "
-                "a response to replay, and the session always names the "
-                "subprotocol, so there is no way through this client to "
-                "reach it."
+                "gets no usable socket. Not a replayable mock: this records "
+                "the exception the handshake raised rather than a response, "
+                "and the session always names the subprotocol, so there is "
+                "no way through this client to send this request. The HTTP "
+                "502 in the excerpt is still recorded evidence, and the "
+                "gateway test reads its status out of it."
             ),
             request={"method": "GET", "path": "/janus/ws", "subprotocols": []},
             error=type(exc).__name__,

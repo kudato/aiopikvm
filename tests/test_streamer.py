@@ -733,18 +733,27 @@ async def test_mjpeg_ignores_unparsable_headers(
     assert frames[0].width is None
 
 
-async def test_mjpeg_stops_at_a_closing_boundary(
+async def test_mjpeg_drops_what_the_close_delimiter_ends(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    """Everything past the close delimiter is epilogue, not another frame.
+    """The close delimiter discards the rest of the buffer it arrived in.
 
     `multipart()` leaves the next part's boundary on the wire, the way a
     stream that never ends does. Closing it means `--<boundary>--`, which is
     what RFC 2046 calls the close delimiter and what the reader looks for —
-    appending `--` after the whole line is a boundary followed by rubbish,
-    and the reader stops on that for the ordinary reason that the body ran
-    out. A whole part after the delimiter is what tells the two apart: it is
-    dropped here, and read as a third frame if the branch goes (#144).
+    appending `--` after the whole line, as this test used to, is a boundary
+    followed by rubbish, and the reader stops on that for the ordinary reason
+    that the body ran out. A whole part after the delimiter is what tells the
+    two apart: it is dropped here, and read as a third frame if the branch
+    goes (#144).
+
+    Dropped, not ignored: `_take()` empties the buffer and the reader carries
+    on, so a part arriving in a *later* read is parsed like any other. These
+    bytes reach `feed()` together at the default `chunk_size`, which is why
+    the epilogue is inside the buffer being discarded; handing the reader
+    `closed` and then `epilogue` as two reads yields three frames. What this
+    pins is the branch, then, not an end to the iteration — the reader does
+    not latch closed, which is its own defect and not this test's to settle.
     """
     (body, content_type) = multipart("stream_plain")
     boundary = content_type.partition("boundary=")[2].encode()
@@ -773,15 +782,17 @@ async def test_the_safari_workaround_stream_still_parses(
     The recorded step says it "parses fine", which was a claim nothing ran:
     ustreamer keeps `Content-Length` under it and only repeats the last part
     of a series, so the framing is ordinary and the reader has no reason to
-    care. Recorded whole rather than part by part, so these are the bytes as
-    they came off the socket.
+    care. Recorded whole rather than part by part, so the body is the bytes
+    as they came off the socket — the header is not: this is the one stream
+    step recorded without its `Content-Type`, so the fake borrows the one
+    every sibling step recorded, boundary included.
     """
     recorded = stream_step("stream_dual_final_frames")
     mock_api.get("/streamer/stream").mock(
         return_value=httpx.Response(
             200,
             content=str(recorded["raw"]).encode(),
-            headers={"Content-Type": "multipart/x-mixed-replace"},
+            headers={"Content-Type": str(stream_step("stream_plain")["content_type"])},
         )
     )
     frames = [frame async for frame in client.streamer.mjpeg()]

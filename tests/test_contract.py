@@ -184,26 +184,35 @@ def test_the_recorders_write_where_the_loader_reads(
 
 _DOCUMENTATION_ONLY = {
     ("media_stream", "stream_bad_flag"),
-    ("janus_session", "upgrade_without_subprotocol"),
     ("janus_session", "session_events"),
     ("janus_session", "after_stop"),
 }
-"""Recorded steps no test replays, and cannot: two describe a request this
+"""Recorded steps no test replays, and cannot: one describes a request this
 client has no way to make, and two recorded that the device sent nothing at
-all. Everything else in a scenario is a mock waiting to be used, and a step
-nobody loads is a claim nobody checks (#144)."""
+all. Everything else in these two scenarios is a mock waiting to be used, and
+a step nobody loads is a claim nobody checks (#144)."""
 
 
 @pytest.mark.parametrize("scenario", ["media_stream", "janus_session"])
 def test_every_recorded_step_is_used_or_says_why_not(scenario: str) -> None:
     """A step with no consumer is documentation, and has to admit it (#144).
 
-    Five of them had drifted into that state unannounced, one carrying the
-    executable-sounding claim that it "parses fine" — which nothing executed.
+    Seven steps of these two scenarios had drifted into that state
+    unannounced, one carrying the executable-sounding claim that it "parses
+    fine" — which nothing executed. The other five scenario files are not
+    checked here: their steps carry ``note`` rather than ``description``, and
+    some of them are orphaned too, which is its own cleanup and not this
+    test's.
 
     A step counts as used when some test names it as a string literal, which
-    is how every one of them is loaded. This file is left out of the search
-    so the exemptions above do not stand in for the consumers they excuse.
+    is how every one of them is loaded — and which is a lint, not proof: a
+    step sharing its name with a protocol verb, the way ``keepalive`` does,
+    is "used" by any assertion that mentions the verb. It also reads the
+    manifest, so it notices a consumerless step and not a stepless consumer;
+    the consumer's own ``KeyError`` covers that direction. This file is left
+    out of the search so the exemptions above do not stand in for the
+    consumers they excuse — at the price that its own loads do not count
+    either, and every step it loads needs a consumer elsewhere.
 
     Args:
         scenario: Manifest key of the hand-recorded scenario to check.

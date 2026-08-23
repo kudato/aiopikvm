@@ -359,11 +359,12 @@ async def test_an_unauthenticated_upgrade_is_an_auth_error() -> None:
 def test_the_refusal_serves_the_page_the_device_sent() -> None:
     """The fake answers with nginx's page, not a JSON object holding it (#144).
 
-    The client never reads the body of a refusal — the recording is HTML and
-    carries no kvmd envelope — so nothing above notices which of the two the
-    fake serves. That is exactly why it drifted: a mock that dresses a
-    captured response up as something the device never sent is no longer a
-    recording of anything.
+    The client does read the body of a refusal — `_error_fields_from_bytes()`
+    on the way to `AuthError` — but this recording is nginx's HTML and carries
+    no kvmd envelope, so both the page and a JSON object wrapping it come back
+    as `("", "")` and nothing above can tell which the fake served. That is
+    exactly why it drifted: a mock that dresses a captured response up as
+    something the device never sent is no longer a recording of anything.
     """
     recorded = step("upgrade_unauthenticated")
     built = refusal("upgrade_unauthenticated")
@@ -374,13 +375,22 @@ def test_the_refusal_serves_the_page_the_device_sent() -> None:
 
 
 async def test_a_gateway_that_is_not_there_is_a_plain_api_error() -> None:
-    """502 is what the device answered a handshake Janus never accepted."""
-    async with gateway(response(502, "Bad Gateway")) as (url, _, _requests):
+    """502 is what the device answered a handshake Janus never accepted.
+
+    Not a chosen number: `upgrade_without_subprotocol` recorded the device
+    answering exactly that, so the status the fake serves is read out of the
+    recording. The step itself cannot be replayed — it holds the exception
+    the handshake raised, not a response — which is as close to the fixtures
+    rule as a refusal with no body gets (#144).
+    """
+    recorded = step("upgrade_without_subprotocol")
+    status = int(str(recorded["error_excerpt"]).rsplit("HTTP ", 1)[1])
+    async with gateway(response(status, "Bad Gateway")) as (url, _, _requests):
         with pytest.raises(APIError) as caught:
             async with session(url):
                 pass
     assert not isinstance(caught.value, AuthError)
-    assert caught.value.status_code == 502
+    assert caught.value.status_code == status == 502
 
 
 # --- The negotiation ------------------------------------------------------
