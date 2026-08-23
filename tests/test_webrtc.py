@@ -240,6 +240,11 @@ def test_url_construction_http() -> None:
     assert session("http://pikvm.local")._url == "ws://pikvm.local/janus/ws"
 
 
+def test_a_trailing_slash_does_not_become_a_second_one() -> None:
+    """Janus is behind the same prefix rule as kvmd's own sockets (#172)."""
+    assert session("https://pikvm.local/")._url == "wss://pikvm.local/janus/ws"
+
+
 def test_unsupported_url_scheme() -> None:
     with pytest.raises(ConfigurationError, match="Unsupported URL scheme"):
         session("ftp://pikvm.local")

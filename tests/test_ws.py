@@ -252,6 +252,31 @@ def test_url_construction_http() -> None:
     assert socket("http://pikvm.local")._url == "ws://pikvm.local/api/ws?stream=1"
 
 
+@pytest.mark.parametrize("base", ["https://pikvm.local/", "https://pikvm.local///"])
+def test_a_trailing_slash_does_not_become_a_second_one(base: str) -> None:
+    """`PiKVM` strips it in its constructor; a socket built by hand must too.
+
+    The path is appended with its own leading slash, so the slash a caller
+    leaves on the base URL comes out as ``//api/ws`` — which nginx merges on
+    a stock device and kvmd's aiohttp, reached any other way, answers with
+    404 (#172).
+    """
+    assert socket(base)._url == "wss://pikvm.local/api/ws?stream=1"
+
+
+def test_a_base_path_survives_the_stripping() -> None:
+    """Only the trailing slash goes; a device behind a path keeps it.
+
+    kvmd is reached through a prefix often enough — a reverse proxy serving
+    several devices — and a rule written against the double slash rather than
+    the end of the URL would eat that prefix's own separator.
+    """
+    assert (
+        socket("https://pikvm.local/kvm/")._url
+        == "wss://pikvm.local/kvm/api/ws?stream=1"
+    )
+
+
 def test_unsupported_url_scheme() -> None:
     with pytest.raises(ConfigurationError, match="Unsupported URL scheme"):
         socket("ftp://pikvm.local")
@@ -391,6 +416,19 @@ async def test_handshake_asks_for_the_stream() -> None:
         "/api/ws?stream=1",
         "/api/ws?stream=0",
     ]
+
+
+async def test_handshake_from_a_trailing_slash_base_url_asks_for_one_path() -> None:
+    """What the URL says is what goes on the wire, unmerged.
+
+    A double slash is not normalised away by anything between this client and
+    the server: the request line carries it verbatim, and a server that
+    routes ``/api/ws`` does not answer it (#172).
+    """
+    async with serving() as (url, seen):
+        async with socket(f"{url}/"):
+            pass
+    assert [request.path for request in seen] == ["/api/ws?stream=1"]
 
 
 @pytest.mark.parametrize("name", ["wrong_passwd", "unknown_user", "no_credentials"])

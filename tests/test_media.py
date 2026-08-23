@@ -212,6 +212,13 @@ def test_url_construction_http() -> None:
     )
 
 
+def test_a_trailing_slash_does_not_become_a_second_one() -> None:
+    """This socket builds its URL the same way, and broke the same way (#172)."""
+    assert socket("https://pikvm.local/")._url == (
+        "wss://pikvm.local/api/media/ws?video=h264"
+    )
+
+
 def test_unsupported_url_scheme() -> None:
     with pytest.raises(ConfigurationError, match="Unsupported URL scheme"):
         socket("ftp://pikvm.local")
