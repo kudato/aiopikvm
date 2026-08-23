@@ -231,8 +231,9 @@ class _Connector(websockets.asyncio.client.connect):
 
     *websockets* follows up to ten redirects on its own, resending the
     credential headers to wherever each one points. The REST client refuses
-    to do that unless asked, and the WebSocket carries the same password, so
-    it defaults to the same refusal.
+    to do that unless asked, and the WebSocket carries the same credential —
+    the password, or the session token under ``auth="cookie"`` — so it
+    defaults to the same refusal.
     """
 
     def __init__(
@@ -494,7 +495,8 @@ class PiKVMWebSocket:
                 was verified against kvmd 4.206.
             follow_redirects: Follow a redirected handshake instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default: the
-                upgrade carries the password in a header, and following the
+                upgrade carries the credential in a header — the password, or
+                the session token under ``auth="cookie"`` — and following the
                 redirect hands it to whatever the redirect points at.
             open_timeout: Seconds to wait for the handshake.
             close_timeout: Seconds to wait for the closing handshake.

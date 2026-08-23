@@ -7,11 +7,16 @@ request — a non-empty ``X-KVMD-User`` with the wrong password is refused
 rather than retried against the cookie.
 
 Which source [`aiopikvm.PiKVM`][aiopikvm.PiKVM] leaves for a session token
-depends on its *auth* mode: ``"headers"`` sends that pair with every request
-and is never authenticated by a session opened here, while ``"basic"`` and
-``"cookie"`` send no ``X-KVMD-User`` and are. A session is also for consumers
-other than this client — a browser, another tool, or an `httpx.AsyncClient`
-passed in as *http_client* that sends no credential of its own.
+depends on its *auth* mode. ``"headers"`` sends that pair with every request,
+so a session opened here never authenticates it. ``"cookie"`` sends no
+credential of its own and is authenticated by one throughout, sockets
+included. ``"basic"`` sends no ``X-KVMD-User`` either, so kvmd reaches the
+cookie before the ``Authorization`` header and a session opened here takes its
+requests over — though not its sockets, which carry the password regardless.
+
+A session is also for consumers other than this client — a browser, another
+tool, or an `httpx.AsyncClient` passed in as *http_client* that sends no
+credential of its own.
 """
 
 import re
@@ -203,10 +208,12 @@ class AuthResource(BaseResource):
             ConfigurationError: If no token was given and none is stored, or
                 the token is not the 64 hexadecimal characters kvmd accepts.
             AuthError: The credentials this client sends were refused
-                (HTTP 403). Since the call always carries a cookie, kvmd
-                answers from whichever source it checks first: for a client
-                with a password that is the headers, not the token, and the
-                session is left alone.
+                (HTTP 403). Since the call always carries a cookie, which
+                source kvmd answers from follows the *auth* mode: under
+                ``"headers"`` that pair is read first, so a token it does not
+                know is not what refused the call and the session is left
+                alone; under the other two it is the cookie, so the token
+                being dropped is also what the call is authenticated by.
         """
         given = token is not None
         token = token.strip() if token is not None else self._stored_token()

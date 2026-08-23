@@ -191,14 +191,18 @@ class PiKVM:
                 rest, for a client that must reach the device directly.
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
-                [`RedirectError`][aiopikvm.RedirectError]. Off by default: a
-                redirect that leaves the device still carries the
-                ``X-KVMD-*`` headers, which httpx copies to wherever it
-                points; the session cookie is scoped to the device host and
-                stays behind, so it follows one only within it. Either way
-                the usual cause, an ``http://`` base URL that nginx redirects
-                to ``https://``, has already put the password or the token on
-                the wire in cleartext by then.
+                [`RedirectError`][aiopikvm.RedirectError], over HTTP and over
+                the sockets, which inherit this setting. Off by default:
+                following one hands the credential to wherever it points —
+                the ``X-KVMD-*`` headers over either transport, and the
+                session token over a socket, since *websockets* resends its
+                headers verbatim. Only over HTTP does a token stay behind,
+                and only while the host scoping
+                [`AuthResource.login()`][aiopikvm.resources.auth.AuthResource.login]
+                gives it is what put it in the jar. Whichever travels, the
+                usual cause — an ``http://`` base URL that nginx redirects to
+                ``https://`` — has already put it on the wire in cleartext by
+                then.
             http_client: Pre-built httpx client. When given, this client
                 does not close it and the arguments above are ignored.
         """

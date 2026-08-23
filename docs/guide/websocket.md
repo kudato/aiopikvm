@@ -68,7 +68,7 @@ try:
         ...
 except AuthError as err:          # 401 no credentials, 403 rejected
     print(err.status_code, err.error_msg)
-except RedirectError as err:      # not followed: it would resend the password
+except RedirectError as err:      # not followed: it would resend the credential
     print(err)
 except APIError as err:           # anything else kvmd refused the upgrade with
     print(err.status_code)
