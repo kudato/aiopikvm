@@ -1504,10 +1504,15 @@ def _credential_headers(
     Returns:
         The headers for that auth mode. The cookie goes in a plain ``Cookie``
         header — a WebSocket handshake is an ordinary HTTP GET, and there is
-        no jar here to keep it in.
+        no jar here to keep it in. No header at all when there is no token to
+        put in one, which is a device running with authentication off: kvmd
+        reads its sources in order and takes the first one *present*, so an
+        empty cookie would be a credential that says nothing rather than no
+        credential.
     """
     if auth == "cookie":
-        return {"Cookie": f"auth_token={token() if callable(token) else token}"}
+        value = token() if callable(token) else token
+        return {"Cookie": f"auth_token={value}"} if value else {}
     value = passwd() if callable(passwd) else passwd
     if auth == "basic":
         raw = f"{user}:{value}".encode()

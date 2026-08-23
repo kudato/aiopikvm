@@ -592,6 +592,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `auth="cookie"` against a kvmd running with authentication switched off
+  logs in once instead of before every request, and can open a WebSocket.
+  Such a device hands out no token, so the jar stayed empty and the client,
+  which read only the jar, took that for a session yet to be opened: every
+  request carried a full login round trip ahead of it, and `ws()`,
+  `media_ws()` and `webrtc()` refused to open, advising a login that had
+  nothing to bring back. The client now remembers what a login found out, a
+  handshake with no token to carry sends no credential header rather than an
+  empty one, and a device answering 401 or 403 takes the question back, so
+  one whose authentication is switched on again is picked up (#170).
 - `AuthResource.login()` reads its session token by walking the response's
   cookie jar rather than asking `httpx.Cookies.get` for it, which raises
   `CookieConflict` — outside `PiKVMError` — when the response carries two

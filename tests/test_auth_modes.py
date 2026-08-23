@@ -399,6 +399,124 @@ async def test_cookie_mode_reads_the_last_session_cookie_and_only_that_name(
         assert kvm.ws()._credential_headers() == {"Cookie": f"auth_token={OTHER_TOKEN}"}
 
 
+# --- authentication switched off on the device ------------------------
+
+
+def _auth_off_login_route(mock_api: respx.MockRouter) -> respx.Route:
+    """Answer `/api/auth/login` the way a kvmd with authentication off does.
+
+    Derived from the recorded success rather than captured, for the reason
+    `tests/test_auth.py` gives at the same case: the device the fixtures come
+    from runs with authentication on, and turning it off to record this would
+    lock everyone out of it. kvmd's login handler returns a bare
+    ``make_json_response()`` when ``is_auth_enabled()`` is false, which is
+    this envelope with no ``Set-Cookie`` beside it.
+    """
+    return mock_api.post("/api/auth/login").mock(
+        return_value=httpx.Response(200, json=OK)
+    )
+
+
+async def test_cookie_mode_logs_in_once_against_an_auth_disabled_kvmd(
+    mock_api: respx.MockRouter,
+) -> None:
+    """A device that hands out no token is not a session waiting to open (#170).
+
+    The jar stays empty however often the login succeeds, so a client that
+    reads only the jar asks again before every request, at double the round
+    trips for the rest of its life.
+    """
+    login = _auth_off_login_route(mock_api)
+    atx = mock_api.get("/api/atx").mock(return_value=httpx.Response(200, json=OK))
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        for _ in range(5):
+            await kvm.request("GET", "/api/atx")
+    assert (login.call_count, atx.call_count) == (1, 5)
+    for call in atx.calls:
+        assert "Cookie" not in call.request.headers
+        assert "X-KVMD-User" not in call.request.headers
+        assert "Authorization" not in call.request.headers
+
+
+@pytest.mark.parametrize("factory", ["ws", "media_ws", "webrtc"])
+async def test_every_socket_opens_against_an_auth_disabled_kvmd(
+    factory: str, mock_api: respx.MockRouter
+) -> None:
+    """Carrying no credential is what such a device accepts (#170).
+
+    All three factories are asked, the way they are for the token, because
+    they are three copies of one forwarding block and have drifted before.
+    """
+    _auth_off_login_route(mock_api)
+    mock_api.get("/api/atx").mock(return_value=httpx.Response(200, json=OK))
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        await kvm.request("GET", "/api/atx")
+        assert getattr(kvm, factory)()._credential_headers() == {}
+
+
+@pytest.mark.parametrize("factory", ["ws", "media_ws", "webrtc"])
+async def test_an_explicit_login_opens_a_socket_with_authentication_off(
+    factory: str, mock_api: respx.MockRouter
+) -> None:
+    """The advice the refusal gives has to work (#170).
+
+    A socket with nothing to carry says to call `login()` and open it after
+    that. Against a device with authentication off there is no token for
+    `login()` to bring back, so what it leaves behind must be the knowledge
+    that none is coming.
+    """
+    _auth_off_login_route(mock_api)
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        socket = getattr(kvm, factory)()
+        with pytest.raises(ConfigurationError, match="no session token"):
+            socket._credential_headers()
+        assert await kvm.auth.login("admin", "secret") == ""
+        assert socket._credential_headers() == {}
+
+
+async def test_cookie_mode_recovers_when_authentication_is_switched_back_on(
+    mock_api: respx.MockRouter,
+) -> None:
+    """What a device answering 401 settles (#170).
+
+    Remembering that a device hands out no token would strand a client on it
+    for good if nothing took it back. A refusal is the device saying its
+    authentication is on after all, so the login skipped until then is due.
+    """
+    auth_on = False
+    logins = 0
+
+    def login(request: httpx.Request) -> httpx.Response:
+        nonlocal logins
+        logins += 1
+        if not auth_on:
+            return httpx.Response(200, json=OK)
+        return httpx.Response(
+            200, json=OK, headers={"Set-Cookie": f"auth_token={TOKEN}; Path=/"}
+        )
+
+    def atx(request: httpx.Request) -> httpx.Response:
+        carried = f"auth_token={TOKEN}" in request.headers.get("Cookie", "")
+        if auth_on and not carried:
+            return httpx.Response(401, json={"ok": False, "result": None})
+        return httpx.Response(200, json=OK)
+
+    mock_api.post("/api/auth/login").mock(side_effect=login)
+    mock_api.get("/api/atx").mock(side_effect=atx)
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        for _ in range(3):
+            await kvm.request("GET", "/api/atx")
+        assert (logins, kvm.ws()._credential_headers()) == (1, {})
+
+        auth_on = True
+        await kvm.request("GET", "/api/atx")
+        assert kvm.ws()._credential_headers() == {"Cookie": f"auth_token={TOKEN}"}
+
+        for _ in range(3):
+            await kvm.request("GET", "/api/atx")
+    assert logins == 2
+
+
 async def test_websocket_carries_the_same_credential() -> None:
     async with PiKVM(URL, user="admin", passwd="secret") as kvm:
         assert kvm.ws()._credential_headers() == {

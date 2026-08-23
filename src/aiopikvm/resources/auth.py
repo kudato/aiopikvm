@@ -172,6 +172,7 @@ class AuthResource(BaseResource):
             # keys on the domain, so both would survive under one name and
             # httpx's own lookup raises on that. Collapse them to this one.
             self._store_token(token, response.request.url.host)
+            self._client._record_login(token)
             return token
 
         # No cookie means kvmd is running without authentication — or that
@@ -187,6 +188,7 @@ class AuthResource(BaseResource):
                 f"nor a kvmd envelope: {response.text[:200]}",
                 response.status_code,
             )
+        self._client._record_login("")
         return ""
 
     async def check(self, *, timeout: float | None = None) -> None:

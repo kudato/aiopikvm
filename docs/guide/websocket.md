@@ -58,7 +58,10 @@ The socket carries whichever credential the client's
 Under `auth="headers"` and `auth="basic"` that is the `user` and `passwd` the
 client was built with; under `auth="cookie"` it is the session token from
 `kvm.cookies`, read when the handshake goes out — so something must have logged
-in by then, since neither `ws()` nor the handshake logs in for you.
+in by then, since neither `ws()` nor the handshake logs in for you. On a device
+with authentication switched off there is no token to read and the handshake
+carries nothing, which is what that device accepts; the login is still what
+tells the client so.
 
 kvmd applies the same auth chain to the upgrade as to the REST API, and refuses
 it with an ordinary HTTP response, so the errors are the familiar ones:

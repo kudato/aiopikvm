@@ -80,8 +80,11 @@ as a wrong password rather than looping.
     Leave it at `0` for a long-lived client, where one session is the point.
 
 `kvm.ws()` carries whichever credential the mode says. Under `auth="cookie"` the
-token has to exist by the time the socket is **opened** — neither `ws()` nor the
-handshake logs in — so make a request first, or call `login()` yourself.
+credential is read when the socket is **opened** — neither `ws()` nor the
+handshake logs in — so make a request first, or call `login()` yourself. A
+device with authentication switched off hands out no token; that login still
+has to happen, since it is how the client learns there is nothing to carry, and
+the handshake then carries no credential at all.
 Building the socket earlier is fine: the token is read when the handshake goes
 out, so this works, and so does reopening the socket after kvmd replaced the
 session under it.
