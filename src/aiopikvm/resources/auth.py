@@ -21,6 +21,8 @@ credential of its own.
 
 import re
 
+import httpx
+
 from aiopikvm._base_resource import BaseResource
 from aiopikvm._exceptions import (
     APIError,
@@ -41,6 +43,28 @@ surrounding whitespace removed too.
 
 _EXPIRE_DIGITS = 16
 """kvmd reads ``expire`` through a validator capped at 16 raw characters."""
+
+
+def _token_in(cookies: httpx.Cookies) -> str:
+    """Return the session token held in *cookies*, if any.
+
+    Walks the jar rather than calling `httpx.Cookies.get`, which raises
+    ``CookieConflict`` — outside the [`PiKVMError`][aiopikvm.PiKVMError]
+    hierarchy — when two cookies share a name under different domains or
+    paths. Should there be more than one anyway, the last in jar order wins,
+    which is the rule the client's own jar is read by.
+
+    Args:
+        cookies: Jar to read: a response's, or the client's.
+
+    Returns:
+        The token, or ``""`` when there is none.
+    """
+    token = ""
+    for cookie in cookies.jar:
+        if cookie.name == _COOKIE:
+            token = cookie.value or ""
+    return token
 
 
 class AuthResource(BaseResource):
@@ -135,7 +159,7 @@ class AuthResource(BaseResource):
                 ) from exc
             raise
 
-        token = response.cookies.get(_COOKIE) or ""
+        token = _token_in(response.cookies)
         if token:
             # httpx has already filed kvmd's cookie under the response's
             # domain, and a token restored by hand sits under none. The jar
@@ -263,16 +287,10 @@ class AuthResource(BaseResource):
     def _stored_token(self) -> str:
         """Return the session token held by the client, if any.
 
-        Walks the jar rather than calling ``httpx.Cookies.get``, which raises
-        ``CookieConflict`` — outside the [`PiKVMError`][aiopikvm.PiKVMError]
-        hierarchy — when two cookies share a name under different domains.
-        Should the jar hold more than one anyway, the last in jar order wins.
+        Read through `_token_in`, which says why the jar is walked rather
+        than asked.
 
         Returns:
             The stored token, or ``""`` when there is none.
         """
-        token = ""
-        for cookie in self._client.cookies.jar:
-            if cookie.name == _COOKIE:
-                token = cookie.value or ""
-        return token
+        return _token_in(self._client.cookies)

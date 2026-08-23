@@ -128,6 +128,70 @@ async def test_login_over_a_restored_session_does_not_trip_httpx(
     assert sum(c.name == "auth_token" for c in client.cookies.jar) == 1
 
 
+def _two_cookie_login() -> httpx.Response:
+    """Build the recorded login success with a second session cookie on it.
+
+    Only the extra ``Set-Cookie`` is invented: the status and body are the
+    recorded ones, and no device this project can record from puts two of
+    them there — a proxy in front of kvmd setting its own under another path
+    is what does.
+
+    Returns:
+        The response, carrying `TOKEN` as the last of two `auth_token`
+        cookies.
+    """
+    entry = step("login_form_body")
+    return httpx.Response(
+        entry["status"],
+        json=entry["body"],
+        headers=[
+            ("set-cookie", f"auth_token={'a' * 64}; Path=/"),
+            ("set-cookie", f"auth_token={TOKEN}; Path=/api"),
+        ],
+    )
+
+
+async def test_login_survives_two_session_cookies_on_one_response(
+    mock_api: respx.MockRouter, client: PiKVM
+) -> None:
+    """Two `auth_token` cookies on one response must not escape as httpx's (#169).
+
+    `httpx.Cookies.get` raises `CookieConflict` on that, which is outside the
+    PiKVMError hierarchy — the rule CLAUDE.md states without qualification.
+    The jar is walked instead, the last entry winning, which is how the
+    client's own jar is already read.
+    """
+    mock_api.post("/api/auth/login").mock(return_value=_two_cookie_login())
+
+    assert await client.auth.login("admin", "secret") == TOKEN
+    assert sum(c.name == "auth_token" for c in client.cookies.jar) == 1
+
+
+async def test_cookie_mode_survives_two_session_cookies_it_never_asked_for(
+    mock_api: respx.MockRouter,
+) -> None:
+    """The same conflict, reached without the caller calling `login()` (#169).
+
+    Under `auth="cookie"` the first request opens the session itself, so
+    `request()` walks into `_ensure_session()` and into `login()`. What
+    escaped was httpx's exception, out of a call the caller never made —
+    which is why this path is worth its own test rather than being covered
+    by the one above.
+    """
+    mock_api.post("/api/auth/login").mock(return_value=_two_cookie_login())
+    atx = mock_api.get("/api/atx").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": {}})
+    )
+
+    async with PiKVM(
+        "https://pikvm.local", user="admin", passwd="secret", auth="cookie"
+    ) as kvm:
+        await kvm.request("GET", "/api/atx")
+
+    assert atx.call_count == 1
+    assert f"auth_token={TOKEN}" in atx.calls[-1].request.headers["Cookie"]
+
+
 async def test_login_returns_this_response_token_not_a_stale_one(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
