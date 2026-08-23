@@ -93,7 +93,6 @@ class StreamerResource(BaseResource):
         key: str | None = None,
         extra_headers: bool = False,
         zero_data: bool = False,
-        chunk_size: int = 65536,
         timeout: float | httpx.Timeout | None = None,
     ) -> AsyncIterator[MJPEGFrame]:
         """Read the MJPEG stream, one frame at a time.
@@ -131,7 +130,6 @@ class StreamerResource(BaseResource):
             zero_data: Ask for the part headers with no JPEG payload behind
                 them, which turns this into a cheap frame-timing feed:
                 [`MJPEGFrame.data`][aiopikvm.MJPEGFrame] is then empty.
-            chunk_size: How much to read off the socket at a time, in bytes.
             timeout: Override the request timeout. By default the read timeout
                 is disabled — a stream has no end to wait for — while connect,
                 write and pool keep their client-level values.
@@ -163,7 +161,14 @@ class StreamerResource(BaseResource):
             timeout=timeout,
         ) as response:
             reader = _MultipartReader(_boundary_of(response))
-            async for chunk in response.aiter_bytes(chunk_size):
+            # No chunk size: httpx would then hand out whole pieces of one and
+            # hold the remainder back until that much more arrived. A frame
+            # that had arrived whole waited on the next read's worth of bytes,
+            # and the close delimiter reached the reader only if enough
+            # followed it — 65535 bytes of epilogue, where RFC 2046 §5.1.1
+            # says there is nothing to send at all. Unchunked, each read goes
+            # to the reader as it comes off the socket (#176).
+            async for chunk in response.aiter_bytes():
                 for headers, data in reader.feed(chunk):
                     payload: dict[str, Any] = {"data": data, "headers": headers}
                     payload.update(_meta_from_headers(headers, _FRAME_HEADERS))
@@ -560,8 +565,9 @@ class _MultipartReader:
                 is no way to tell where its data ends.
         """
         if self._closed:
-            # Not merely nothing to yield: the bytes are not buffered either,
-            # so feeding a reader that has ended cannot grow it without end.
+            # Dropped, not buffered. §5.1.1 says to ignore what follows, and
+            # nothing here would ever parse it: kept, it would sit in the
+            # buffer for as long as something went on feeding.
             return
         self._buf += chunk
         while True:

@@ -589,6 +589,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Breaking:** the `HIDKeymap` model. Its single `name` field described
   nothing kvmd emits, and no method ever returned it; `HIDKeymaps` replaces
   it (#75).
+- **Breaking:** the `chunk_size` parameter of `StreamerResource.mjpeg()`. It
+  described itself as how much to read off the socket at a time and was
+  nothing of the kind: httpx reads what the socket gives and then hands out
+  whole pieces of that size, holding the remainder back until as much again
+  arrives. Since the caller of `mjpeg()` gets frames rather than bytes, its
+  only effects were to delay a frame that had already arrived whole and to
+  keep the close delimiter from the reader. The stream is now read as it
+  arrives (#176).
 
 ### Fixed
 
@@ -623,6 +631,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   so it turns up only when a proxy or the device's nginx finished the body —
   which is when trailing bytes are least worth trusting and a caller cannot
   tell such a frame from a real one (#176).
+- Every read `StreamerResource.mjpeg()` gets goes to the parser as it
+  arrives, so a frame is yielded once its own bytes are in rather than once
+  the next 64 KiB is. `chunk_size` had httpx hold each read's tail back until
+  that much more accumulated, which on a stream of small parts — the
+  recorded `zero_data=1` capture runs about 600 bytes to a part — meant a
+  hundred frames' worth of delay, and left a stream that a proxy closed
+  hanging until 64 KiB of epilogue followed the close delimiter (#176).
 - `PiKVMWebSocket`, `MediaWebSocket` and `WebRTCSession` built by hand accept
   a base URL with a trailing slash, as `PiKVM` always has. The path each one
   appends brings its own leading slash, so `https://pikvm.local/` dialled

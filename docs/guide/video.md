@@ -70,10 +70,11 @@ async for frame in kvm.streamer.mjpeg():
     break
 ```
 
-The iteration ends only when the far end stops sending, so it is a loop to
-leave with a `break` or to cancel from outside. The read timeout is disabled by
-default — a stream has no end to wait for — while connect, write and pool keep
-their client-level values.
+The iteration ends when the far end stops sending, or says it has: a multipart
+close delimiter leaves nothing after it to read. ustreamer never sends one, so
+in practice this is a loop to leave with a `break` or to cancel from outside.
+The read timeout is disabled by default — a stream has no end to wait for —
+while connect, write and pool keep their client-level values.
 
 ### Naming a connection
 

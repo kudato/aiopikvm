@@ -497,6 +497,36 @@ def streaming(name: str) -> httpx.Response:
     return httpx.Response(200, content=body, headers={"Content-Type": content_type})
 
 
+async def in_reads(*reads: bytes) -> AsyncIterator[bytes]:
+    """Hand a body over as the given reads.
+
+    `mjpeg()` asks httpx for the bytes as they arrive, so one of these is one
+    `feed()`: where the reads fall is set here rather than by a chunk size
+    the client no longer takes.
+
+    Args:
+        reads: The pieces, in order.
+
+    Yields:
+        Each piece.
+    """
+    for read in reads:
+        yield read
+
+
+def by(body: bytes, size: int) -> tuple[bytes, ...]:
+    """Cut a body into reads of `size` bytes.
+
+    Args:
+        body: The bytes.
+        size: How much lands in each read.
+
+    Returns:
+        The pieces, in order.
+    """
+    return tuple(body[i : i + size] for i in range(0, len(body), size))
+
+
 async def test_get_ustreamer_state(mock_api: respx.MockRouter, client: PiKVM) -> None:
     mock_api.get("/streamer/state").mock(
         return_value=httpx.Response(200, json=stream_step("state_idle")["response"])
@@ -592,16 +622,19 @@ async def test_mjpeg_reads_the_extra_headers(
 async def test_mjpeg_zero_data_keeps_the_headers(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    route = mock_api.get("/streamer/stream").mock(
-        return_value=streaming("stream_zero_data")
-    )
+    (body, content_type) = multipart("stream_zero_data")
     # One byte at a time: every part header and every boundary lands split
-    # across chunks, which is the case a buffering parser gets wrong.
+    # across reads, which is the case a buffering parser gets wrong.
+    route = mock_api.get("/streamer/stream").mock(
+        return_value=httpx.Response(
+            200,
+            content=in_reads(*by(body, 1)),
+            headers={"Content-Type": content_type},
+        )
+    )
     frames = [
         frame
-        async for frame in client.streamer.mjpeg(
-            zero_data=True, extra_headers=True, chunk_size=1
-        )
+        async for frame in client.streamer.mjpeg(zero_data=True, extra_headers=True)
     ]
     assert route.calls.last.request.url.params["zero_data"] == "1"
     assert len(frames) == 2
@@ -734,9 +767,11 @@ async def test_mjpeg_ignores_unparsable_headers(
     assert frames[0].width is None
 
 
-@pytest.mark.parametrize("chunk_size", [65536, 8])
+@pytest.mark.parametrize(
+    "arrival", ["one read", "split at the delimiter", "eight bytes at a time"]
+)
 async def test_mjpeg_drops_what_the_close_delimiter_ends(
-    mock_api: respx.MockRouter, client: PiKVM, chunk_size: int
+    mock_api: respx.MockRouter, client: PiKVM, arrival: str
 ) -> None:
     """The close delimiter ends the stream, wherever the reads fall.
 
@@ -749,12 +784,12 @@ async def test_mjpeg_drops_what_the_close_delimiter_ends(
     two apart: it is dropped here, and read as a third frame if the branch
     goes (#144).
 
-    The two chunk sizes are the same bytes cut differently. At the default
-    the delimiter and the epilogue reach `feed()` together and emptying the
-    buffer was enough; at eight they arrive in separate reads, and the reader
-    used to parse the epilogue like any other part — so whether RFC 2046
-    §5.1.1 was honoured came down to where a socket read happened to fall
-    (#176).
+    The three arrivals are the same bytes cut differently. Read whole, the
+    delimiter and the epilogue reach `feed()` together and emptying the
+    buffer was enough; cut anywhere between them they arrive in separate
+    reads, and the reader used to parse the epilogue like any other part — so
+    whether RFC 2046 §5.1.1 was honoured came down to where a socket read
+    happened to fall (#176).
     """
     (body, content_type) = multipart("stream_plain")
     boundary = content_type.partition("boundary=")[2].encode()
@@ -764,14 +799,22 @@ async def test_mjpeg_drops_what_the_close_delimiter_ends(
         + boundary
         + b"\r\nContent-Type: image/jpeg\r\nContent-Length: 4\r\n\r\nJUNK\r\n"
     )
+    reads = {
+        "one read": (closed + epilogue,),
+        # The body ends, and then more of it arrives: the read that carries
+        # the epilogue is not the one that carried the delimiter, which is
+        # the whole of what #176 was.
+        "split at the delimiter": (closed, epilogue),
+        "eight bytes at a time": by(closed + epilogue, 8),
+    }[arrival]
     mock_api.get("/streamer/stream").mock(
         return_value=httpx.Response(
-            200, content=closed + epilogue, headers={"Content-Type": content_type}
+            200, content=in_reads(*reads), headers={"Content-Type": content_type}
         )
     )
     # ustreamer never ends its stream, so this only turns up when something
     # else finished the body for it — and it is not a missing Content-Length.
-    frames = [frame async for frame in client.streamer.mjpeg(chunk_size=chunk_size)]
+    frames = [frame async for frame in client.streamer.mjpeg()]
     assert [frame.data[:4] for frame in frames] == [b"\xff\xd8\xff\xe1"] * 2
 
 
@@ -780,9 +823,8 @@ def test_the_reader_takes_nothing_from_bytes_fed_after_the_close() -> None:
 
     `mjpeg()` leaves the loop as soon as the reader says it is closed, so
     nothing above ever feeds it again. The rule is the reader's all the same,
-    and the buffer is why it is spelled as one: bytes handed to a reader that
-    has ended are not kept, so nothing that goes on feeding one can grow it
-    without end (#176).
+    and dropping is what "ignore" means: kept, those bytes would sit in the
+    buffer with nothing left to parse them (#176).
     """
     (body, content_type) = multipart("stream_plain")
     boundary = content_type.partition("boundary=")[2].encode()
@@ -807,8 +849,15 @@ async def test_mjpeg_stops_reading_once_the_body_says_it_has_ended(
     iteration on its own. This one does not stop — the close delimiter is
     followed by more of it — which is the case where a stream the far end
     finished used to hold the loop open for as long as the connection did.
-    The second chunk is never asked for, so the epilogue's bytes are not what
+    The second read is never asked for, so the epilogue's bytes are not what
     proves it: the socket is what is not read again.
+
+    The first read ends at the delimiter and reaches `feed()` whole, because
+    `mjpeg()` asks for no chunk size. Under one it held that read's tail back
+    until as much again arrived, so the loop ran on and this assertion turned
+    on where the delimiter fell against the chunk boundary — it passed at
+    eight bytes for a body of this length and failed at five of the eight
+    ways one byte of preamble could shift it.
     """
     (body, content_type) = multipart("stream_plain")
     boundary = content_type.partition("boundary=")[2].encode()
@@ -828,7 +877,7 @@ async def test_mjpeg_stops_reading_once_the_body_says_it_has_ended(
             200, content=sending(), headers={"Content-Type": content_type}
         )
     )
-    frames = [frame async for frame in client.streamer.mjpeg(chunk_size=8)]
+    frames = [frame async for frame in client.streamer.mjpeg()]
     assert len(frames) == 2
     assert asked_again == []
 
