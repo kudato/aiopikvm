@@ -503,7 +503,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Breaking:** a redirected WebSocket handshake raises `RedirectError`
   instead of being followed. *websockets* follows up to ten redirects on its
   own, resending the credential headers to each target; the REST client has
-  refused to do that since #67, and the socket carries the same password.
+  refused to do that since #67, and the socket carries the same credential —
+  the password, or the session token under `auth="cookie"`.
   `ws()` inherits the client's `follow_redirects` (#59).
 - **Breaking:** `HIDKeyboard` and `HIDMouse` replace `connected` with the
   fields kvmd actually sends: `online`, `outputs` and — on the keyboard —
@@ -531,11 +532,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Breaking:** `SwitchResource.set_active()` takes a port number rather than
   a name — kvmd validates it as a float, so the documented `"port1"` was
   always a 400. `set_colors()` covers all five roles instead of only
-  `beacon`, and `set_beacon()` raises `ValueError` unless exactly one of
-  `port`/`uplink`/`downlink` is given, which is what kvmd requires; the
+  `beacon`, and `set_beacon()` raises `ConfigurationError` unless exactly one
+  of `port`/`uplink`/`downlink` is given, which is what kvmd requires; the
   documented target-less "turn all beacons off" call does not exist. Calls
   kvmd would accept and silently ignore — `set_colors()` with no role,
-  `change_edid()` with nothing to change — raise `ConfigurationError` too
+  `change_edid()` with nothing to change — raise `ConfigurationError` as well
   (#56).
 - **Breaking:** the EDID methods now match kvmd. `create_edid(name, data)`
   sends query parameters and returns the id kvmd generated; `change_edid()`
