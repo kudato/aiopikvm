@@ -192,10 +192,11 @@ class PiKVM:
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default: a
-                redirect resends the credential headers to whatever it points
-                at, and the usual cause — an ``http://`` base URL that nginx
-                redirects to ``https://`` — has already exposed the password
-                in cleartext by then.
+                redirect resends whatever credential this client carries —
+                the headers, or the session cookie — to whatever it points
+                at, and the usual cause, an ``http://`` base URL that nginx
+                redirects to ``https://``, has already put the password or
+                the token on the wire in cleartext by then.
             http_client: Pre-built httpx client. When given, this client
                 does not close it and the arguments above are ignored.
         """
@@ -348,23 +349,31 @@ class PiKVM:
         leaves kvmd's ``auth_token`` here, and every later request sends it
         back.
 
-        Putting a token here is not enough to authenticate by session,
-        though. kvmd tries the ``X-KVMD-*`` headers first and, once it sees a
+        Whether the token is the credential depends on the *auth* mode.
+        kvmd tries the ``X-KVMD-*`` headers first and, once it sees a
         non-empty ``X-KVMD-User``, either accepts that pair or refuses the
-        request outright — it never falls through to the cookie. Since this
-        client always sends the header, the token is only ever the credential
-        for an `httpx.AsyncClient` passed in as *http_client* without
-        those headers:
+        request outright — it never falls through to the cookie. Under
+        ``auth="headers"`` this client always sends that pair, so the token
+        decides nothing, and under ``auth="basic"`` the credential is in the
+        request as well. In both, a token here is only ever what
+        authenticates an `httpx.AsyncClient` passed in as *http_client*
+        without a credential of its own:
 
             async with httpx.AsyncClient(base_url=url, verify=False) as http:
                 http.cookies.set("auth_token", saved_token)
                 async with PiKVM(url, http_client=http) as kvm:
                     ...
 
-        [`ws()`][aiopikvm.PiKVM.ws] does not take part in this. The WebSocket
-        authenticates with the *user* and *passwd* this client was built with,
-        which are the defaults when an *http_client* carries the credentials
-        instead.
+        Under ``auth="cookie"`` the token is the credential: this client
+        sends no ``X-KVMD-User`` at all, and what is in this jar is what
+        every request and every socket handshake carries. The first request
+        logs in on its own; [`ws()`][aiopikvm.PiKVM.ws] is not a coroutine
+        and cannot, so opening a socket before anything else has authenticated
+        raises rather than dialling with nothing.
+
+        The other two modes hand [`ws()`][aiopikvm.PiKVM.ws] the *user* and
+        *passwd* this client was built with, which are the defaults when an
+        *http_client* carries the credentials instead.
 
         Returns:
             The live cookie jar — mutating it affects subsequent requests.

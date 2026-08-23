@@ -56,10 +56,12 @@ class AuthResource(BaseResource):
         auth_token`` header — that header is the only place it ever appears.
 
         The token is also stored in [`PiKVM.cookies`][aiopikvm.PiKVM.cookies],
-        scoped to the host it came from, and sent with every later request —
-        though it decides nothing while this client keeps sending its
-        credential headers. See [`PiKVM.cookies`][aiopikvm.PiKVM.cookies] for
-        what a session token is actually good for.
+        scoped to the host it came from, and sent with every later request.
+        Under ``auth="cookie"`` it is what those requests are authenticated
+        by, and what a socket handshake carries; under the other two modes it
+        decides nothing, because the credential in the request itself is read
+        first. See [`PiKVM.cookies`][aiopikvm.PiKVM.cookies] for what a
+        session token is good for in that case.
 
         A token already in the jar is replaced. The session it belonged to
         stays open on the device until it expires or any session of that user

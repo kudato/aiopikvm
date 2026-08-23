@@ -97,13 +97,13 @@ Every frame is a `{"event_type": ..., "event": ...}` dictionary.
 There is no single "initial state" message. kvmd sends:
 
 1. `loop` — always first, carrying the kvmd version:
-   `{"version": {"major": 4, "minor": 186}}`. The client keeps it, so there is
+   `{"version": {"major": 4, "minor": 206}}`. The client keeps it, so there is
    no need to catch the event to read it:
 
    ```python
    async with kvm.ws() as ws:
        await ws.ping()                 # or read one event; either fills it in
-       print(ws.version)               # KvmdVersion(major=4, minor=186)
+       print(ws.version)               # KvmdVersion(major=4, minor=206)
        if ws.version >= (4, 100):      # it compares like a version
            ...
    ```
@@ -191,12 +191,13 @@ for a caller that would rather switch on it than re-read everything:
 | `streamer` | `StreamerState` | `streamer` |
 | `switch` | `SwitchState` | `switch` |
 | `clients` | `int` | `clients` |
-| `info` | `dict` | `info` |
+| `info` | `InfoState` | `info` |
 
 The merge is the point of it. kvmd sends a subsystem in full once and then only
 the parts of it that change, so validating a later event on its own fails —
-most of the model is simply not in it. `info` is merged the same way but stays a
-raw dictionary; typing it is [#71](https://github.com/kudato/aiopikvm/issues/71).
+most of the model is simply not in it. `info` is merged the same way and typed
+like the rest: kvmd sends one submanager per event, so `state.info.health` is
+`None` until the `health` one has arrived, and so is every other field on it.
 
 `loop` and `pong` produce no snapshot, since neither says anything about the
 device; the version the `loop` event carries is on `ws.version`. A payload that
