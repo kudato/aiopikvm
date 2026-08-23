@@ -149,7 +149,7 @@ answers with nothing at all.
 
 The mouse on the recording device was in its absolute mode, which is why the
 relative frames are recorded as accepted rather than as movement: kvmd decodes
-them and bumps the counter, and its mouse device then drops the report for
+them and resets the counter, and its mouse device then drops the report for
 being in the wrong mode. Recording them as movement would mean switching
 `mouse_output` on somebody's device, which recreates the USB gadget.
 

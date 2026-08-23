@@ -244,7 +244,7 @@
     },
     "ws_events": {
       "file": "ws_events.jsonl",
-      "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=0, in arrival order."
+      "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=1, in arrival order."
     },
     "ws_handshake": {
       "file": "ws_handshake.json",

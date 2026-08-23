@@ -318,7 +318,7 @@ async with kvm.ws() as ws:                  # keeps the streamer up
 Absolute positioning also needs the mouse in absolute mode. kvmd drops a
 `send_mouse_move()` while the mouse is relative, and drops
 `send_mouse_relative()` while it is absolute — in both cases without a word to
-the sender, and with the inactivity counter bumped either way, so nothing about
+the sender, and with the inactivity counter reset either way, so nothing about
 the exchange says the report went nowhere. `HIDState.mouse.absolute` is which
 mode is on, and `mouse.outputs.available` is what the device can switch to:
 
