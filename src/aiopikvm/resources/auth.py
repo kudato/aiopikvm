@@ -73,6 +73,62 @@ def _token_in(cookies: httpx.Cookies) -> str:
     return token
 
 
+def _cookie_host(url: httpx.URL) -> str:
+    """Return the host name a cookie for *url* has to be scoped to.
+
+    ``http.cookiejar`` matches a cookie's domain against the *effective*
+    request host, which the jar reads off the URL httpx puts on the wire.
+    That is not the host as written, in three ways: a name with no dot in it
+    has ``.local`` appended, an IPv6 literal keeps the brackets `httpx.URL`
+    strips, and an internationalised name is punycode there while
+    `httpx.URL.host` gives it back decoded. Scoping a cookie to the host as
+    written is how it comes to be withheld from the very device it was minted
+    by — the jar asks about ``pikvm.local`` while the cookie says ``pikvm``,
+    so it goes to that name's subdomains and never to the device (#178).
+
+    The rule is spelled out rather than borrowed. ``eff_request_host()`` is
+    not part of what ``http.cookiejar`` declares, so calling it is untyped,
+    and it returns the whole netloc. `httpx.URL.raw_host` is the wire form
+    with the port and any userinfo already gone. What is left is pinned
+    against the standard library by ``test_auth.py``, against the URL httpx
+    sends rather than the one that was typed, so the two cannot drift.
+
+    Userinfo is the one shape where dropping it is not enough to make the
+    cookie work, and nothing here can be. httpx sends the credentials in the
+    URL, so the jar asks about ``admin:s3cret@pikvm.local``: the only domain
+    it would answer to is one with the password in it, which `PiKVM.cookies`
+    hands to anything that prints the jar. Scoping to the bare host keeps the
+    password out and leaves a session the device never sends back — as it was
+    before #178, which changed nothing here either way.
+
+    Args:
+        url: URL of the device the cookie belongs to.
+
+    Returns:
+        The host name to file the cookie under.
+
+    Raises:
+        ConfigurationError: *url* names no host, so there is nothing to scope
+            a session cookie to. Storing it unscoped is the very thing the
+            scope is for — httpx would offer the session to every server the
+            client talks to — and a request built from such a URL fails on
+            its own account anyway.
+    """
+    host = url.raw_host.decode("ascii").lower()
+    if not host:
+        raise ConfigurationError(
+            f"Cannot scope a session cookie to {str(url)!r}: it names no "
+            "host. Give the client a base URL such as https://pikvm.local, "
+            "scheme included."
+        )
+    if ":" in host:
+        # An IPv6 literal: httpx.URL unwraps it, the cookie jar does not.
+        host = f"[{host}]"
+    if "." not in host:
+        host += ".local"
+    return host
+
+
 class AuthResource(BaseResource):
     """Session-based authentication for PiKVM."""
 
@@ -171,7 +227,7 @@ class AuthResource(BaseResource):
             # domain, and a token restored by hand sits under none. The jar
             # keys on the domain, so both would survive under one name and
             # httpx's own lookup raises on that. Collapse them to this one.
-            self._store_token(token, response.request.url.host)
+            self._store_token(token, response.request.url)
             self._client._record_login(token)
             return token
 
@@ -237,8 +293,10 @@ class AuthResource(BaseResource):
             timeout: Per-call timeout in seconds.
 
         Raises:
-            ConfigurationError: If no token was given and none is stored, or
-                the token is not the 64 hexadecimal characters kvmd accepts.
+            ConfigurationError: If no token was given and none is stored, if
+                the token is not the 64 hexadecimal characters kvmd accepts,
+                or if this client's base URL names no host to scope the
+                cookie to — a URL no request could be built from either.
             AuthError: The credentials this client sends were refused
                 (HTTP 403). Since the call always carries a cookie, which
                 source kvmd answers from follows the *auth* mode: under
@@ -265,9 +323,9 @@ class AuthResource(BaseResource):
             raise ConfigurationError(
                 f"A kvmd session token is 64 hexadecimal characters; this one {detail}"
             )
-        host = self._client.base_url.host
+        url = self._client.base_url
         previous = self._stored_token()
-        self._store_token(token, host)
+        self._store_token(token, url)
         try:
             await self._post("/api/auth/logout", timeout=timeout)
         except Exception:
@@ -275,22 +333,31 @@ class AuthResource(BaseResource):
             # else's session must not cost this one its own credential.
             self._client.cookies.delete(_COOKIE)
             if previous:
-                self._store_token(previous, host)
+                self._store_token(previous, url)
             raise
         self._client.cookies.delete(_COOKIE)
 
-    def _store_token(self, token: str, host: str) -> None:
+    def _store_token(self, token: str, url: httpx.URL) -> None:
         """Make *token* the one session cookie the client carries.
 
         Args:
             token: Session token to store.
-            host: Host to scope the cookie to. Without one httpx offers it to
-                every server the client talks to, which for a shared client
-                or a cross-host redirect means handing the session to
-                somewhere it does not belong.
+            url: URL of the device to scope the cookie to. Unscoped, httpx
+                offers it to every server the client talks to, which for a
+                shared client or a cross-host redirect means handing the
+                session to somewhere it does not belong. `_cookie_host` says
+                why the scope is not the host itself.
+
+        Raises:
+            ConfigurationError: *url* names no host. The scope is worked out
+                before the jar is touched, so a client that already holds a
+                token still holds it: `logout()` puts one back by calling
+                this again, and a failure there must not be what empties the
+                jar.
         """
+        domain = _cookie_host(url)
         self._client.cookies.delete(_COOKIE)
-        self._client.cookies.set(_COOKIE, token, domain=host, path="/")
+        self._client.cookies.set(_COOKIE, token, domain=domain, path="/")
 
     def _stored_token(self) -> str:
         """Return the session token held by the client, if any.

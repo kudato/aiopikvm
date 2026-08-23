@@ -592,6 +592,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- A session token is filed under the host name the cookie jar will actually
+  match it against, so `auth="cookie"` works against a device addressed by a
+  name with no dot in it — `https://pikvm`, which is how one on the local
+  network is most often reached. `http.cookiejar` appends `.local` to such a
+  name before matching, so a cookie scoped to the raw host went to that
+  name's subdomains and never to the device itself: every request after the
+  login was refused, the retry read the 403 as a lapsed session and opened a
+  second one that landed in the same place, and the call failed with a
+  password that was never wrong. Two more base URLs were broken the same
+  way: an IPv6 literal — `https://[::1]` — because the jar keeps the brackets
+  the URL strips, and an internationalised name — `https://пиквм.рф`, written
+  either as itself or as its punycode — because the jar sees the punycode
+  httpx sends while the URL gives the name back decoded. A
+  dotted name and an IPv4 address are filed as before, and a base URL
+  carrying userinfo no longer files the password as part of the cookie's
+  domain, where anything printing `PiKVM.cookies` would print it too. A base
+  URL naming no host at all — one written without a scheme, or an external
+  `http_client` built without a `base_url` — is now a `ConfigurationError`
+  raised before the jar is touched, rather than a session cookie scoped to
+  nothing and offered to every server the client talks to (#178).
 - `auth="cookie"` against a kvmd running with authentication switched off
   logs in once instead of before every request, and can open a WebSocket.
   Such a device hands out no token, so the jar stayed empty and the client,
