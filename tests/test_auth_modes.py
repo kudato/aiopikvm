@@ -517,6 +517,50 @@ async def test_cookie_mode_recovers_when_authentication_is_switched_back_on(
     assert logins == 2
 
 
+async def test_a_recovered_session_is_not_still_remembered_as_auth_off(
+    mock_api: respx.MockRouter,
+) -> None:
+    """The remembering has to be undone, not merely overtaken (#170).
+
+    Once a token is back in the jar it is read before the flag, so a client
+    that never took the flag back looks recovered while it is not. What
+    tells them apart is the session ending: with the jar empty again the
+    flag decides, and a stale one skips the login and spends a refusal
+    finding out.
+    """
+    logins = 0
+
+    def login(request: httpx.Request) -> httpx.Response:
+        nonlocal logins
+        logins += 1
+        if logins == 1:  # the device still has authentication off
+            return httpx.Response(200, json=OK)
+        return httpx.Response(
+            200, json=OK, headers={"Set-Cookie": f"auth_token={TOKEN}; Path=/"}
+        )
+
+    def atx(request: httpx.Request) -> httpx.Response:
+        if f"auth_token={TOKEN}" in request.headers.get("Cookie", ""):
+            return httpx.Response(200, json=OK)
+        return httpx.Response(401, json={"ok": False, "result": None})
+
+    mock_api.post("/api/auth/login").mock(side_effect=login)
+    atx_route = mock_api.get("/api/atx").mock(side_effect=atx)
+    async with PiKVM(URL, user="admin", passwd="secret", auth="cookie") as kvm:
+        # Authentication comes on with the very first request: one refusal,
+        # one more login, and the retry carries the token it minted.
+        await kvm.request("GET", "/api/atx")
+        assert (logins, atx_route.call_count) == (2, 2)
+
+        # The session ends — kvmd expired it, or something logged out.
+        kvm.cookies.delete(_COOKIE)
+        await kvm.request("GET", "/api/atx")
+
+    # Three logins, and the last request cost one attempt, not a refusal and
+    # then a retry: the client knew it had to log in rather than guessing.
+    assert (logins, atx_route.call_count) == (3, 3)
+
+
 async def test_websocket_carries_the_same_credential() -> None:
     async with PiKVM(URL, user="admin", passwd="secret") as kvm:
         assert kvm.ws()._credential_headers() == {

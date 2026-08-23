@@ -1086,9 +1086,11 @@ class PiKVM:
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
                 was built with has no usable scheme. Under ``auth="cookie"``
-                a missing session token is reported too, but only once the
+                nothing having logged in is reported too, but only once the
                 socket is entered: the token is read at the handshake, so one
-                minted in between is the one that goes out.
+                minted in between is the one that goes out. A device running
+                with authentication off hands out no token and is not that
+                case — the socket opens and carries nothing.
         """
         self._ws_usable()
         return PiKVMWebSocket(
@@ -1173,9 +1175,11 @@ class PiKVM:
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
                 was built with has no usable scheme. Under ``auth="cookie"``
-                a missing session token is reported too, but only once the
+                nothing having logged in is reported too, but only once the
                 socket is entered: the token is read at the handshake, so one
-                minted in between is the one that goes out.
+                minted in between is the one that goes out. A device running
+                with authentication off hands out no token and is not that
+                case — the socket opens and carries nothing.
         """
         self._ws_usable()
         return MediaWebSocket(
@@ -1268,10 +1272,12 @@ class PiKVM:
         Raises:
             ConfigurationError: If this client has been closed, or the URL it
                 was built with has no usable scheme. The missing ``webrtc``
-                extra is reported here too, and so is a missing session token
-                under ``auth="cookie"`` — but both only once the session is
-                entered. The token is read at the handshake, so one minted in
-                between is the one that goes out.
+                extra is reported here too, and so is nothing having logged
+                in under ``auth="cookie"`` — but both only once the session
+                is entered. The token is read at the handshake, so one minted
+                in between is the one that goes out, and a device running
+                with authentication off, which hands out none, is carried
+                nothing at all.
         """
         self._ws_usable()
         return WebRTCSession(
