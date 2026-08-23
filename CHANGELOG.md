@@ -596,14 +596,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   does not have to read back as an inactivity counter of exactly 0, since kvmd
   resets that counter inside the handler and it counts seconds from there; and
   `ws_binary` was recorded with the USB gadget attached this time, so its
-  safety note now enumerates what actually lands on the host behind the device
-  — a held ControlLeft, a `KeyA` press the host reads as Ctrl+A, and a real
-  two-step scroll. `CONTRIBUTING.md` named 4.186
-  as well, and the claim that *every* fixture came from the 4.206 re-capture is
+  safety note sorts the frames by what each one does to the host behind the
+  device — a held ControlLeft, a `KeyA` press that host reads as Ctrl+A, a
+  two-step scroll under it and a pointer jump to the centre of the screen on
+  one side; the frames that arrive and do nothing, and the ones that never
+  leave the device at all, on the other. `CONTRIBUTING.md` named 4.186 as
+  well, and the claim that *every* fixture came from the 4.206 re-capture is
   narrowed to the ones the capture tool produces: the four `msd_*` scenarios
-  are hand-recorded too, no pass has reached them since 4.186, and the fixtures
-  README now says so rather than leaving the table row to imply otherwise
-  (#145).
+  are hand-recorded too, no pass has reached them since 4.186, and the
+  fixtures README now says so rather than leaving the table row to imply
+  otherwise (#145).
 
 ### Removed
 
