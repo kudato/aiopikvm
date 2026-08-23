@@ -1,5 +1,5 @@
 {
-  "description": "Every way kvmd 4.186 refuses the GET /api/ws upgrade, recorded by hand with the websockets client (see README). The upgrade never happens: kvmd answers the GET with an ordinary HTTP response carrying its usual envelope, which is what websockets reports as InvalidStatus. Credentials are placeholders.",
+  "description": "Every way kvmd 4.206 refuses the GET /api/ws upgrade, recorded by hand with the websockets client (see README). The upgrade never happens: kvmd answers the GET with an ordinary HTTP response carrying its usual envelope, which is what websockets reports as InvalidStatus. Credentials are placeholders.",
   "steps": [
     {
       "name": "bad_stream_value",
