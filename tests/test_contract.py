@@ -182,40 +182,85 @@ def test_the_recorders_write_where_the_loader_reads(
     assert "__file__" not in source
 
 
+_STEP_SCENARIOS = (
+    "auth_roundtrip",
+    "janus_session",
+    "media_stream",
+    "msd_write",
+    "redfish_actions",
+    "ws_binary",
+    "ws_handshake",
+)
+"""Every recorded scenario whose file carries ``steps``, which is what the
+guard below runs over. Listed by hand rather than derived, so that a new
+scenario carrying steps fails the test beside this until it is named here."""
+
+
+def test_every_scenario_with_steps_is_checked_for_orphans() -> None:
+    """The guard below covers every scenario there is to cover (#177).
+
+    It covered two of the seven for a while, and the five it left out had ten
+    orphaned steps between them. Deriving the list here instead of trusting
+    the one above is what keeps that from happening again quietly.
+
+    ``ws_events`` is passed over by its suffix: it is JSON Lines, one message
+    per line, so it has no steps and ``load_json`` cannot read it at all.
+    """
+    carrying = {
+        name
+        for name, entry in manifest()["scenarios"].items()
+        if str(entry["file"]).endswith(".json") and "steps" in load_json(name)
+    }
+    assert carrying == set(_STEP_SCENARIOS)
+
+
 _DOCUMENTATION_ONLY = {
-    ("media_stream", "stream_bad_flag"),
-    ("janus_session", "session_events"),
+    ("auth_roundtrip", "login_invalid_expire"),
+    ("auth_roundtrip", "logout_without_cookie"),
     ("janus_session", "after_stop"),
+    ("janus_session", "session_events"),
+    ("media_stream", "stream_bad_flag"),
+    ("redfish_actions", "reset_type_missing"),
+    ("ws_binary", "delta_batch_odd_length"),
+    ("ws_binary", "hid_baseline"),
+    ("ws_binary", "mouse_move_truncated"),
+    ("ws_binary", "unknown_op"),
 }
-"""Recorded steps no test replays, and cannot: one describes a request this
-client has no way to make, and two recorded that the device sent nothing at
-all. Everything else in these two scenarios is a mock waiting to be used, and
-a step nobody loads is a claim nobody checks (#144)."""
+"""Recorded steps no test replays, and cannot. Two recorded that the device
+sent nothing at all and one is a state rather than an exchange; the other
+seven describe a request or a frame this client has no way to produce — a
+flag it types as a bool, an ``expire`` it types as an int, a ``ResetType`` it
+types as a Literal and always sends, a call it refuses to make at all, an
+operation it does not implement, and two frames it packs to a fixed width.
+Everything else in these files is a mock waiting to be used, and a step
+nobody loads is a claim nobody checks (#144, #177)."""
 
 
-@pytest.mark.parametrize("scenario", ["media_stream", "janus_session"])
+@pytest.mark.parametrize("scenario", _STEP_SCENARIOS)
 def test_every_recorded_step_is_used_or_says_why_not(scenario: str) -> None:
     """A step with no consumer is documentation, and has to admit it (#144).
 
-    Seven steps of these two scenarios had drifted into that state
-    unannounced, one carrying the executable-sounding claim that it "parses
-    fine" — which nothing executed. The other five scenario files are not
-    checked here: their steps carry ``note`` rather than ``description``, and
-    some of them are orphaned too, which is its own cleanup and not this
-    test's.
+    Seven steps of the two scenarios this started with had drifted into that
+    state unannounced, one carrying the executable-sounding claim that it
+    "parses fine" — which nothing executed. The other five files were left
+    out at the time, on the grounds that their steps carry ``note`` rather
+    than ``description``; they had ten more between them (#177).
 
     A step counts as used when some test names it as a string literal, which
     is how every one of them is loaded — and which is a lint, not proof: a
     step sharing its name with a protocol verb, the way ``keepalive`` does,
-    is "used" by any assertion that mentions the verb. It also reads the
-    manifest, so it notices a consumerless step and not a stepless consumer;
-    the consumer's own ``KeyError`` covers that direction. This file is left
-    out of the search so the exemptions above do not stand in for the
-    consumers they excuse — at the price that its own loads do not count
-    either, and every step it loads needs a consumer elsewhere.
+    is "used" by any assertion that mentions the verb. Nothing syntactic does
+    better here: ``test_webrtc.py`` maps verb to step name in a dict and calls
+    the loader with the variable, so a rule strict enough to exclude the
+    assertion excludes the real load beside it. It also reads the manifest, so
+    it notices a consumerless step and not a stepless consumer; the consumer's
+    own ``KeyError`` covers that direction. This file is left out of the
+    search so the exemptions above do not stand in for the consumers they
+    excuse — at the price that its own loads do not count either, and every
+    step it loads needs a consumer elsewhere.
 
     Args:
-        scenario: Manifest key of the hand-recorded scenario to check.
+        scenario: Manifest key of the recorded scenario to check.
     """
     here = Path(__file__)
     suite = "".join(
@@ -224,7 +269,8 @@ def test_every_recorded_step_is_used_or_says_why_not(scenario: str) -> None:
         if path != here
     )
     steps = {
-        step["name"]: str(step["description"]) for step in load_json(scenario)["steps"]
+        step["name"]: str(step.get("description", step.get("note", "")))
+        for step in load_json(scenario)["steps"]
     }
     unused = {name for name in steps if f'"{name}"' not in suite}
     assert unused == {name for scen, name in _DOCUMENTATION_ONLY if scen == scenario}

@@ -75,14 +75,23 @@ def form(request: httpx.Request) -> dict[str, list[str]]:
 async def test_login_sends_a_form_body(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
-    """kvmd parses login with aiohttp's form parser, so JSON arrives empty."""
+    """kvmd parses login with aiohttp's form parser, so JSON arrives empty.
+
+    Both content types were sent to the device. The form one is the recorded
+    success; the JSON one came back 400, the validator complaining about an
+    empty user name — the fields never reached the handler at all. So the
+    content type is read off the recording rather than spelled out here, and
+    the one recorded as refused is named beside it (#177).
+    """
     mock_api.post("/api/auth/login").mock(
         return_value=replay("login_form_body", cookie=TOKEN)
     )
     await client.auth.login("admin", "secret")
 
     request = mock_api.calls[-1].request
-    assert request.headers["content-type"] == "application/x-www-form-urlencoded"
+    sent = request.headers["content-type"]
+    assert sent == step("login_form_body")["request_content_type"]
+    assert sent != step("login_json_body")["request_content_type"]
     assert form(request) == {"user": ["admin"], "passwd": ["secret"], "expire": ["0"]}
 
 

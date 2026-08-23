@@ -63,7 +63,7 @@
       "name": "login_invalid_expire",
       "method": "POST",
       "path": "/api/auth/login",
-      "note": "expire is validated as a non-negative number",
+      "note": "expire is validated as a non-negative number. Kept as documentation, not as a mock: login() types expire as an int, so a value this validator reads as something other than a number cannot leave this client",
       "status": 400,
       "body": {
         "ok": false,
@@ -103,7 +103,7 @@
       "name": "logout_without_cookie",
       "method": "POST",
       "path": "/api/auth/logout",
-      "note": "authorized by X-KVMD-* headers, but the handler needs the cookie to know which session to drop; the token value is hidden from the message by the validator",
+      "note": "authorized by X-KVMD-* headers, but the handler needs the cookie to know which session to drop; the token value is hidden from the message by the validator. Kept as documentation, not as a mock: logout() refuses without a token rather than making a call that cannot succeed, so this is the answer it avoids rather than one it has to handle",
       "status": 400,
       "body": {
         "ok": false,
