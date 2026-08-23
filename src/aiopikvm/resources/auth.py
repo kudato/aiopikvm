@@ -77,20 +77,23 @@ def _cookie_host(url: httpx.URL) -> str:
     """Return the host name a cookie for *url* has to be scoped to.
 
     ``http.cookiejar`` matches a cookie's domain against the *effective*
-    request host, which is not always the host in the URL: a name with no dot
-    in it has ``.local`` appended, and an IPv6 literal keeps the brackets
-    `httpx.URL` strips. Scoping a cookie to the raw host is how it comes to be
-    withheld from the very device it was minted by — the jar asks about
-    ``pikvm.local`` while the cookie says ``pikvm``, so it goes to that name's
-    subdomains and never to the device (#178).
+    request host, which the jar reads off the URL httpx puts on the wire.
+    That is not the host as written, in three ways: a name with no dot in it
+    has ``.local`` appended, an IPv6 literal keeps the brackets `httpx.URL`
+    strips, and an internationalised name is punycode there while
+    `httpx.URL.host` gives it back decoded. Scoping a cookie to the host as
+    written is how it comes to be withheld from the very device it was minted
+    by — the jar asks about ``pikvm.local`` while the cookie says ``pikvm``,
+    so it goes to that name's subdomains and never to the device (#178).
 
     The rule is spelled out rather than borrowed. ``eff_request_host()`` is
     not part of what ``http.cookiejar`` declares, so calling it is untyped,
-    and it reads the host off the URL *string*: a base URL carrying userinfo
-    would put the password in the cookie's domain, where `PiKVM.cookies`
-    hands it to anything that prints the jar. `httpx.URL.host` has already
-    dropped the userinfo and the port. What is left is pinned against the
-    standard library by ``test_auth.py``, so the two cannot drift.
+    and it reads the whole netloc: a base URL carrying userinfo would put the
+    password in the cookie's domain, where `PiKVM.cookies` hands it to
+    anything that prints the jar. `httpx.URL.raw_host` is the wire form with
+    the userinfo and the port already gone. What is left is pinned against
+    the standard library by ``test_auth.py``, against the URL httpx sends
+    rather than the one that was typed, so the two cannot drift.
 
     Args:
         url: URL of the device the cookie belongs to.
@@ -105,7 +108,7 @@ def _cookie_host(url: httpx.URL) -> str:
             client talks to — and a request built from such a URL fails on
             its own account anyway.
     """
-    host = url.host.lower()
+    host = url.raw_host.decode("ascii").lower()
     if not host:
         raise ConfigurationError(
             f"Cannot scope a session cookie to {str(url)!r}: it names no "

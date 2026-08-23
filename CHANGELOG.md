@@ -600,8 +600,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   name's subdomains and never to the device itself: every request after the
   login was refused, the retry read the 403 as a lapsed session and opened a
   second one that landed in the same place, and the call failed with a
-  password that was never wrong. An IPv6 literal base URL — `https://[::1]`
-  — was broken the same way, the jar keeping the brackets the URL strips. A
+  password that was never wrong. Two more base URLs were broken the same
+  way: an IPv6 literal — `https://[::1]` — because the jar keeps the brackets
+  the URL strips, and an internationalised name — `https://пиквм.рф`, written
+  either as itself or as its punycode — because the jar sees the punycode
+  httpx sends while the URL gives the name back decoded. A
   dotted name and an IPv4 address are filed as before, and a base URL
   carrying userinfo no longer files the password as part of the cookie's
   domain, where anything printing `PiKVM.cookies` would print it too. A base

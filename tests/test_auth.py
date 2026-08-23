@@ -291,6 +291,7 @@ async def test_login_scopes_the_token_to_the_device(
         pytest.param("pikvm:8443", "pikvm.local", id="dotless_with_port"),
         pytest.param("127.0.0.1", "127.0.0.1", id="ipv4"),
         pytest.param("[::1]", "[::1].local", id="ipv6"),
+        pytest.param("пиквм.рф", "xn--b1algjl.xn--p1ai", id="idn"),
     ],
 )
 async def test_login_scopes_the_token_where_the_jar_will_match_it(
@@ -299,10 +300,11 @@ async def test_login_scopes_the_token_where_the_jar_will_match_it(
     """A cookie the jar withholds is a session the device never sees (#178).
 
     ``http.cookiejar`` matches a cookie's domain against the *effective*
-    request host, not the one in the URL: a name with no dot in it has
-    ``.local`` appended before the comparison, and an IPv6 literal keeps the
-    brackets the URL strips. Filing the token under the raw host therefore
-    offered it to that host's subdomains and never to the device itself, so
+    request host, not the one as written: a name with no dot in it has
+    ``.local`` appended before the comparison, an IPv6 literal keeps the
+    brackets the URL strips, and an internationalised name is punycode on the
+    wire. Filing the token under the host as written therefore offered it to
+    that host's subdomains and never to the device itself, so
     ``auth="cookie"`` could not authenticate at all.
 
     The domain is asserted as well as the outcome because the two fail apart:
@@ -341,6 +343,8 @@ async def test_login_scopes_the_token_where_the_jar_will_match_it(
         "[::1]:8443",
         "[::ffff:127.0.0.1]",
         "kvm.example.com",
+        "пиквм.рф",
+        "xn--b1algjl.xn--p1ai",
     ],
 )
 def test_the_cookie_scope_is_the_one_the_standard_library_computes(host: str) -> None:
@@ -348,18 +352,25 @@ def test_the_cookie_scope_is_the_one_the_standard_library_computes(host: str) ->
 
     ``http.cookiejar.eff_request_host()`` is the rule itself, but it is not
     part of what the module declares — calling it from typed code takes an
-    ignore — and it reads the host off the URL string, userinfo and all. So
-    the rule is restated in `_cookie_host`, and this is what keeps the
-    restatement honest: it is compared against the standard library over
-    every shape of host a device is reached by, the ones the URL and the jar
-    disagree about included.
+    ignore — and it reads the whole netloc, userinfo and all. So the rule is
+    restated in `_cookie_host`, and this is what keeps the restatement
+    honest: it is compared against the standard library over every shape of
+    host a device is reached by, the ones the URL and the jar disagree about
+    included.
+
+    The comparison is against ``str(httpx.URL(...))``, not the string that
+    was typed, because that is what the jar sees — httpx normalises an
+    internationalised name to punycode before it goes on the wire, and asking
+    the standard library about the typed form would pin the rule to a URL
+    nothing ever sends. The last two hosts are the same device written both
+    ways, and they are what says so.
 
     Args:
         host: Host of the base URL, port and brackets as written.
     """
-    url = f"https://{host}"
-    _, effective = http.cookiejar.eff_request_host(urllib.request.Request(url))
-    assert _cookie_host(httpx.URL(url)) == effective
+    url = httpx.URL(f"https://{host}")
+    _, effective = http.cookiejar.eff_request_host(urllib.request.Request(str(url)))
+    assert _cookie_host(url) == effective
 
 
 async def test_login_files_no_credential_from_a_userinfo_url() -> None:
@@ -382,7 +393,7 @@ async def test_login_files_no_credential_from_a_userinfo_url() -> None:
 
 
 async def test_login_stores_a_token_no_kvmd_would_send() -> None:
-    """Whatever the response carries, nothing outside PiKVMError escapes.
+    """Storing a token is storing a value, not writing a header.
 
     A token is read out of a header, and headers arrive as bytes: kvmd sends
     64 hex characters, but the client treats the response as untrusted
@@ -390,8 +401,14 @@ async def test_login_stores_a_token_no_kvmd_would_send() -> None:
     a 200 that did not come from kvmd at all. Building the cookie out of a
     header string instead of storing the value would make a non-ASCII byte
     here a bare ``UnicodeEncodeError`` from httpx's header encoder, raised
-    from `login()` and from the implicit login inside any request under
-    ``auth="cookie"``.
+    out of `login()` itself and out of the implicit login inside any request
+    under ``auth="cookie"``. That is what this holds shut.
+
+    It does not make such a token *usable*: the request after this one still
+    dies encoding the cookie header httpx builds from the jar, with the same
+    exception from the same encoder. That escape is httpx's own and predates
+    this client's handling of the token — what changed here is that storing
+    the token is no longer itself the thing that raises.
     """
     odd = "caf\xe9" + "b" * 60
     entry = step("login_form_body")
