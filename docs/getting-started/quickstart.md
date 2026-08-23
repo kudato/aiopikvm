@@ -25,6 +25,7 @@ asyncio.run(main())
 | MSD | `kvm.msd` | Virtual mass storage |
 | GPIO | `kvm.gpio` | GPIO channel control |
 | Streamer | `kvm.streamer` | Screenshots and OCR |
+| Media | `kvm.media` | What the kvmd-media socket can be asked for |
 | Switch | `kvm.switch` | Multi-port KVM switching |
 | Redfish | `kvm.redfish` | DMTF BMC interface |
 | Prometheus | `kvm.prometheus` | Metrics export |

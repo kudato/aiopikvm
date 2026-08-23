@@ -20,7 +20,7 @@ kvm = PiKVM(
 | `url` | `str` | *(required)* | PiKVM base URL |
 | `user` | `str` | `"admin"` | Username for authentication |
 | `passwd` | `str` | `""` | Password for authentication |
-| `totp` | `str \| None` | `None` | TOTP code for two-factor auth |
+| `totp` | `str \| Callable[[], str] \| None` | `None` | TOTP code, or something that produces one per request — see [below](#totp-authentication) |
 | `auth` | `AuthMode` | `"headers"` | Which credential to send — see [below](#authentication-modes) |
 | `session_expire` | `int` | `0` | Lifetime of a session `auth="cookie"` opens; `0` asks for unlimited |
 | `verify_ssl` | `VerifyTypes` | `False` | What to trust: `bool`, a CA bundle path, or an `ssl.SSLContext` |
@@ -28,6 +28,7 @@ kvm = PiKVM(
 | `proxy` | `str \| None` | `None` | Proxy URL to reach the device through |
 | `trust_env` | `bool` | `True` | Read proxy settings from the environment |
 | `timeout` | `float` | `10.0` | Request timeout in seconds |
+| `follow_redirects` | `bool` | `False` | Follow a 3xx instead of raising `RedirectError`. Off because a redirect resends the credential — see [error handling](../guide/error-handling.md#redirects) |
 | `http_client` | `httpx.AsyncClient \| None` | `None` | External httpx client |
 
 ## Authentication modes
@@ -144,9 +145,10 @@ async with PiKVM("https://pikvm.local", user="admin", passwd="secret") as kvm:
     # 64 hex characters; kvmd only ever sends it in a Set-Cookie header
 ```
 
-A token only authenticates a client that sends no credential headers at all —
-`auth="cookie"` is one, and so is an external `httpx.AsyncClient` carrying
-nothing but the cookie:
+A token authenticates any client that does not send the `X-KVMD-*` pair, since
+kvmd reads that pair first and this cookie next — `auth="cookie"`, which is
+built on it, and an external `httpx.AsyncClient` carrying nothing but the
+cookie:
 
 ```python
 import httpx
@@ -158,6 +160,15 @@ async with httpx.AsyncClient(base_url="https://pikvm.local", verify=False) as ht
         await kvm.auth.check()    # authenticated by the token alone
         await kvm.auth.logout()   # see the warning below before calling this
 ```
+
+!!! warning
+    `auth="basic"` is caught by that same order, whether or not you meant it.
+    It sends no `X-KVMD-User`, so kvmd reaches this cookie before the
+    `Authorization` header, and a token `login()` leaves in the jar
+    authenticates every later request instead of the password. Nothing renews
+    it — only `auth="cookie"` opens a session of its own — so once it expires
+    the calls fail although the password is still good. Drop the cookie to go
+    back to the password.
 
 !!! note
     `expire=0` asks for an unlimited session, and kvmd caps every session at the
@@ -262,9 +273,11 @@ async with PiKVM("https://pikvm.local", user="admin", passwd="admin") as kvm:
     msd = kvm.msd        # MSDResource
     gpio = kvm.gpio      # GPIOResource
     streamer = kvm.streamer  # StreamerResource
+    media = kvm.media    # MediaResource
     switch = kvm.switch  # SwitchResource
     redfish = kvm.redfish    # RedfishResource
     prometheus = kvm.prometheus  # PrometheusResource
+    system = kvm.system  # SystemResource
     auth = kvm.auth      # AuthResource
 ```
 
