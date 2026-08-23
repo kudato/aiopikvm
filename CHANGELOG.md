@@ -593,9 +593,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   described itself as how much to read off the socket at a time and was
   nothing of the kind: httpx reads what the socket gives and then hands out
   whole pieces of that size, holding the remainder back until as much again
-  arrives. Since the caller of `mjpeg()` gets frames rather than bytes, its
-  only effects were to delay a frame that had already arrived whole and to
-  keep the close delimiter from the reader. The stream is now read as it
+  arrives. Since the caller of `mjpeg()` gets frames rather than bytes, what
+  it bought was a delay: a frame that had already arrived whole waited on the
+  next chunk, and so did the close delimiter. The stream is now read as it
   arrives (#176).
 
 ### Fixed
@@ -637,7 +637,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   that much more accumulated, which on a stream of small parts — the
   recorded `zero_data=1` capture runs about 600 bytes to a part — meant a
   hundred frames' worth of delay, and left a stream that a proxy closed
-  hanging until 64 KiB of epilogue followed the close delimiter (#176).
+  hanging until whatever was left to fill the chunk — as much as 64 KiB of
+  epilogue — followed the close delimiter (#176).
 - `PiKVMWebSocket`, `MediaWebSocket` and `WebRTCSession` built by hand accept
   a base URL with a trailing slash, as `PiKVM` always has. The path each one
   appends brings its own leading slash, so `https://pikvm.local/` dialled

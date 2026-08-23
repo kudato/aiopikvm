@@ -164,10 +164,11 @@ class StreamerResource(BaseResource):
             # No chunk size: httpx would then hand out whole pieces of one and
             # hold the remainder back until that much more arrived. A frame
             # that had arrived whole waited on the next read's worth of bytes,
-            # and the close delimiter reached the reader only if enough
-            # followed it — 65535 bytes of epilogue, where RFC 2046 §5.1.1
-            # says there is nothing to send at all. Unchunked, each read goes
-            # to the reader as it comes off the socket (#176).
+            # and the close delimiter reached the reader only once enough
+            # followed it — whatever was left to fill the piece, up to 65535
+            # bytes of an epilogue RFC 2046 §5.1.1 says is not there at all.
+            # Unchunked, each read goes to the reader as it comes off the
+            # socket (#176).
             async for chunk in response.aiter_bytes():
                 for headers, data in reader.feed(chunk):
                     payload: dict[str, Any] = {"data": data, "headers": headers}
