@@ -93,7 +93,6 @@ class StreamerResource(BaseResource):
         key: str | None = None,
         extra_headers: bool = False,
         zero_data: bool = False,
-        chunk_size: int = 65536,
         timeout: float | httpx.Timeout | None = None,
     ) -> AsyncIterator[MJPEGFrame]:
         """Read the MJPEG stream, one frame at a time.
@@ -103,12 +102,14 @@ class StreamerResource(BaseResource):
         equivalent: ``GET /api/streamer/snapshot`` gives one frame per
         request, and this gives them as ustreamer encodes them.
 
-        The iteration ends only when the far end stops sending, so it is a
-        loop to be left with a ``break`` or cancelled from outside. The
-        streamer has to be running for there to be anything to read, and kvmd
-        runs it while at least one session asks for video — so open a
-        [`ws()`][aiopikvm.PiKVM.ws] around this, or the stream dies under
-        this loop.
+        The iteration ends when the far end stops sending or says it has
+        stopped — a multipart body's close delimiter, after which RFC 2046
+        §5.1.1 leaves nothing to read. ustreamer never sends one, so in
+        practice this is a loop to be left with a ``break`` or cancelled from
+        outside. The streamer has to be running for there to be anything to
+        read, and kvmd runs it while at least one session asks for video — so
+        open a [`ws()`][aiopikvm.PiKVM.ws] around this, or the stream dies
+        under this loop.
 
         Two of ustreamer's flags are deliberately missing. ``advance_headers``
         sends each part's headers before the frame they describe exists, which
@@ -129,7 +130,6 @@ class StreamerResource(BaseResource):
             zero_data: Ask for the part headers with no JPEG payload behind
                 them, which turns this into a cheap frame-timing feed:
                 [`MJPEGFrame.data`][aiopikvm.MJPEGFrame] is then empty.
-            chunk_size: How much to read off the socket at a time, in bytes.
             timeout: Override the request timeout. By default the read timeout
                 is disabled — a stream has no end to wait for — while connect,
                 write and pool keep their client-level values.
@@ -161,11 +161,24 @@ class StreamerResource(BaseResource):
             timeout=timeout,
         ) as response:
             reader = _MultipartReader(_boundary_of(response))
-            async for chunk in response.aiter_bytes(chunk_size):
+            # No chunk size: httpx would then hand out whole pieces of one and
+            # hold the remainder back until that much more arrived. A frame
+            # that had arrived whole waited on the next read's worth of bytes,
+            # and the close delimiter reached the reader only once enough
+            # followed it — whatever was left to fill the piece, up to 65535
+            # bytes of an epilogue RFC 2046 §5.1.1 says is not there at all.
+            # Unchunked, each read goes to the reader as it comes off the
+            # socket (#176).
+            async for chunk in response.aiter_bytes():
                 for headers, data in reader.feed(chunk):
                     payload: dict[str, Any] = {"data": data, "headers": headers}
                     payload.update(_meta_from_headers(headers, _FRAME_HEADERS))
                     yield self._validate(MJPEGFrame, payload, "/streamer/stream")
+                if reader.closed:
+                    # The body said it had ended. Reading on would be waiting
+                    # for a stream that is over — and anything that did
+                    # arrive is epilogue the reader now drops anyway.
+                    break
 
     async def set_params(
         self,
@@ -513,7 +526,7 @@ class _MultipartReader:
     does not offer.
     """
 
-    __slots__ = ("_buf", "_marker")
+    __slots__ = ("_buf", "_closed", "_marker")
 
     def __init__(self, boundary: bytes) -> None:
         """Prepare a reader.
@@ -523,6 +536,18 @@ class _MultipartReader:
         """
         self._marker = b"--" + boundary
         self._buf = b""
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """Whether the close delimiter has been seen.
+
+        Returns:
+            ``True`` once the body has ended, which is for good: RFC 2046
+            §5.1.1 says everything after the close delimiter is to be
+            ignored.
+        """
+        return self._closed
 
     def feed(self, chunk: bytes) -> Iterator[tuple[dict[str, str], bytes]]:
         """Add bytes to the buffer and hand back whatever completed a part.
@@ -531,12 +556,20 @@ class _MultipartReader:
             chunk: The bytes as they came off the socket.
 
         Yields:
-            Each whole part as its headers and its data.
+            Each whole part as its headers and its data. Nothing at all once
+            the close delimiter has been seen — an epilogue is not a part,
+            and whether it shared a read with the delimiter is not something
+            it should depend on (#176).
 
         Raises:
             ResponseError: A part arrived with no ``Content-Length``, so there
                 is no way to tell where its data ends.
         """
+        if self._closed:
+            # Dropped, not buffered. §5.1.1 says to ignore what follows, and
+            # nothing here would ever parse it: kept, it would sit in the
+            # buffer for as long as something went on feeding.
+            return
         self._buf += chunk
         while True:
             part = self._take()
@@ -548,7 +581,9 @@ class _MultipartReader:
         """Take the next whole part out of the buffer.
 
         Returns:
-            The part, or ``None`` while the buffer does not hold one yet.
+            The part, or ``None`` while the buffer does not hold one yet —
+            including the read that ends the body, which latches the reader
+            closed on the way out.
 
         Raises:
             ResponseError: A part arrived with no ``Content-Length``.
@@ -563,8 +598,13 @@ class _MultipartReader:
             self._buf = self._buf[start:]
         if self._buf[len(self._marker) : len(self._marker) + 2] == b"--":
             # The closing boundary. ustreamer's stream has no end, so this
-            # only turns up when something else finished the body for it.
+            # only turns up when something else finished the body for it —
+            # which is when trailing bytes are least worth trusting. Latched
+            # rather than merely emptied: whatever follows was ignored only
+            # when it happened to arrive in the same read as the delimiter,
+            # and came back as a frame when it did not (#176).
             self._buf = b""
+            self._closed = True
             return None
         head_end = self._buf.find(b"\r\n\r\n", len(self._marker))
         if head_end < 0:

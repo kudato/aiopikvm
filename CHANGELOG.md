@@ -589,6 +589,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Breaking:** the `HIDKeymap` model. Its single `name` field described
   nothing kvmd emits, and no method ever returned it; `HIDKeymaps` replaces
   it (#75).
+- **Breaking:** the `chunk_size` parameter of `StreamerResource.mjpeg()`. It
+  described itself as how much to read off the socket at a time and was
+  nothing of the kind: httpx reads what the socket gives and then hands out
+  whole pieces of that size, holding the remainder back until as much again
+  arrives. Since the caller of `mjpeg()` gets frames rather than bytes, what
+  it bought was a delay: a frame that had already arrived whole waited on the
+  next chunk, and so did the close delimiter. The stream is now read as it
+  arrives (#176).
 
 ### Fixed
 
@@ -612,6 +620,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `http_client` built without a `base_url` — is now a `ConfigurationError`
   raised before the jar is touched, rather than a session cookie scoped to
   nothing and offered to every server the client talks to (#178).
+- `StreamerResource.mjpeg()` ignores everything after a multipart body's
+  close delimiter, and ends its iteration there instead of waiting on a
+  stream the far end has finished. The reader emptied its buffer at the
+  delimiter and recorded nothing, so it went on parsing whatever arrived
+  next: an epilogue was discarded when it shared a socket read with the
+  delimiter and came back as an `MJPEGFrame` when it did not — the same bytes
+  gave two frames read whole and three read eight at a time. RFC 2046 §5.1.1
+  leaves nothing after the delimiter to read, and ustreamer never sends one,
+  so it turns up only when a proxy or the device's nginx finished the body —
+  which is when trailing bytes are least worth trusting and a caller cannot
+  tell such a frame from a real one (#176).
+- Every read `StreamerResource.mjpeg()` gets goes to the parser as it
+  arrives, so a frame is yielded once its own bytes are in rather than once
+  the next 64 KiB is. `chunk_size` had httpx hold each read's tail back until
+  that much more accumulated, which on a stream of small parts — the
+  recorded `zero_data=1` capture runs about 600 bytes to a part — meant a
+  hundred frames' worth of delay, and left a stream that a proxy closed
+  hanging until whatever was left to fill the chunk — as much as 64 KiB of
+  epilogue — followed the close delimiter (#176).
 - `PiKVMWebSocket`, `MediaWebSocket` and `WebRTCSession` built by hand accept
   a base URL with a trailing slash, as `PiKVM` always has. The path each one
   appends brings its own leading slash, so `https://pikvm.local/` dialled
