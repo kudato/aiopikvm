@@ -195,8 +195,9 @@ async def test_login_reads_the_session_cookie_and_not_a_neighbour(
 ) -> None:
     """A cookie of another name is not the token, however late it lands (#169).
 
-    The walk takes the last match, and the jar orders by path, so anything a
-    proxy files under a longer one comes after kvmd's own.
+    The walk takes the last match, and the jar keeps cookies in the order
+    their ``Set-Cookie`` headers arrived — path length reorders nothing — so
+    the decoy is last here by being named second.
     """
     entry = step("login_form_body")
     mock_api.post("/api/auth/login").mock(
