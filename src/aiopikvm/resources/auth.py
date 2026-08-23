@@ -171,7 +171,7 @@ class AuthResource(BaseResource):
             # domain, and a token restored by hand sits under none. The jar
             # keys on the domain, so both would survive under one name and
             # httpx's own lookup raises on that. Collapse them to this one.
-            self._store_token(token, response.request.url.host)
+            self._store_token(token, response.request.url)
             self._client._record_login(token)
             return token
 
@@ -265,9 +265,9 @@ class AuthResource(BaseResource):
             raise ConfigurationError(
                 f"A kvmd session token is 64 hexadecimal characters; this one {detail}"
             )
-        host = self._client.base_url.host
+        url = self._client.base_url
         previous = self._stored_token()
-        self._store_token(token, host)
+        self._store_token(token, url)
         try:
             await self._post("/api/auth/logout", timeout=timeout)
         except Exception:
@@ -275,22 +275,42 @@ class AuthResource(BaseResource):
             # else's session must not cost this one its own credential.
             self._client.cookies.delete(_COOKIE)
             if previous:
-                self._store_token(previous, host)
+                self._store_token(previous, url)
             raise
         self._client.cookies.delete(_COOKIE)
 
-    def _store_token(self, token: str, host: str) -> None:
+    def _store_token(self, token: str, url: httpx.URL) -> None:
         """Make *token* the one session cookie the client carries.
 
+        The cookie is filed by handing the jar a ``Set-Cookie`` from *url* —
+        the path a token kvmd sends takes anyway — rather than by naming a
+        domain. ``http.cookiejar`` matches a cookie against the *effective*
+        request host, which is not always the host in the URL: a name with no
+        dot in it has ``.local`` appended, and an IPv6 literal keeps the
+        brackets `httpx.URL` strips. Naming the raw host is how a cookie
+        comes to be withheld from the very device it was minted by — the jar
+        asks about ``pikvm.local`` while the cookie says ``pikvm``, so it goes
+        to that name's subdomains and never to the device (#178). Extracting
+        it leaves that rule where it is defined instead of restating it here.
+
         Args:
-            token: Session token to store.
-            host: Host to scope the cookie to. Without one httpx offers it to
-                every server the client talks to, which for a shared client
-                or a cross-host redirect means handing the session to
-                somewhere it does not belong.
+            token: Session token to store. Must be non-empty and free of
+                cookie punctuation, which is what both callers hold: one
+                takes it from a cookie kvmd sent, the other has matched it
+                against `_TOKEN` first.
+            url: URL of the device to scope the cookie to. Unscoped, httpx
+                offers it to every server the client talks to, which for a
+                shared client or a cross-host redirect means handing the
+                session to somewhere it does not belong.
         """
         self._client.cookies.delete(_COOKIE)
-        self._client.cookies.set(_COOKIE, token, domain=host, path="/")
+        self._client.cookies.extract_cookies(
+            httpx.Response(
+                200,
+                headers={"set-cookie": f"{_COOKIE}={token}; Path=/"},
+                request=httpx.Request("GET", url),
+            )
+        )
 
     def _stored_token(self) -> str:
         """Return the session token held by the client, if any.

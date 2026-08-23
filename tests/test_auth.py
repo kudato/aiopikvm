@@ -280,6 +280,51 @@ async def test_login_scopes_the_token_to_the_device(
     assert "cookie" not in elsewhere.headers
 
 
+@pytest.mark.parametrize(
+    ("host", "domain"),
+    [
+        pytest.param("pikvm.local", "pikvm.local", id="dotted"),
+        pytest.param("pikvm", "pikvm.local", id="dotless"),
+        pytest.param("pikvm:8443", "pikvm.local", id="dotless_with_port"),
+        pytest.param("127.0.0.1", "127.0.0.1", id="ipv4"),
+        pytest.param("[::1]", "[::1].local", id="ipv6"),
+    ],
+)
+async def test_login_scopes_the_token_where_the_jar_will_match_it(
+    host: str, domain: str
+) -> None:
+    """A cookie the jar withholds is a session the device never sees (#178).
+
+    ``http.cookiejar`` matches a cookie's domain against the *effective*
+    request host, not the one in the URL: a name with no dot in it has
+    ``.local`` appended before the comparison, and an IPv6 literal keeps the
+    brackets the URL strips. Filing the token under the raw host therefore
+    offered it to that host's subdomains and never to the device itself, so
+    ``auth="cookie"`` could not authenticate at all.
+
+    The domain is asserted as well as the outcome because the two fail apart:
+    the jar hands a cookie with **no** domain to everybody, which is the
+    other half of what this scoping is for and would satisfy the round trip
+    below on its own.
+
+    Args:
+        host: Host of the base URL the client is built with.
+        domain: The name the jar has to have filed the cookie under.
+    """
+    base = f"https://{host}"
+    with respx.mock(base_url=base) as router:
+        router.post("/api/auth/login").mock(
+            return_value=replay("login_form_body", cookie=TOKEN)
+        )
+        async with PiKVM(base, user="admin", passwd="admin") as kvm:
+            await kvm.auth.login("admin", "secret")
+
+            assert [c.domain for c in kvm.cookies.jar] == [domain]
+            back = httpx.Request("GET", f"{base}/api/atx")
+            kvm.cookies.set_cookie_header(back)
+            assert back.headers["cookie"] == f"auth_token={TOKEN}"
+
+
 async def test_logout_restores_the_jar_when_it_fails(
     mock_api: respx.MockRouter, client: PiKVM
 ) -> None:
@@ -454,6 +499,23 @@ async def test_logout_without_a_session_sends_nothing(
     with pytest.raises(ConfigurationError):
         await client.auth.logout()
     assert not mock_api.calls
+
+
+async def test_logout_reaches_a_dotless_host_with_the_cookie() -> None:
+    """logout() files the token itself, so it has the same scope to get right.
+
+    kvmd identifies the session to drop by cookie and nothing else, so one
+    the jar withholds is a call that cannot succeed — the recorded
+    ``logout_without_cookie`` step is the 400 it answers with. This is the
+    other side of `_store_token` from login: the token comes from the caller
+    and the URL from the client, and both paths file it the same way (#178).
+    """
+    with respx.mock(base_url="https://pikvm") as router:
+        route = router.post("/api/auth/logout").mock(return_value=replay("logout"))
+        async with PiKVM("https://pikvm", user="admin", passwd="admin") as kvm:
+            await kvm.auth.logout(TOKEN)
+
+    assert route.calls[-1].request.headers["cookie"] == f"auth_token={TOKEN}"
 
 
 async def test_logout_rejects_a_malformed_token(

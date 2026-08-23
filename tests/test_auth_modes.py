@@ -126,6 +126,39 @@ async def test_cookie_mode_logs_in_once_and_then_carries_the_token(
         assert f"auth_token={TOKEN}" in call.request.headers["Cookie"]
 
 
+async def test_cookie_mode_works_against_a_host_with_no_dot_in_it() -> None:
+    """The mode end to end where it used to fail outright (#178).
+
+    Everything above runs against ``pikvm.local``, and a dotless name is the
+    address a device on the local network is most often reached at. The jar
+    matched such a cookie against ``pikvm.local`` while it said ``pikvm``, so
+    it went to that name's subdomains and never to the device: every request
+    after the login was refused, the retry read the 403 as a lapsed session
+    and opened a second one that landed in the same place, and the call
+    failed with a password that was never wrong.
+
+    The two assertions are both load-bearing. Carrying the token is the fix;
+    logging in once says the retry never ran, which is what separates this
+    from a client that stumbles into working after a second attempt.
+    """
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        """Serve the request only if it brought the session cookie, as kvmd does."""
+        carried = f"{_COOKIE}={TOKEN}" in request.headers.get("cookie", "")
+        return httpx.Response(200 if carried else 403, json=OK)
+
+    with respx.mock(base_url="https://pikvm") as router:
+        login = _login_route(router)
+        atx = router.get("/api/atx").mock(side_effect=answer)
+        async with PiKVM(
+            "https://pikvm", user="admin", passwd="secret", auth="cookie"
+        ) as kvm:
+            await kvm.request("GET", "/api/atx")
+
+    assert login.call_count == 1
+    assert atx.call_count == 1
+
+
 async def test_cookie_mode_sends_the_password_only_to_the_login(
     mock_api: respx.MockRouter,
 ) -> None:
