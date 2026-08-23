@@ -81,12 +81,14 @@ for attempt in range(5):
 
 ## Redirects
 
-A redirect is reported instead of being followed, because following one hands
-the credential to wherever it points — the `X-KVMD-User` / `X-KVMD-Passwd`
-headers, and under `auth="cookie"` the session token. A token that `login()`
-scoped to the device host is the one exception, and only over HTTP: the
-sockets inherit this setting and resend their headers, token included, to
-whatever the redirect points at.
+A redirect is reported instead of being followed, because following one
+resends the credential, and how far it travels depends on the transport. A
+socket hands whatever the `auth` mode sends — the `X-KVMD-User` /
+`X-KVMD-Passwd` pair, `Authorization`, or the session token — to wherever the
+redirect points. Over HTTP, httpx drops `Authorization` off-origin, but the
+`X-KVMD-*` pair travels anywhere and the token travels as far as its cookie
+scope reaches: for one `login()` filed, the device domain — subdomains and
+other ports included — and for one set by hand, every host.
 
 ```python
 from aiopikvm import RedirectError

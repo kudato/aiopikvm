@@ -191,20 +191,26 @@ class PiKVM:
                 rest, for a client that must reach the device directly.
             timeout: Default per-request timeout in seconds.
             follow_redirects: Follow HTTP redirects instead of raising
-                [`RedirectError`][aiopikvm.RedirectError], over HTTP and over
-                the sockets, which inherit this setting. Off by default:
-                following one hands the credential to wherever it points —
-                the ``X-KVMD-*`` headers over either transport, and the
-                session token over a socket, since *websockets* resends its
-                headers verbatim. Only over HTTP does a token stay behind,
-                and only while the host scoping
+                [`RedirectError`][aiopikvm.RedirectError]. Off by default,
+                because following one resends the credential, and how far it
+                then travels depends on the transport. A socket hands
+                whatever the mode sends — the ``X-KVMD-*`` pair,
+                ``Authorization``, or the session token — to wherever the
+                redirect points, *websockets* repeating the handshake headers
+                verbatim. httpx is stricter but not strict: it drops
+                ``Authorization`` off-origin, while the ``X-KVMD-*`` pair
+                travels anywhere and the token travels as far as its cookie
+                scope reaches — for one
                 [`AuthResource.login()`][aiopikvm.resources.auth.AuthResource.login]
-                gives it is what put it in the jar. Whichever travels, the
-                usual cause — an ``http://`` base URL that nginx redirects to
-                ``https://`` — has already put it on the wire in cleartext by
-                then.
+                filed, the device domain, its subdomains and other ports
+                included; for one set by hand, every host. Whichever travels,
+                the usual cause — an ``http://`` base URL that nginx
+                redirects to ``https://`` — has already put it on the wire in
+                cleartext by then.
             http_client: Pre-built httpx client. When given, this client
-                does not close it and the arguments above are ignored.
+                does not close it and the arguments above are ignored —
+                except *follow_redirects*, which the sockets read from here
+                rather than from the client they do not use.
         """
         self._url = url.rstrip("/")
         self._user = user

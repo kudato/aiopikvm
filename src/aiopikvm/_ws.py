@@ -375,7 +375,7 @@ async def _open(
         AuthError: The credentials were refused during the upgrade — 401 when
             none reached the server, 403 when the ones that did were rejected.
         RedirectError: The upgrade was redirected and *follow_redirects* is
-            off. Following it would resend the password to the target.
+            off. Following it would resend the credential to the target.
         APIError: The upgrade was rejected for another reason, such as a query
             parameter the validators do not accept, or a proxy in front of the
             server answering instead.
@@ -577,7 +577,7 @@ class PiKVMWebSocket:
                 when none reached it, 403 when the ones that did were
                 rejected.
             RedirectError: The upgrade was redirected and *follow_redirects*
-                is off. Following it would resend the password to the target.
+                is off. Following it would resend the credential to the target.
             APIError: kvmd rejected the upgrade for another reason, such as a
                 query parameter its validators do not accept, or a proxy in
                 front of it answered instead.
