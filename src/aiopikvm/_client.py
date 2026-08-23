@@ -194,9 +194,11 @@ class PiKVM:
                 [`RedirectError`][aiopikvm.RedirectError]. Off by default,
                 because following one can hand the credential to the target,
                 by rules that differ per transport and are not worth relying
-                on. A socket repeats its handshake headers verbatim, so it
-                carries whatever the mode sends — unless the redirect also
-                drops TLS, which *websockets* refuses outright. Over HTTP the
+                on. A socket follows one only within its own ``ws``/``wss``
+                scheme, and there it repeats its handshake headers verbatim,
+                so it carries whatever the mode sends; every other redirect
+                is refused before anything is resent — the absolute
+                ``https://`` a real server sends included. Over HTTP the
                 ``X-KVMD-*`` pair travels anywhere, ``Authorization`` is
                 dropped when the origin changes except on a plain
                 ``http``→``https`` upgrade of the same host, and the session
@@ -208,10 +210,14 @@ class PiKVM:
                 has in any case already put the credential on the wire in
                 cleartext.
             http_client: Pre-built httpx client. When given, this client does
-                not close it and the arguments above are ignored — over HTTP.
-                The sockets have no httpx client to take anything from, so
-                they still read the URL, the credentials and every transport
-                argument from this constructor.
+                not close it, and over HTTP the arguments above are ignored
+                — except under ``auth="cookie"``, which still logs in through
+                that client with the *user*, *passwd*, *totp* and
+                *session_expire* from here. The sockets do not go through
+                httpx at all: they read the URL and every transport argument
+                from this constructor, and their credential from the mode —
+                the password from here, or under ``auth="cookie"`` the
+                session token out of that client's jar.
         """
         self._url = url.rstrip("/")
         self._user = user
@@ -1040,9 +1046,11 @@ class PiKVM:
 
         Returns:
             A *PiKVMWebSocket* async context manager. It inherits this
-            client's *verify_ssl* and *follow_redirects*; with an external
-            *http_client* it still uses the credentials and URL passed to
-            this constructor, since it does not go through httpx at all.
+            client's *verify_ssl* and *follow_redirects*. It does not go
+            through httpx, so with an external *http_client* it still dials
+            the URL passed to this constructor — but under ``auth="cookie"``
+            its credential is the session token in that client's jar, not
+            anything from here.
 
         Raises:
             ConfigurationError: If this client has been closed, or the URL it

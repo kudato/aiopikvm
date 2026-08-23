@@ -27,8 +27,10 @@ async with kvm.ws(
 The socket inherits the client's `verify_ssl` and `follow_redirects`. Redirects
 are not followed by default for the same reason as on the REST side: the
 upgrade carries the credential in a header — the password, or the session
-token under `auth="cookie"` — and following the redirect hands it to whatever
-the redirect points at, since the handshake headers are resent verbatim.
+token under `auth="cookie"` — and a followed redirect resends the handshake
+headers verbatim, so the target gets it. That reaches only a `ws`/`wss`
+Location of the same scheme; every other redirect is refused before the
+headers go out, the absolute `https://` a real server sends included.
 
 `stream` is a flag, not an index. kvmd counts the connected sessions that asked for
 video and runs the streamer for as long as that count is above zero, so an open
