@@ -1,6 +1,6 @@
 {
- "description": "POST /api/msd/write and POST /api/msd/write_remote against kvmd 4.186, recorded by hand: the capture tool only records GETs, and both of these change device state. write_remote answers HTTP 200 with an application/x-ndjson body, one envelope per line, so its failures arrive inside a 200 rather than as a status.",
- "safety": "Both endpoints write to the device. This was recorded with the MSD temporarily enabled in the OTG profile (see README) against a throttled HTTP origin running on the device's own loopback, serving generated zeros -- nothing was fetched from the internet, and the sanitizer rewrote the origin's own address where kvmd echoed it. Every image written here was removed afterwards and the OTG profile restored. Re-recording it means changing somebody's device, so ask first.",
+ "description": "POST /api/msd/write and POST /api/msd/write_remote against kvmd 4.206, recorded by hand: the capture tool only records GETs, and both of these change device state. write_remote answers HTTP 200 with an application/x-ndjson body, one envelope per line, so its failures arrive inside a 200 rather than as a status.",
+ "safety": "Both endpoints write to the device. This was recorded with the MSD temporarily enabled in the OTG profile (see README) against a throttled HTTP origin running on the device's own loopback, serving generated zeros -- nothing was fetched from the internet, and nothing here needed sanitizing: every address the file carries is one the device resolved on its own loopback. Every image written here was removed afterwards and the OTG profile restored. Re-recording it means changing somebody's device, so ask first.",
  "steps": [
   {
    "name": "remote_ok",
@@ -14,7 +14,7 @@
    "note": "the whole NDJSON body of a download that succeeded: one record before the first byte, one about every second while it runs, one when it ends. The origin was a throttled server on the device's own loopback, serving 4 MiB of zeros",
    "status": 200,
    "content_type": "application/x-ndjson",
-   "body_text": "{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 0}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 65536}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 1638400}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 3735552}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 4194304}}}\r\n"
+   "body_text": "{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 0}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 65536}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 1376256}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 2686976}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 3997696}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-remote.iso\", \"size\": 4194304, \"written\": 4194304}}}\r\n"
   },
   {
    "name": "remote_exists",
@@ -48,7 +48,7 @@
    "note": "the origin announced 4 MiB and closed after 256 KiB: kvmd writes the failure as the last NDJSON record and then lets the exception escape the handler, so the chunked body never gets its final chunk and the connection breaks under HTTP 200",
    "status": 200,
    "content_type": "application/x-ndjson",
-   "body_text": "{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 0}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 65536}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 262144}}}\r\n{\"ok\": false, \"result\": {\"error\": \"ClientPayloadError\", \"error_msg\": \"Response payload is not completed: <ContentLengthError: 400, message='Not enough data to satisfy content length header.'>\"}}\r\n",
+   "body_text": "{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 0}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 65536}}}\r\n{\"ok\": true, \"result\": {\"image\": {\"name\": \"test-broken.iso\", \"size\": 4194304, \"written\": 196608}}}\r\n{\"ok\": false, \"result\": {\"error\": \"ClientPayloadError\", \"error_msg\": \"Response payload is not completed: <ContentLengthError: 400, message='Not enough data to satisfy content length header.'>\"}}\r\n",
    "stream_broken": "RemoteProtocolError"
   },
   {
@@ -102,7 +102,7 @@
     "ok": false,
     "result": {
      "error": "ClientConnectorError",
-     "error_msg": "Cannot connect to host localhost:1 ssl:default [Multiple exceptions: [Errno 111] Connect call failed ('::1', 1, 0, 0), [Errno 111] Connect call failed ('192.0.2.10', 1)]"
+     "error_msg": "Cannot connect to host localhost:1 ssl:default [Multiple exceptions: [Errno 111] Connect call failed ('::1', 1, 0, 0), [Errno 111] Connect call failed ('127.0.0.1', 1)]"
     }
    }
   },
@@ -120,7 +120,7 @@
     "ok": false,
     "result": {
      "error": "ValidatorError",
-     "error_msg": "The argument 'ftp://localhost/image.iso' is not a valid HTTPS|HTTP URL"
+     "error_msg": "The argument 'ftp://localhost/image.iso' is not a valid HTTP|HTTPS URL"
     }
    }
   },
@@ -136,7 +136,7 @@
     "ok": false,
     "result": {
      "error": "ValidatorError",
-     "error_msg": "None argument is not a valid HTTPS|HTTP URL"
+     "error_msg": "None argument is not a valid HTTP|HTTPS URL"
     }
    }
   },

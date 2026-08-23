@@ -240,11 +240,11 @@
     },
     "ws_binary": {
       "file": "ws_binary.json",
-      "description": "kvmd's binary WebSocket channel: the ping/pong exchange on both channels, the frames this client builds for a key, a key carrying finish, a mouse button, an absolute move and a wheel step, an operation kvmd has no handler for, and two malformed frames -- each recorded with the /api/hid/inactivity counter kvmd bumps only for a frame it accepted."
+      "description": "kvmd's binary WebSocket channel: the ping/pong exchange on both channels, the frames this client builds for a key, a key carrying finish, a mouse button, an absolute move and a wheel step, an operation kvmd has no handler for, and two malformed frames -- each input frame recorded with the /api/hid/inactivity counter kvmd resets only for one it accepted."
     },
     "ws_events": {
       "file": "ws_events.jsonl",
-      "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=0, in arrival order."
+      "description": "One JSON object per line: the events kvmd pushes over GET /api/ws?stream=1, in arrival order."
     },
     "ws_handshake": {
       "file": "ws_handshake.json",

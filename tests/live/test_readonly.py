@@ -299,8 +299,8 @@ async def test_hid_refuses_a_key_it_has_no_name_for(live: PiKVM) -> None:
     The shortcut is the one worth asking about, and the answer is not in the
     response: a kvmd that pressed ``ControlLeft`` first and only then refused
     would return the same 400 and the same message. The inactivity counter is
-    what tells them apart, since kvmd bumps it from inside the HID call — an
-    unchanged one is the device saying nothing was pressed.
+    what tells them apart, since kvmd resets it from inside the HID call — a
+    counter that did not come down is the device saying nothing was pressed.
     """
     if (await live.hid.get_state()).jiggler.active:
         pytest.skip("the jiggler resets the inactivity counter on its own")

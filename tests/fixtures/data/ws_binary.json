@@ -1,6 +1,6 @@
 {
-  "description": "kvmd 4.186's binary WebSocket channel on GET /api/ws, recorded by hand: the capture tool only records GETs, and every frame here is one this client sent. The first byte of a frame is kvmd's operation number, dispatched by exposed_ws(<int>) in apps/kvmd/api/hid.py and server.py. The mouse on the recording device was in its absolute mode (mouse.outputs.active = usb, with usb_rel available), which is why the relative frames are recorded as accepted rather than as movement: kvmd decodes them and counts them, and its mouse device then drops the report because it is not in a relative mode. Each input frame is recorded with /api/hid/inactivity read before and after it: kvmd bumps that counter from inside the handler, so a reset to 0 is the device saying it decoded and accepted the frame, and an unchanged counter is it dropping one its validators refused.",
-  "safety": "Input frames reach the HID. Most of this was recorded with the USB gadget not attached to any host -- keyboard.online and mouse.online were both false -- so nothing was typed or clicked anywhere, and those frames are inert in any case (a lone ControlLeft press and release, a wheel of zero, a mouse move to the centre, a middle-button release). The socket was opened with stream=0, so the video pipeline was not touched. Nothing here needs undoing, but re-recording it means sending input to somebody's device, so ask first. The two key_press_finish steps came later, from a separate session, and they are not inert: one of them presses KeyA, which types a character on an attached host. Nothing was attached -- the USB cable to the host had been pulled -- but kvmd still reported keyboard.online true, so for those two steps that flag is what kvmd believed and not what was there, and the pulled cable is the whole of the defence. Each press is followed by a plain release: kvmd leaves the exempt ControlLeft down, and releases KeyA itself, so there the second release changes nothing. The jiggler was turned off for the recording and put back afterwards: it moves the same inactivity counter these steps are judged by.",
+  "description": "kvmd 4.206's binary WebSocket channel on GET /api/ws, recorded by hand: the capture tool records GETs and never sends an input frame. The first byte of a frame is kvmd's operation number, dispatched by exposed_ws(<int>) in apps/kvmd/api/hid.py and server.py. The mouse on the recording device was in its absolute mode (mouse.outputs.active = usb, with usb_rel available), which is why the relative frames are recorded as accepted rather than as movement: kvmd decodes them and counts them, and its mouse device then drops the report because it is not in a relative mode. Each input frame is recorded with /api/hid/inactivity read before and after it: kvmd resets that counter from inside the handler and it counts seconds from there, so a counter that came down is the device saying it decoded and accepted the frame, and one that did not come down is it dropping one its validators refused. Neither side is a fixed number: an accepted frame reads back as 0 or 1 and a refused one either sits where it was or ticks on, depending on where the second boundary fell between the two reads. The verdict is the drop, not the value.",
+  "safety": "Input frames reach the HID, and this recording was made with the USB gadget attached to its host: keyboard.online and mouse.online were both true, so most of what kvmd accepted reached the machine behind it too, and some of it did something there. ControlLeft is one of the nine keys kvmd exempts from the release the finish bit asks for, so from key_press_finish onward it stays down until the run sends a plain release for it at the end. Inside that window key_press_finish_ordinary presses KeyA, which the host reads as Ctrl+A rather than as a character, and mouse_wheel_batch_squashed scrolls two steps with the modifier still held, which much of what a host runs takes for a zoom. mouse_move puts the pointer at the centre of the screen: an absolute move is delivered in the mode this device was in, and nudging the pointer is exactly what the jiggler exists to do. What reaches the host and does nothing there: the ControlLeft press and release that open the run, the wheel of zero, and a middle-button release with no press before it. What never leaves the device: the two relative frames, which kvmd decodes and counts and its mouse device then drops for being in an absolute mode, and the three frames kvmd refuses outright. The socket was opened with stream=0, so the video pipeline was not touched. The jiggler was enabled and idle throughout and was left that way -- it moves the same inactivity counter these steps are judged by, so a run with it active could not tell an accepted frame from a jiggle. Nothing on the device needs undoing, but re-recording this sends input to somebody's device and to whatever is attached to it, so ask first.",
   "steps": [
     {
       "name": "ping_json",
@@ -10,15 +10,15 @@
       },
       "version": [
         4,
-        186
+        206
       ],
-      "latency_ms": 92.261,
+      "latency_ms": 134.306,
       "note": "ping over the JSON channel: kvmd answers with a pong event. The latency is a round trip from outside the device's own network, not a LAN figure"
     },
     {
       "name": "ping_binary",
       "sent": "00",
-      "latency_ms": 68.433,
+      "latency_ms": 130.961,
       "note": "the same exchange over the binary channel: op 0 out, op 255 back"
     },
     {
@@ -32,13 +32,13 @@
       "name": "unknown_op",
       "sent": "c8",
       "received": null,
-      "events_before_it": 6,
-      "note": "an operation kvmd has no handler for: nothing comes back, and it logs 'Unknown websocket binary event' on its own side. Kept as documentation, not as a mock: the client sends only the operations it implements, and an empty recording is a claim about the device with nothing in it to replay"
+      "events_before_it": 20,
+      "note": "an operation kvmd has no handler for: nothing comes back, and it logs 'Unknown websocket binary event' on its own side. The count is what arrived on the socket over the five seconds this waited, which is how the recording tells silence from an answer still on its way. Kept as documentation, not as a mock: the client sends only the operations it implements, and an empty recording is a claim about the device with nothing in it to replay"
     },
     {
       "name": "key_press",
       "frame": "0101436f6e74726f6c4c656674",
-      "inactivity_before": 4548,
+      "inactivity_before": 54,
       "inactivity_after": 0,
       "accepted": true,
       "expected_accepted": true,
@@ -47,7 +47,7 @@
     {
       "name": "key_release",
       "frame": "0100436f6e74726f6c4c656674",
-      "inactivity_before": 2,
+      "inactivity_before": 3,
       "inactivity_after": 0,
       "accepted": true,
       "expected_accepted": true
@@ -55,8 +55,8 @@
     {
       "name": "key_press_finish",
       "frame": "0103436f6e74726f6c4c656674",
-      "inactivity_before": 63,
-      "inactivity_after": 0,
+      "inactivity_before": 3,
+      "inactivity_after": 1,
       "accepted": true,
       "expected_accepted": true,
       "note": "op 1 with bit 1 of the flags byte set: the press-with-finish frame. ControlLeft is one of the nine keys kvmd exempts, so the flag asks for a release kvmd does not perform -- what this records is that kvmd takes the frame and decodes it, which is what the test asserts"
@@ -64,7 +64,7 @@
     {
       "name": "key_press_finish_ordinary",
       "frame": "01034b657941",
-      "inactivity_before": 2,
+      "inactivity_before": 4,
       "inactivity_after": 0,
       "accepted": true,
       "expected_accepted": true,
@@ -73,7 +73,7 @@
     {
       "name": "mouse_move",
       "frame": "0300000000",
-      "inactivity_before": 2,
+      "inactivity_before": 3,
       "inactivity_after": 0,
       "accepted": true,
       "expected_accepted": true,
@@ -82,7 +82,7 @@
     {
       "name": "mouse_wheel",
       "frame": "05000000",
-      "inactivity_before": 2,
+      "inactivity_before": 3,
       "inactivity_after": 0,
       "accepted": true,
       "expected_accepted": true,
@@ -91,8 +91,8 @@
     {
       "name": "mouse_relative",
       "frame": "040003fc",
-      "inactivity_before": 25,
-      "inactivity_after": 1,
+      "inactivity_before": 4,
+      "inactivity_after": 0,
       "accepted": true,
       "expected_accepted": true,
       "note": "op 4: the squash flag, then one signed pair -- the same shape as the wheel. kvmd decoded it (the counter reset) while the mouse was in its absolute mode, where the report itself goes no further: the handler counts the event either way"
@@ -100,7 +100,7 @@
     {
       "name": "mouse_relative_batch",
       "frame": "04000102fdfc",
-      "inactivity_before": 2,
+      "inactivity_before": 3,
       "inactivity_after": 0,
       "accepted": true,
       "expected_accepted": true,
@@ -109,7 +109,7 @@
     {
       "name": "mouse_wheel_batch_squashed",
       "frame": "050100ff00ff",
-      "inactivity_before": 2,
+      "inactivity_before": 3,
       "inactivity_after": 0,
       "accepted": true,
       "expected_accepted": true,
@@ -118,8 +118,8 @@
     {
       "name": "mouse_button",
       "frame": "02006d6964646c65",
-      "inactivity_before": 2,
-      "inactivity_after": 0,
+      "inactivity_before": 3,
+      "inactivity_after": 1,
       "accepted": true,
       "expected_accepted": true,
       "note": "op 2: the same layout as a key, with the button name"
@@ -127,8 +127,8 @@
     {
       "name": "key_unknown_name",
       "frame": "01014e6f537563684b6579",
-      "inactivity_before": 2,
-      "inactivity_after": 2,
+      "inactivity_before": 4,
+      "inactivity_after": 4,
       "accepted": false,
       "expected_accepted": false,
       "note": "a name valid_hid_key refuses: the handler returns before the HID sees it, and the counter keeps running"
@@ -136,32 +136,32 @@
     {
       "name": "mouse_move_truncated",
       "frame": "030000",
-      "inactivity_before": 2,
-      "inactivity_after": 2,
+      "inactivity_before": 7,
+      "inactivity_after": 7,
       "accepted": false,
       "expected_accepted": false,
-      "note": "three bytes where struct.unpack wants five: dropped the same silent way. Kept as documentation, not as a mock: send_mouse_move() packs two shorts every time, so this is the shape of a bug rather than a frame this client can build"
+      "note": "three bytes where a whole frame is five: struct.unpack gets two where it wants four, and it is dropped the same silent way. Kept as documentation, not as a mock: send_mouse_move() packs two shorts every time, so this is the shape of a bug rather than a frame this client can build"
     },
     {
       "name": "delta_batch_odd_length",
       "frame": "040001",
-      "inactivity_before": 2,
-      "inactivity_after": 2,
+      "inactivity_before": 10,
+      "inactivity_after": 11,
       "accepted": false,
       "expected_accepted": false,
-      "note": "a pair and a half: struct.unpack fails on the last two bytes and the whole batch is dropped. Kept as documentation, not as a mock: the delta batches are packed a pair at a time, so an odd tail is the shape of a bug rather than a frame this client can build"
+      "note": "half a pair: struct.unpack wants two bytes where the frame has one, and the whole batch is dropped. Kept as documentation, not as a mock: the delta batches are packed a pair at a time, so an odd tail is the shape of a bug rather than a frame this client can build"
     },
     {
       "name": "hid_baseline",
-      "keyboard_online": false,
-      "mouse_online": false,
+      "keyboard_online": true,
+      "mouse_online": true,
       "jiggler": {
-        "enabled": true,
         "active": false,
+        "enabled": true,
         "interval": 60
       },
-      "inactivity": 4547,
-      "note": "what the HID looked like while this was recorded: a gadget with no host attached, and the jiggler enabled but idle. Kept as documentation, not as a mock: it is the state the session ran against rather than an exchange, and it is what makes the inactivity counter readable — with no host attached, kvmd bumping it is the only evidence that a frame was decoded"
+      "inactivity": 44,
+      "note": "what the HID looked like while this was recorded: a gadget attached to a host, with the jiggler enabled but idle. Kept as documentation, not as a mock: it is the state the session ran against rather than an exchange, and it is what makes the inactivity counter readable — the jiggler is the only other thing that moves that counter, and it was not moving"
     }
   ]
 }

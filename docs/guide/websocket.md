@@ -318,7 +318,7 @@ async with kvm.ws() as ws:                  # keeps the streamer up
 Absolute positioning also needs the mouse in absolute mode. kvmd drops a
 `send_mouse_move()` while the mouse is relative, and drops
 `send_mouse_relative()` while it is absolute — in both cases without a word to
-the sender, and with the inactivity counter bumped either way, so nothing about
+the sender, and with the inactivity counter reset either way, so nothing about
 the exchange says the report went nowhere. `HIDState.mouse.absolute` is which
 mode is on, and `mouse.outputs.available` is what the device can switch to:
 
@@ -435,8 +435,12 @@ apply to the binary encoding:
 
 It is off by default because JSON is what this client has always sent, and it
 is the encoding a packet capture can be read in. The binary channel is verified
-against kvmd 4.206 — every frame in the `ws_binary` fixture was sent to that
-device and accepted by it.
+against kvmd 4.206: every frame the `ws_binary` fixture records going out was
+sent to that device and what became of it recorded. Most were accepted; the
+ones that were not are there on purpose — a key name kvmd's validator refuses,
+which this client sends as given, two malformed frames that record the shape of
+a bug rather than anything the client builds, and an operation kvmd has no
+handler for. That is how the refusals below are known to be silent.
 
 Whichever encoding you use, kvmd drops what it cannot decode without telling
 the client: a key name its validator refuses, a frame too short to unpack, an
@@ -444,8 +448,11 @@ operation it has no handler for. It writes a line to its own log — `Unknown
 websocket binary event: b'\xc8'` for an operation, `Unknown websocket event`
 for a JSON one — and the sender hears nothing either way. Nothing about the
 input path is acknowledged, so a caller that needs to know an event landed has
-to look at the device: `kvm.hid.get_inactivity()` returns to 0 for every event
-kvmd accepted, and keeps counting for one it dropped.
+to look at the device: kvmd resets the counter behind
+`kvm.hid.get_inactivity()` for every event it accepted, and leaves it alone for
+one it dropped. The counter is in seconds and starts climbing again from the
+reset, so what marks an accepted event is the value coming *down* between two
+reads rather than a 0 you are guaranteed to catch.
 
 ## Ping
 
